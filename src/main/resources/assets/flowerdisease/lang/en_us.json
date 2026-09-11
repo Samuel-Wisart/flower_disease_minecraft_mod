@@ -1,0 +1,13 @@
+{
+  "itemGroup.flowerdisease": "Example Mod Tab",
+  "block.flowerdisease.example_block": "Example Block",
+  "item.flowerdisease.example_item": "Example Item",
+
+  "flowerdisease.configuration.title": "FlowerDisease Configs",
+  "flowerdisease.configuration.section.flowerdisease.common.toml": "FlowerDisease Configs",
+  "flowerdisease.configuration.section.flowerdisease.common.toml.title": "FlowerDisease Configs",
+  "flowerdisease.configuration.items": "Item List",
+  "flowerdisease.configuration.logDirtBlock": "Log Dirt Block",
+  "flowerdisease.configuration.magicNumberIntroduction": "Magic Number Text",
+  "flowerdisease.configuration.magicNumber": "Magic Number"
+}
