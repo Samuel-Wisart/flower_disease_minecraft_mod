@@ -1,5 +1,16 @@
 {
-  "block.flowerdisease.diseased_flower": "Diseased Flower",
+  "block.flowerdisease.diseased_dandelion": "Diseased Dandelion",
+  "block.flowerdisease.diseased_poppy": "Diseased Poppy",
+  "block.flowerdisease.diseased_blue_orchid": "Diseased Blue Orchid",
+  "block.flowerdisease.diseased_allium": "Diseased Allium",
+  "block.flowerdisease.diseased_azure_bluet": "Diseased Azure Bluet",
+  "block.flowerdisease.diseased_red_tulip": "Diseased Red Tulip",
+  "block.flowerdisease.diseased_orange_tulip": "Diseased Orange Tulip",
+  "block.flowerdisease.diseased_white_tulip": "Diseased White Tulip",
+  "block.flowerdisease.diseased_pink_tulip": "Diseased Pink Tulip",
+  "block.flowerdisease.diseased_oxeye_daisy": "Diseased Oxeye Daisy",
+  "block.flowerdisease.diseased_cornflower": "Diseased Cornflower",
+  "block.flowerdisease.diseased_lily_of_the_valley": "Diseased Lily of the Valley",
 
   "flowerdisease.configuration.title": "FlowerDisease Configs",
   "flowerdisease.configuration.section.flowerdisease.common.toml": "FlowerDisease Configs",
@@ -9,5 +20,18 @@
   "flowerdisease.configuration.spreadDistance": "Spread Distance",
   "flowerdisease.configuration.spreadVerticalRange": "Spread Vertical Range",
   "flowerdisease.configuration.spreadAttempts": "Spread Attempts",
-  "flowerdisease.configuration.spreadChance": "Spread Chance"
+  "flowerdisease.configuration.spreadChance": "Spread Chance",
+  "flowerdisease.configuration.settleWeights": "Settle Weights",
+  "flowerdisease.configuration.settleWeights.dandelion": "Dandelion Settle Weights",
+  "flowerdisease.configuration.settleWeights.poppy": "Poppy Settle Weights",
+  "flowerdisease.configuration.settleWeights.blueOrchid": "Blue Orchid Settle Weights",
+  "flowerdisease.configuration.settleWeights.allium": "Allium Settle Weights",
+  "flowerdisease.configuration.settleWeights.azureBluet": "Azure Bluet Settle Weights",
+  "flowerdisease.configuration.settleWeights.redTulip": "Red Tulip Settle Weights",
+  "flowerdisease.configuration.settleWeights.orangeTulip": "Orange Tulip Settle Weights",
+  "flowerdisease.configuration.settleWeights.whiteTulip": "White Tulip Settle Weights",
+  "flowerdisease.configuration.settleWeights.pinkTulip": "Pink Tulip Settle Weights",
+  "flowerdisease.configuration.settleWeights.oxeyeDaisy": "Oxeye Daisy Settle Weights",
+  "flowerdisease.configuration.settleWeights.cornflower": "Cornflower Settle Weights",
+  "flowerdisease.configuration.settleWeights.lilyOfTheValley": "Lily of the Valley Settle Weights"
 }

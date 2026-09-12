@@ -1,9 +1,14 @@
 package com.iridium.flowerdisease;
 
+import java.util.ArrayList;
+import java.util.List;
+
 import javax.annotation.Nullable;
 
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Holder;
+import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.util.RandomSource;
 import net.minecraft.world.effect.MobEffect;
@@ -13,12 +18,26 @@ import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.FlowerBlock;
 import net.minecraft.world.level.block.state.BlockBehaviour;
 import net.minecraft.world.level.block.state.BlockState;
+import net.neoforged.neoforge.common.ModConfigSpec;
 
 // Spreads via vanilla's random-tick sampler instead of a custom scheduler, so idle flowers cost nothing.
+// One class is shared by every diseased flower type; what it settles into is entirely config-driven
+// (see Config.java), which is what lets each flower species have its own weighted outcome table.
 public class DiseasedFlowerBlock extends FlowerBlock {
 
-    public DiseasedFlowerBlock(Holder<MobEffect> suspiciousStewEffect, float effectSeconds, BlockBehaviour.Properties properties) {
+    private final Block fallbackBlock;
+    private final ModConfigSpec.ConfigValue<List<? extends String>> settleWeights;
+
+    public DiseasedFlowerBlock(
+            Holder<MobEffect> suspiciousStewEffect,
+            float effectSeconds,
+            Block fallbackBlock,
+            ModConfigSpec.ConfigValue<List<? extends String>> settleWeights,
+            BlockBehaviour.Properties properties
+    ) {
         super(suspiciousStewEffect, effectSeconds, properties);
+        this.fallbackBlock = fallbackBlock;
+        this.settleWeights = settleWeights;
     }
 
     @Override
@@ -29,20 +48,24 @@ public class DiseasedFlowerBlock extends FlowerBlock {
             return;
         }
 
-        int maxNearby = Config.FLOWER_MAX_NEARBY.getAsInt();
-        if (countNearbyFieldFlowers(level, pos, Config.FLOWER_DENSITY_RADIUS.getAsInt(), maxNearby) >= maxNearby) {
-            level.setBlock(pos, Blocks.CORNFLOWER.defaultBlockState(), Block.UPDATE_CLIENTS);
-            return;
-        }
+        List<SettleOption> options = parseSettleTable(settleWeights.get());
 
-        BlockPos target = findSpreadTarget(level, pos, random);
+        int maxNearby = Config.FLOWER_MAX_NEARBY.getAsInt();
+        boolean tooCrowded = countNearbyFieldFlowers(level, pos, Config.FLOWER_DENSITY_RADIUS.getAsInt(), maxNearby, options) >= maxNearby;
+        BlockPos target = tooCrowded ? null : findSpreadTarget(level, pos, random);
+
         if (target != null) {
             level.setBlock(target, this.defaultBlockState(), Block.UPDATE_CLIENTS);
+        } else {
+            // Either crowded or structurally stuck (e.g. a steep cave with no reachable ground within
+            // spreadVerticalRange): either way it can't reproduce here, so it settles for good instead
+            // of retrying forever on terrain that will never change.
+            Block result = pickWeighted(options, random);
+            level.setBlock(pos, (result != null ? result : fallbackBlock).defaultBlockState(), Block.UPDATE_CLIENTS);
         }
-        // No free spot this attempt is not the same as "crowded": just wait for the next random tick.
     }
 
-    private int countNearbyFieldFlowers(LevelReader level, BlockPos center, int radius, int max) {
+    private int countNearbyFieldFlowers(LevelReader level, BlockPos center, int radius, int max, List<SettleOption> options) {
         int count = 0;
         int verticalRange = Config.FLOWER_SPREAD_VERTICAL_RANGE.getAsInt();
         BlockPos.MutableBlockPos cursor = new BlockPos.MutableBlockPos();
@@ -54,8 +77,7 @@ public class DiseasedFlowerBlock extends FlowerBlock {
                     }
 
                     cursor.setWithOffset(center, dx, dy, dz);
-                    BlockState state = level.getBlockState(cursor);
-                    if (state.is(this) || state.is(Blocks.CORNFLOWER)) {
+                    if (isSameSpecies(level.getBlockState(cursor), options)) {
                         count++;
                         if (count >= max) {
                             return count;
@@ -65,6 +87,21 @@ public class DiseasedFlowerBlock extends FlowerBlock {
             }
         }
         return count;
+    }
+
+    // "Same species" = this diseased block itself, its configured fallback, or any of its settle outcomes.
+    // Different diseased flower types are intentionally independent, so a mixed garden doesn't self-limit
+    // against other species' density.
+    private boolean isSameSpecies(BlockState state, List<SettleOption> options) {
+        if (state.is(this) || state.is(fallbackBlock)) {
+            return true;
+        }
+        for (SettleOption option : options) {
+            if (state.is(option.block())) {
+                return true;
+            }
+        }
+        return false;
     }
 
     @Nullable
@@ -109,6 +146,57 @@ public class DiseasedFlowerBlock extends FlowerBlock {
             }
         }
 
+        return null;
+    }
+
+    private record SettleOption(Block block, int weight) {
+    }
+
+    // Entries look like "minecraft:rose_bush 30" (validated in Config, but re-checked here defensively
+    // since the raw list is user-editable text).
+    private static List<SettleOption> parseSettleTable(List<? extends String> entries) {
+        List<SettleOption> options = new ArrayList<>();
+        for (String entry : entries) {
+            String[] parts = entry.trim().split("\\s+");
+            if (parts.length != 2) {
+                continue;
+            }
+
+            try {
+                ResourceLocation id = ResourceLocation.parse(parts[0]);
+                if (!BuiltInRegistries.BLOCK.containsKey(id)) {
+                    continue;
+                }
+
+                Block block = BuiltInRegistries.BLOCK.get(id);
+                int weight = Integer.parseInt(parts[1]);
+                if (block != Blocks.AIR && weight > 0) {
+                    options.add(new SettleOption(block, weight));
+                }
+            } catch (Exception ignored) {
+                // Malformed entry; skip it rather than crash the server on a typo in the config.
+            }
+        }
+        return options;
+    }
+
+    @Nullable
+    private static Block pickWeighted(List<SettleOption> options, RandomSource random) {
+        int total = 0;
+        for (SettleOption option : options) {
+            total += option.weight();
+        }
+        if (total <= 0) {
+            return null;
+        }
+
+        int roll = random.nextInt(total);
+        for (SettleOption option : options) {
+            roll -= option.weight();
+            if (roll < 0) {
+                return option.block();
+            }
+        }
         return null;
     }
 }

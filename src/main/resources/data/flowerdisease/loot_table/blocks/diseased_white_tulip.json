@@ -11,11 +11,11 @@
       "entries": [
         {
           "type": "minecraft:item",
-          "name": "flowerdisease:diseased_flower"
+          "name": "flowerdisease:diseased_white_tulip"
         }
       ],
       "rolls": 1.0
     }
   ],
-  "random_sequence": "flowerdisease:blocks/diseased_flower"
+  "random_sequence": "flowerdisease:blocks/diseased_white_tulip"
 }
