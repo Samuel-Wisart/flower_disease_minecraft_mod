@@ -46,7 +46,8 @@ authors="Iridium"
 
 # The description text for the mod (multi line!) (#mandatory)
 description='''
-Example mod description.
+Adds the Diseased Flower: a flower that slowly spreads to nearby ground over time and settles
+into a normal Cornflower once its neighborhood gets crowded.
 '''
 
 # The [[mixins]] block allows you to declare your mixin config to FML so that it gets loaded.

@@ -1,13 +1,13 @@
 {
-  "itemGroup.flowerdisease": "Example Mod Tab",
-  "block.flowerdisease.example_block": "Example Block",
-  "item.flowerdisease.example_item": "Example Item",
+  "block.flowerdisease.diseased_flower": "Diseased Flower",
 
   "flowerdisease.configuration.title": "FlowerDisease Configs",
   "flowerdisease.configuration.section.flowerdisease.common.toml": "FlowerDisease Configs",
   "flowerdisease.configuration.section.flowerdisease.common.toml.title": "FlowerDisease Configs",
-  "flowerdisease.configuration.items": "Item List",
-  "flowerdisease.configuration.logDirtBlock": "Log Dirt Block",
-  "flowerdisease.configuration.magicNumberIntroduction": "Magic Number Text",
-  "flowerdisease.configuration.magicNumber": "Magic Number"
+  "flowerdisease.configuration.maxNearbyFlowers": "Max Nearby Flowers",
+  "flowerdisease.configuration.densityCheckRadius": "Density Check Radius",
+  "flowerdisease.configuration.spreadDistance": "Spread Distance",
+  "flowerdisease.configuration.spreadVerticalRange": "Spread Vertical Range",
+  "flowerdisease.configuration.spreadAttempts": "Spread Attempts",
+  "flowerdisease.configuration.spreadChance": "Spread Chance"
 }
