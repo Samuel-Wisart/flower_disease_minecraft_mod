@@ -1,7 +1,9 @@
 {
-  "variants": {
-    "": {
-      "model": "flowerdisease:block/diseased_poppy"
+  "multipart": [
+    {
+      "apply": {
+        "model": "flowerdisease:block/diseased_poppy"
+      }
     }
-  }
+  ]
 }

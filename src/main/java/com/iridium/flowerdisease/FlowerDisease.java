@@ -8,6 +8,7 @@ import org.slf4j.Logger;
 import com.mojang.logging.LogUtils;
 
 import net.minecraft.core.Holder;
+import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.world.effect.MobEffect;
 import net.minecraft.world.effect.MobEffects;
 import net.minecraft.world.item.BlockItem;
@@ -19,6 +20,7 @@ import net.minecraft.world.item.Items;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.SoundType;
+import net.minecraft.world.level.block.entity.BlockEntityType;
 import net.minecraft.world.level.block.state.BlockBehaviour;
 import net.minecraft.world.level.material.MapColor;
 import net.minecraft.world.level.material.PushReaction;
@@ -31,8 +33,10 @@ import net.neoforged.fml.event.lifecycle.FMLCommonSetupEvent;
 import net.neoforged.neoforge.common.ModConfigSpec;
 import net.neoforged.neoforge.common.NeoForge;
 import net.neoforged.neoforge.event.BuildCreativeModeTabContentsEvent;
+import net.neoforged.neoforge.event.RegisterCommandsEvent;
 import net.neoforged.neoforge.event.server.ServerStartingEvent;
 import net.neoforged.neoforge.registries.DeferredBlock;
+import net.neoforged.neoforge.registries.DeferredHolder;
 import net.neoforged.neoforge.registries.DeferredItem;
 import net.neoforged.neoforge.registries.DeferredRegister;
 
@@ -47,6 +51,8 @@ public class FlowerDisease {
     public static final DeferredRegister.Blocks BLOCKS = DeferredRegister.createBlocks(MODID);
     // Create a Deferred Register to hold Items which will all be registered under the "flowerdisease" namespace
     public static final DeferredRegister.Items ITEMS = DeferredRegister.createItems(MODID);
+    // Create a Deferred Register to hold Block Entity Types which will all be registered under the "flowerdisease" namespace
+    public static final DeferredRegister<BlockEntityType<?>> BLOCK_ENTITY_TYPES = DeferredRegister.create(BuiltInRegistries.BLOCK_ENTITY_TYPE, MODID);
 
     // Each Diseased Flower shares the DiseasedFlowerBlock behavior; the suspicious stew effect matches the
     // vanilla flower it's based on, and what it settles into once it can't spread is configured in Config.java.
@@ -74,6 +80,14 @@ public class FlowerDisease {
             registerDiseased("diseased_cornflower", MobEffects.JUMP, 6.0F, Blocks.CORNFLOWER, Config.CORNFLOWER_SETTLE_WEIGHTS);
     public static final DeferredBlock<DiseasedFlowerBlock> DISEASED_LILY_OF_THE_VALLEY =
             registerDiseased("diseased_lily_of_the_valley", MobEffects.POISON, 12.0F, Blocks.LILY_OF_THE_VALLEY, Config.LILY_OF_THE_VALLEY_SETTLE_WEIGHTS);
+
+    // Same spread/settle behavior, but based on WitherRoseBlock so it keeps the wither-damage-on-touch
+    // and the "also grows on netherrack/soul sand/soul soil" ground rules of a real Wither Rose.
+    public static final DeferredBlock<DiseasedWitherRoseBlock> DISEASED_WITHER_ROSE = BLOCKS.registerBlock(
+            "diseased_wither_rose",
+            properties -> new DiseasedWitherRoseBlock(MobEffects.WITHER, 8.0F, Blocks.WITHER_ROSE, Config.WITHER_ROSE_SETTLE_WEIGHTS, properties),
+            flowerProperties()
+    );
 
     // Two-block flowers: no suspicious stew effect (vanilla doesn't give these one either).
     public static final DeferredBlock<DiseasedTallFlowerBlock> DISEASED_SUNFLOWER =
@@ -104,6 +118,21 @@ public class FlowerDisease {
             Blocks.PEONY, PEONY_TOP
     );
 
+    // Optional per-planting spread overrides (see SpreadProfileBlockEntity) - every spreading Diseased
+    // Flower block has one, hand-placed included, but it only ever does anything once something (the
+    // debug command for now, the Garden Bag later) actually configures it.
+    public static final DeferredHolder<BlockEntityType<?>, BlockEntityType<SpreadProfileBlockEntity>> SPREAD_PROFILE_BLOCK_ENTITY = BLOCK_ENTITY_TYPES.register(
+            "spread_profile",
+            () -> BlockEntityType.Builder.of(
+                    SpreadProfileBlockEntity::new,
+                    DISEASED_DANDELION.get(), DISEASED_POPPY.get(), DISEASED_BLUE_ORCHID.get(), DISEASED_ALLIUM.get(),
+                    DISEASED_AZURE_BLUET.get(), DISEASED_RED_TULIP.get(), DISEASED_ORANGE_TULIP.get(), DISEASED_WHITE_TULIP.get(),
+                    DISEASED_PINK_TULIP.get(), DISEASED_OXEYE_DAISY.get(), DISEASED_CORNFLOWER.get(), DISEASED_LILY_OF_THE_VALLEY.get(),
+                    DISEASED_WITHER_ROSE.get(),
+                    DISEASED_SUNFLOWER.get(), DISEASED_LILAC.get(), DISEASED_ROSE_BUSH.get(), DISEASED_PEONY.get()
+            ).build(null)
+    );
+
     public static final DeferredItem<BlockItem> DISEASED_DANDELION_ITEM = ITEMS.registerSimpleBlockItem("diseased_dandelion", DISEASED_DANDELION);
     public static final DeferredItem<BlockItem> DISEASED_POPPY_ITEM = ITEMS.registerSimpleBlockItem("diseased_poppy", DISEASED_POPPY);
     public static final DeferredItem<BlockItem> DISEASED_BLUE_ORCHID_ITEM = ITEMS.registerSimpleBlockItem("diseased_blue_orchid", DISEASED_BLUE_ORCHID);
@@ -116,6 +145,7 @@ public class FlowerDisease {
     public static final DeferredItem<BlockItem> DISEASED_OXEYE_DAISY_ITEM = ITEMS.registerSimpleBlockItem("diseased_oxeye_daisy", DISEASED_OXEYE_DAISY);
     public static final DeferredItem<BlockItem> DISEASED_CORNFLOWER_ITEM = ITEMS.registerSimpleBlockItem("diseased_cornflower", DISEASED_CORNFLOWER);
     public static final DeferredItem<BlockItem> DISEASED_LILY_OF_THE_VALLEY_ITEM = ITEMS.registerSimpleBlockItem("diseased_lily_of_the_valley", DISEASED_LILY_OF_THE_VALLEY);
+    public static final DeferredItem<BlockItem> DISEASED_WITHER_ROSE_ITEM = ITEMS.registerSimpleBlockItem("diseased_wither_rose", DISEASED_WITHER_ROSE);
     public static final DeferredItem<BlockItem> DISEASED_SUNFLOWER_ITEM = ITEMS.registerSimpleBlockItem("diseased_sunflower", DISEASED_SUNFLOWER);
     public static final DeferredItem<BlockItem> DISEASED_LILAC_ITEM = ITEMS.registerSimpleBlockItem("diseased_lilac", DISEASED_LILAC);
     public static final DeferredItem<BlockItem> DISEASED_ROSE_BUSH_ITEM = ITEMS.registerSimpleBlockItem("diseased_rose_bush", DISEASED_ROSE_BUSH);
@@ -195,6 +225,8 @@ public class FlowerDisease {
         BLOCKS.register(modEventBus);
         // Register the Deferred Register to the mod event bus so items get registered
         ITEMS.register(modEventBus);
+        // Register the Deferred Register to the mod event bus so block entity types get registered
+        BLOCK_ENTITY_TYPES.register(modEventBus);
 
         // Register ourselves for server and other game events we are interested in.
         NeoForge.EVENT_BUS.register(this);
@@ -228,6 +260,7 @@ public class FlowerDisease {
         insertDiseasedAfter(event, Items.OXEYE_DAISY, DISEASED_OXEYE_DAISY_ITEM);
         insertDiseasedAfter(event, Items.CORNFLOWER, DISEASED_CORNFLOWER_ITEM);
         insertDiseasedAfter(event, Items.LILY_OF_THE_VALLEY, DISEASED_LILY_OF_THE_VALLEY_ITEM);
+        insertDiseasedAfter(event, Items.WITHER_ROSE, DISEASED_WITHER_ROSE_ITEM);
         insertDiseasedAfter(event, Items.SUNFLOWER, DISEASED_SUNFLOWER_ITEM);
         insertDiseasedAfter(event, Items.LILAC, DISEASED_LILAC_ITEM);
         insertDiseasedAfter(event, Items.ROSE_BUSH, DISEASED_ROSE_BUSH_ITEM);
@@ -247,5 +280,11 @@ public class FlowerDisease {
     public void onServerStarting(ServerStartingEvent event) {
         // Do something when the server starts
         LOGGER.info("HELLO from server starting");
+    }
+
+    // Debug-only "/cleargarden [radius]" command, bound to Ctrl+P client-side (see FlowerDiseaseClient).
+    @SubscribeEvent
+    public void onRegisterCommands(RegisterCommandsEvent event) {
+        FlowerDiseaseCommands.register(event.getDispatcher());
     }
 }

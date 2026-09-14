@@ -12,23 +12,22 @@ import net.minecraft.world.effect.MobEffect;
 import net.minecraft.world.item.context.BlockPlaceContext;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.EntityBlock;
-import net.minecraft.world.level.block.FlowerBlock;
+import net.minecraft.world.level.block.WitherRoseBlock;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockBehaviour;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.StateDefinition;
 import net.neoforged.neoforge.common.ModConfigSpec;
 
-// Spreads via vanilla's random-tick sampler instead of a custom scheduler, so idle flowers cost nothing.
-// One class is shared by every single-block diseased flower type; what it settles into is entirely
-// config-driven (see Config.java / SettleTable). The two-block counterpart is DiseasedTallFlowerBlock.
-// The actual spread/settle logic lives in DiseasedFlowerLogic, shared with DiseasedWitherRoseBlock.
-public class DiseasedFlowerBlock extends FlowerBlock implements EntityBlock {
+// Same spread/settle behavior as DiseasedFlowerBlock (delegated to the shared DiseasedFlowerLogic), but
+// based on WitherRoseBlock instead of plain FlowerBlock, so it keeps the wither-damage-on-touch and the
+// "can also grow on netherrack/soul sand/soul soil" ground rules of a real Wither Rose.
+public class DiseasedWitherRoseBlock extends WitherRoseBlock implements EntityBlock {
 
     private final Block fallbackBlock;
     private final ModConfigSpec.ConfigValue<List<? extends String>> settleWeights;
 
-    public DiseasedFlowerBlock(
+    public DiseasedWitherRoseBlock(
             Holder<MobEffect> suspiciousStewEffect,
             float effectSeconds,
             Block fallbackBlock,
@@ -47,7 +46,6 @@ public class DiseasedFlowerBlock extends FlowerBlock implements EntityBlock {
         builder.add(SettleTable.GENERATION);
     }
 
-    // A hand-planted flower always starts with a full budget of generations (see Config.FLOWER_MAX_GENERATIONS).
     @Nullable
     @Override
     public BlockState getStateForPlacement(BlockPlaceContext context) {

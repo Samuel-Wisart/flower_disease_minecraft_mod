@@ -54,6 +54,17 @@ public class Config {
             )
             .defineInRange("spreadChance", 0.02, 0.0, 1.0);
 
+    public static final ModConfigSpec.IntValue FLOWER_MAX_GENERATIONS = BUILDER
+            .comment(
+                    "How many generations of children a Diseased Flower can produce before a new child instantly",
+                    "settles as a normal flower instead of continuing to spread. A flower planted directly by a",
+                    "player starts with this many generations; each spread reduces the child's count by 1. This",
+                    "bounds how far a single planting can ultimately reach, but with an organic/irregular edge",
+                    "(not a perfect circle), since each spread is a random jump rather than a fixed radius.",
+                    "0 disables spreading entirely - the flower settles on its very first random tick."
+            )
+            .defineInRange("maxGenerations", 6, 0, 64);
+
     // Each list below controls what a Diseased Flower turns into once it can no longer spread (either
     // the area is crowded, or the terrain has no reachable spot - see spreadVerticalRange/spreadAttempts).
     // Entries are "<block id> <weight> [full|lower|upper]", e.g. "minecraft:rose_bush 30 full". Weights
@@ -81,6 +92,7 @@ public class Config {
     public static final ModConfigSpec.ConfigValue<List<? extends String>> LILAC_SETTLE_WEIGHTS;
     public static final ModConfigSpec.ConfigValue<List<? extends String>> ROSE_BUSH_SETTLE_WEIGHTS;
     public static final ModConfigSpec.ConfigValue<List<? extends String>> PEONY_SETTLE_WEIGHTS;
+    public static final ModConfigSpec.ConfigValue<List<? extends String>> WITHER_ROSE_SETTLE_WEIGHTS;
 
     static {
         BUILDER.push("settleWeights");
@@ -100,6 +112,7 @@ public class Config {
         LILAC_SETTLE_WEIGHTS = settleWeights("lilac", List.of("minecraft:lilac 100 full"));
         ROSE_BUSH_SETTLE_WEIGHTS = settleWeights("roseBush", List.of("minecraft:rose_bush 100 full"));
         PEONY_SETTLE_WEIGHTS = settleWeights("peony", List.of("minecraft:peony 100 full"));
+        WITHER_ROSE_SETTLE_WEIGHTS = settleWeights("witherRose", List.of("minecraft:wither_rose 100"));
         BUILDER.pop();
     }
 

@@ -2,7 +2,7 @@
   "multipart": [
     {
       "apply": {
-        "model": "flowerdisease:block/diseased_cornflower"
+        "model": "flowerdisease:block/diseased_wither_rose"
       }
     }
   ]

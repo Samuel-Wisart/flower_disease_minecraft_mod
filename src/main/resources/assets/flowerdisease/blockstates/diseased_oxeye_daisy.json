@@ -1,7 +1,9 @@
 {
-  "variants": {
-    "": {
-      "model": "flowerdisease:block/diseased_oxeye_daisy"
+  "multipart": [
+    {
+      "apply": {
+        "model": "flowerdisease:block/diseased_oxeye_daisy"
+      }
     }
-  }
+  ]
 }

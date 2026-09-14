@@ -1,10 +1,20 @@
 {
-  "variants": {
-    "half=lower": {
-      "model": "flowerdisease:block/diseased_peony_bottom"
+  "multipart": [
+    {
+      "when": {
+        "half": "lower"
+      },
+      "apply": {
+        "model": "flowerdisease:block/diseased_peony_bottom"
+      }
     },
-    "half=upper": {
-      "model": "flowerdisease:block/diseased_peony_top"
+    {
+      "when": {
+        "half": "upper"
+      },
+      "apply": {
+        "model": "flowerdisease:block/diseased_peony_top"
+      }
     }
-  }
+  ]
 }

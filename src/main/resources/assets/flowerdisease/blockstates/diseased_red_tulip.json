@@ -1,7 +1,9 @@
 {
-  "variants": {
-    "": {
-      "model": "flowerdisease:block/diseased_red_tulip"
+  "multipart": [
+    {
+      "apply": {
+        "model": "flowerdisease:block/diseased_red_tulip"
+      }
     }
-  }
+  ]
 }
