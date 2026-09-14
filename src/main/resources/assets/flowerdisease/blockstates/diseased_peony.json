@@ -1,0 +1,10 @@
+{
+  "variants": {
+    "half=lower": {
+      "model": "flowerdisease:block/diseased_peony_bottom"
+    },
+    "half=upper": {
+      "model": "flowerdisease:block/diseased_peony_top"
+    }
+  }
+}

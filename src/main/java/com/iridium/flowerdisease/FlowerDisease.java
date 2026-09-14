@@ -1,6 +1,7 @@
 package com.iridium.flowerdisease;
 
 import java.util.List;
+import java.util.Map;
 
 import org.slf4j.Logger;
 
@@ -74,6 +75,35 @@ public class FlowerDisease {
     public static final DeferredBlock<DiseasedFlowerBlock> DISEASED_LILY_OF_THE_VALLEY =
             registerDiseased("diseased_lily_of_the_valley", MobEffects.POISON, 12.0F, Blocks.LILY_OF_THE_VALLEY, Config.LILY_OF_THE_VALLEY_SETTLE_WEIGHTS);
 
+    // Two-block flowers: no suspicious stew effect (vanilla doesn't give these one either).
+    public static final DeferredBlock<DiseasedTallFlowerBlock> DISEASED_SUNFLOWER =
+            registerDiseasedTall("diseased_sunflower", Blocks.SUNFLOWER, Config.SUNFLOWER_SETTLE_WEIGHTS);
+    public static final DeferredBlock<DiseasedTallFlowerBlock> DISEASED_LILAC =
+            registerDiseasedTall("diseased_lilac", Blocks.LILAC, Config.LILAC_SETTLE_WEIGHTS);
+    public static final DeferredBlock<DiseasedTallFlowerBlock> DISEASED_ROSE_BUSH =
+            registerDiseasedTall("diseased_rose_bush", Blocks.ROSE_BUSH, Config.ROSE_BUSH_SETTLE_WEIGHTS);
+    public static final DeferredBlock<DiseasedTallFlowerBlock> DISEASED_PEONY =
+            registerDiseasedTall("diseased_peony", Blocks.PEONY, Config.PEONY_SETTLE_WEIGHTS);
+
+    // Standalone "just the top half" decorative flowers - see SettleTable.placeTop for why these exist
+    // instead of placing an orphaned upper half of the real two-block plant.
+    public static final DeferredBlock<DecorativeFlowerBlock> SUNFLOWER_TOP =
+            BLOCKS.registerBlock("sunflower_top", DecorativeFlowerBlock::new, decorativeFlowerProperties());
+    public static final DeferredBlock<DecorativeFlowerBlock> LILAC_TOP =
+            BLOCKS.registerBlock("lilac_top", DecorativeFlowerBlock::new, decorativeFlowerProperties());
+    public static final DeferredBlock<DecorativeFlowerBlock> ROSE_BUSH_TOP =
+            BLOCKS.registerBlock("rose_bush_top", DecorativeFlowerBlock::new, decorativeFlowerProperties());
+    public static final DeferredBlock<DecorativeFlowerBlock> PEONY_TOP =
+            BLOCKS.registerBlock("peony_top", DecorativeFlowerBlock::new, decorativeFlowerProperties());
+
+    // Which decorative top stands in for a given vanilla two-block plant's "upper" settle outcome.
+    public static final Map<Block, DeferredBlock<DecorativeFlowerBlock>> DECORATIVE_TOPS = Map.of(
+            Blocks.SUNFLOWER, SUNFLOWER_TOP,
+            Blocks.LILAC, LILAC_TOP,
+            Blocks.ROSE_BUSH, ROSE_BUSH_TOP,
+            Blocks.PEONY, PEONY_TOP
+    );
+
     public static final DeferredItem<BlockItem> DISEASED_DANDELION_ITEM = ITEMS.registerSimpleBlockItem("diseased_dandelion", DISEASED_DANDELION);
     public static final DeferredItem<BlockItem> DISEASED_POPPY_ITEM = ITEMS.registerSimpleBlockItem("diseased_poppy", DISEASED_POPPY);
     public static final DeferredItem<BlockItem> DISEASED_BLUE_ORCHID_ITEM = ITEMS.registerSimpleBlockItem("diseased_blue_orchid", DISEASED_BLUE_ORCHID);
@@ -86,6 +116,14 @@ public class FlowerDisease {
     public static final DeferredItem<BlockItem> DISEASED_OXEYE_DAISY_ITEM = ITEMS.registerSimpleBlockItem("diseased_oxeye_daisy", DISEASED_OXEYE_DAISY);
     public static final DeferredItem<BlockItem> DISEASED_CORNFLOWER_ITEM = ITEMS.registerSimpleBlockItem("diseased_cornflower", DISEASED_CORNFLOWER);
     public static final DeferredItem<BlockItem> DISEASED_LILY_OF_THE_VALLEY_ITEM = ITEMS.registerSimpleBlockItem("diseased_lily_of_the_valley", DISEASED_LILY_OF_THE_VALLEY);
+    public static final DeferredItem<BlockItem> DISEASED_SUNFLOWER_ITEM = ITEMS.registerSimpleBlockItem("diseased_sunflower", DISEASED_SUNFLOWER);
+    public static final DeferredItem<BlockItem> DISEASED_LILAC_ITEM = ITEMS.registerSimpleBlockItem("diseased_lilac", DISEASED_LILAC);
+    public static final DeferredItem<BlockItem> DISEASED_ROSE_BUSH_ITEM = ITEMS.registerSimpleBlockItem("diseased_rose_bush", DISEASED_ROSE_BUSH);
+    public static final DeferredItem<BlockItem> DISEASED_PEONY_ITEM = ITEMS.registerSimpleBlockItem("diseased_peony", DISEASED_PEONY);
+    public static final DeferredItem<BlockItem> SUNFLOWER_TOP_ITEM = ITEMS.registerSimpleBlockItem("sunflower_top", SUNFLOWER_TOP);
+    public static final DeferredItem<BlockItem> LILAC_TOP_ITEM = ITEMS.registerSimpleBlockItem("lilac_top", LILAC_TOP);
+    public static final DeferredItem<BlockItem> ROSE_BUSH_TOP_ITEM = ITEMS.registerSimpleBlockItem("rose_bush_top", ROSE_BUSH_TOP);
+    public static final DeferredItem<BlockItem> PEONY_TOP_ITEM = ITEMS.registerSimpleBlockItem("peony_top", PEONY_TOP);
 
     private static DeferredBlock<DiseasedFlowerBlock> registerDiseased(
             String name,
@@ -110,6 +148,41 @@ public class FlowerDisease {
                 .offsetType(BlockBehaviour.OffsetType.XZ)
                 .pushReaction(PushReaction.DESTROY)
                 .randomTicks();
+    }
+
+    private static DeferredBlock<DiseasedTallFlowerBlock> registerDiseasedTall(
+            String name,
+            Block fallbackBlock,
+            ModConfigSpec.ConfigValue<List<? extends String>> settleWeights
+    ) {
+        return BLOCKS.registerBlock(
+                name,
+                properties -> new DiseasedTallFlowerBlock(fallbackBlock, settleWeights, properties),
+                tallFlowerProperties()
+        );
+    }
+
+    private static BlockBehaviour.Properties tallFlowerProperties() {
+        return BlockBehaviour.Properties.of()
+                .mapColor(MapColor.PLANT)
+                .noCollission()
+                .instabreak()
+                .sound(SoundType.GRASS)
+                .offsetType(BlockBehaviour.OffsetType.XZ)
+                .ignitedByLava()
+                .pushReaction(PushReaction.DESTROY)
+                .randomTicks();
+    }
+
+    // No .randomTicks() - these are purely decorative and never spread or settle on their own.
+    private static BlockBehaviour.Properties decorativeFlowerProperties() {
+        return BlockBehaviour.Properties.of()
+                .mapColor(MapColor.PLANT)
+                .noCollission()
+                .instabreak()
+                .sound(SoundType.GRASS)
+                .offsetType(BlockBehaviour.OffsetType.XZ)
+                .pushReaction(PushReaction.DESTROY);
     }
 
     // The constructor for the mod class is the first code that is run when your mod is loaded.
@@ -155,6 +228,14 @@ public class FlowerDisease {
         insertDiseasedAfter(event, Items.OXEYE_DAISY, DISEASED_OXEYE_DAISY_ITEM);
         insertDiseasedAfter(event, Items.CORNFLOWER, DISEASED_CORNFLOWER_ITEM);
         insertDiseasedAfter(event, Items.LILY_OF_THE_VALLEY, DISEASED_LILY_OF_THE_VALLEY_ITEM);
+        insertDiseasedAfter(event, Items.SUNFLOWER, DISEASED_SUNFLOWER_ITEM);
+        insertDiseasedAfter(event, Items.LILAC, DISEASED_LILAC_ITEM);
+        insertDiseasedAfter(event, Items.ROSE_BUSH, DISEASED_ROSE_BUSH_ITEM);
+        insertDiseasedAfter(event, Items.PEONY, DISEASED_PEONY_ITEM);
+        insertDiseasedAfter(event, DISEASED_SUNFLOWER_ITEM.get(), SUNFLOWER_TOP_ITEM);
+        insertDiseasedAfter(event, DISEASED_LILAC_ITEM.get(), LILAC_TOP_ITEM);
+        insertDiseasedAfter(event, DISEASED_ROSE_BUSH_ITEM.get(), ROSE_BUSH_TOP_ITEM);
+        insertDiseasedAfter(event, DISEASED_PEONY_ITEM.get(), PEONY_TOP_ITEM);
     }
 
     private static void insertDiseasedAfter(BuildCreativeModeTabContentsEvent event, Item anchor, DeferredItem<BlockItem> diseased) {

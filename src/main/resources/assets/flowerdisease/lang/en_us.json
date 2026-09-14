@@ -11,6 +11,14 @@
   "block.flowerdisease.diseased_oxeye_daisy": "Diseased Oxeye Daisy",
   "block.flowerdisease.diseased_cornflower": "Diseased Cornflower",
   "block.flowerdisease.diseased_lily_of_the_valley": "Diseased Lily of the Valley",
+  "block.flowerdisease.diseased_sunflower": "Diseased Sunflower",
+  "block.flowerdisease.diseased_lilac": "Diseased Lilac",
+  "block.flowerdisease.diseased_rose_bush": "Diseased Rose Bush",
+  "block.flowerdisease.diseased_peony": "Diseased Peony",
+  "block.flowerdisease.sunflower_top": "Sunflower Top",
+  "block.flowerdisease.lilac_top": "Lilac Top",
+  "block.flowerdisease.rose_bush_top": "Rose Bush Top",
+  "block.flowerdisease.peony_top": "Peony Top",
 
   "flowerdisease.configuration.title": "FlowerDisease Configs",
   "flowerdisease.configuration.section.flowerdisease.common.toml": "FlowerDisease Configs",
@@ -33,5 +41,9 @@
   "flowerdisease.configuration.settleWeights.pinkTulip": "Pink Tulip Settle Weights",
   "flowerdisease.configuration.settleWeights.oxeyeDaisy": "Oxeye Daisy Settle Weights",
   "flowerdisease.configuration.settleWeights.cornflower": "Cornflower Settle Weights",
-  "flowerdisease.configuration.settleWeights.lilyOfTheValley": "Lily of the Valley Settle Weights"
+  "flowerdisease.configuration.settleWeights.lilyOfTheValley": "Lily of the Valley Settle Weights",
+  "flowerdisease.configuration.settleWeights.sunflower": "Sunflower Settle Weights",
+  "flowerdisease.configuration.settleWeights.lilac": "Lilac Settle Weights",
+  "flowerdisease.configuration.settleWeights.roseBush": "Rose Bush Settle Weights",
+  "flowerdisease.configuration.settleWeights.peony": "Peony Settle Weights"
 }

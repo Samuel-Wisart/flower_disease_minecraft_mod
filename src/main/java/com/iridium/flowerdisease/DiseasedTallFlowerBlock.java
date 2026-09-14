@@ -5,41 +5,42 @@ import java.util.List;
 import javax.annotation.Nullable;
 
 import net.minecraft.core.BlockPos;
-import net.minecraft.core.Holder;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.util.RandomSource;
-import net.minecraft.world.effect.MobEffect;
 import net.minecraft.world.level.LevelReader;
 import net.minecraft.world.level.block.Block;
-import net.minecraft.world.level.block.FlowerBlock;
+import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.DoublePlantBlock;
+import net.minecraft.world.level.block.TallFlowerBlock;
 import net.minecraft.world.level.block.state.BlockBehaviour;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.block.state.properties.DoubleBlockHalf;
 import net.neoforged.neoforge.common.ModConfigSpec;
 
-// Spreads via vanilla's random-tick sampler instead of a custom scheduler, so idle flowers cost nothing.
-// One class is shared by every single-block diseased flower type; what it settles into is entirely
-// config-driven (see Config.java / SettleTable). The two-block counterpart is DiseasedTallFlowerBlock.
-public class DiseasedFlowerBlock extends FlowerBlock {
+// Two-block counterpart to DiseasedFlowerBlock (see that class for the general approach). Only the
+// lower half acts on a random tick - the upper half is randomly ticked too since it's the same Block,
+// and acting from both would double the effective spread/settle rate.
+public class DiseasedTallFlowerBlock extends TallFlowerBlock {
 
     private final Block fallbackBlock;
     private final ModConfigSpec.ConfigValue<List<? extends String>> settleWeights;
 
-    public DiseasedFlowerBlock(
-            Holder<MobEffect> suspiciousStewEffect,
-            float effectSeconds,
+    public DiseasedTallFlowerBlock(
             Block fallbackBlock,
             ModConfigSpec.ConfigValue<List<? extends String>> settleWeights,
             BlockBehaviour.Properties properties
     ) {
-        super(suspiciousStewEffect, effectSeconds, properties);
+        super(properties);
         this.fallbackBlock = fallbackBlock;
         this.settleWeights = settleWeights;
     }
 
     @Override
     protected void randomTick(BlockState state, ServerLevel level, BlockPos pos, RandomSource random) {
-        // Vanilla random ticks alone already fire ~15-20 times/day per block; this extra roll is what
-        // actually controls the "many in-game days per field" pacing. Tune via Config.FLOWER_SPREAD_CHANCE.
+        if (state.getValue(HALF) != DoubleBlockHalf.LOWER) {
+            return;
+        }
+
         if (random.nextFloat() >= (float) Config.FLOWER_SPREAD_CHANCE.getAsDouble()) {
             return;
         }
@@ -51,12 +52,12 @@ public class DiseasedFlowerBlock extends FlowerBlock {
         BlockPos target = tooCrowded ? null : findSpreadTarget(level, pos, random);
 
         if (target != null) {
-            level.setBlock(target, this.defaultBlockState(), SettleTable.PLACEMENT_FLAGS);
+            DoublePlantBlock.placeAt(level, this.defaultBlockState(), target, SettleTable.PLACEMENT_FLAGS);
         } else {
-            // Either crowded or structurally stuck (e.g. a steep cave with no reachable ground within
-            // spreadVerticalRange): either way it can't reproduce here, so it settles for good instead
-            // of retrying forever on terrain that will never change.
             SettleTable.Option picked = SettleTable.pickWeighted(options, random);
+            // The old upper half won't be overwritten unless the outcome is itself a "full" two-block
+            // placement, so clear it first - otherwise it would be left floating with nothing below it.
+            level.setBlock(pos.above(), Blocks.AIR.defaultBlockState(), SettleTable.PLACEMENT_FLAGS);
             SettleTable.place(level, pos, picked != null ? picked : new SettleTable.Option(fallbackBlock, 1, SettleTable.Half.FULL));
         }
     }
@@ -89,7 +90,7 @@ public class DiseasedFlowerBlock extends FlowerBlock {
     private BlockPos findSpreadTarget(ServerLevel level, BlockPos origin, RandomSource random) {
         int maxDistance = Config.FLOWER_SPREAD_DISTANCE.getAsInt();
         int verticalRange = Config.FLOWER_SPREAD_VERTICAL_RANGE.getAsInt();
-        BlockState newState = this.defaultBlockState();
+        BlockState newLowerState = this.defaultBlockState();
 
         for (int attempt = 0; attempt < Config.FLOWER_SPREAD_ATTEMPTS.getAsInt(); attempt++) {
             int dx = random.nextInt(maxDistance * 2 + 1) - maxDistance;
@@ -98,7 +99,7 @@ public class DiseasedFlowerBlock extends FlowerBlock {
                 continue;
             }
 
-            BlockPos candidate = followTerrain(level, origin.offset(dx, 0, dz), newState, verticalRange);
+            BlockPos candidate = followTerrain(level, origin.offset(dx, 0, dz), newLowerState, verticalRange);
             if (candidate != null) {
                 return candidate;
             }
@@ -108,25 +109,30 @@ public class DiseasedFlowerBlock extends FlowerBlock {
     }
 
     // Slopes/steps mean the target column often isn't level with the parent flower, so this checks
-    // nearby heights too (closest to the parent's Y first) instead of only the exact same Y.
+    // nearby heights too (closest to the parent's Y first) instead of only the exact same Y. Unlike the
+    // single-block flower, a valid spot also needs its ABOVE cell free for the second half.
     @Nullable
-    private BlockPos followTerrain(ServerLevel level, BlockPos column, BlockState newState, int verticalRange) {
-        if (level.isEmptyBlock(column) && newState.canSurvive(level, column)) {
+    private BlockPos followTerrain(ServerLevel level, BlockPos column, BlockState newLowerState, int verticalRange) {
+        if (isValidSpot(level, column, newLowerState)) {
             return column;
         }
 
         for (int dy = 1; dy <= verticalRange; dy++) {
             BlockPos up = column.above(dy);
-            if (level.isEmptyBlock(up) && newState.canSurvive(level, up)) {
+            if (isValidSpot(level, up, newLowerState)) {
                 return up;
             }
 
             BlockPos down = column.below(dy);
-            if (level.isEmptyBlock(down) && newState.canSurvive(level, down)) {
+            if (isValidSpot(level, down, newLowerState)) {
                 return down;
             }
         }
 
         return null;
+    }
+
+    private boolean isValidSpot(ServerLevel level, BlockPos pos, BlockState newLowerState) {
+        return level.isEmptyBlock(pos) && level.isEmptyBlock(pos.above()) && newLowerState.canSurvive(level, pos);
     }
 }

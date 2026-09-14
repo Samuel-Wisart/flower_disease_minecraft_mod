@@ -1,0 +1,10 @@
+{
+  "variants": {
+    "half=lower": {
+      "model": "flowerdisease:block/diseased_rose_bush_bottom"
+    },
+    "half=upper": {
+      "model": "flowerdisease:block/diseased_rose_bush_top"
+    }
+  }
+}
