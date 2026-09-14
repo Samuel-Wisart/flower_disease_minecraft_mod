@@ -1,26 +1,38 @@
 package com.iridium.flowerdisease;
 
+import java.util.List;
+
+import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.screens.inventory.AbstractContainerScreen;
+import net.minecraft.core.NonNullList;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.inventory.Slot;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.level.GameRules;
+import net.minecraft.world.level.Level;
 
 // No custom texture (none of us can draw pixel art for this mod) - the background/slots are drawn as
-// plain rectangles instead of a chest-style image. Purely functional; the item's own tooltip explains
-// what each slot does in full, this screen only shows short reminders. Slot layout here must match
-// GardenBagMenu's addSlot coordinates exactly.
+// plain rectangles instead of a chest-style image. Above the 27-slot "cauldron" grid (see GardenBagMenu),
+// this renders a live preview of what the current pile of items actually means (GardenBagContents),
+// recomputed every frame straight from the menu's synced slot contents - throw items in, watch the
+// numbers update, instead of reading fixed per-slot labels. Slot layout here must match GardenBagMenu's
+// addSlot coordinates exactly.
 public class GardenBagScreen extends AbstractContainerScreen<GardenBagMenu> {
     private static final int SLOT_BORDER = 0xFF000000;
     private static final int SLOT_FILL = 0x77000000;
     private static final int PANEL_FILL = 0xC0101010;
     private static final int PANEL_BORDER = 0xFF3F3F3F;
     private static final int LABEL_COLOR = 0xFFE0E0E0;
+    private static final int INFO_COLOR = 0xFFFFD880;
+    private static final int INFO_TOP_Y = 16;
+    private static final int LINE_HEIGHT = 10;
 
     public GardenBagScreen(GardenBagMenu menu, Inventory playerInventory, Component title) {
         super(menu, playerInventory, title);
         this.imageWidth = 176;
-        this.imageHeight = 238;
+        this.imageHeight = 236;
         this.inventoryLabelY = 144;
     }
 
@@ -28,6 +40,7 @@ public class GardenBagScreen extends AbstractContainerScreen<GardenBagMenu> {
     protected void renderBg(GuiGraphics guiGraphics, float partialTick, int mouseX, int mouseY) {
         guiGraphics.fill(leftPos, topPos, leftPos + imageWidth, topPos + imageHeight, PANEL_FILL);
         guiGraphics.renderOutline(leftPos, topPos, imageWidth, imageHeight, PANEL_BORDER);
+        guiGraphics.renderOutline(leftPos + 6, topPos + INFO_TOP_Y - 4, imageWidth - 12, GardenBagMenu.GRID_TOP_Y - INFO_TOP_Y - 4, PANEL_BORDER);
 
         for (Slot slot : this.menu.slots) {
             int x = leftPos + slot.x - 1;
@@ -41,22 +54,66 @@ public class GardenBagScreen extends AbstractContainerScreen<GardenBagMenu> {
     protected void renderLabels(GuiGraphics guiGraphics, int mouseX, int mouseY) {
         guiGraphics.drawString(this.font, this.title, this.titleLabelX, this.titleLabelY, LABEL_COLOR, false);
 
-        drawCentered(guiGraphics, "Gens", 8, 40);
-        drawCentered(guiGraphics, "Speed", 30, 40);
-        drawCentered(guiGraphics, "Inf.", 52, 40);
-        drawCentered(guiGraphics, "Density", 74, 40);
-        drawCentered(guiGraphics, "Range", 96, 40);
-        drawCentered(guiGraphics, "Fence", 118, 40);
-        drawCentered(guiGraphics, "Species", 62, 49);
+        int y = INFO_TOP_Y;
+        for (String line : previewLines(GardenBagContents.read(bagSlotItems()))) {
+            guiGraphics.drawString(this.font, line, 8, y, INFO_COLOR, false);
+            y += LINE_HEIGHT;
+        }
 
         guiGraphics.drawString(this.font, this.playerInventoryTitle, this.inventoryLabelX, this.inventoryLabelY, LABEL_COLOR, false);
     }
 
-    // Centers a short label under/over an 18px-wide slot column, tolerating a little overflow into the
-    // gap on either side since there's no room otherwise at this scale.
-    private void drawCentered(GuiGraphics guiGraphics, String text, int slotX, int y) {
-        int width = this.font.width(text);
-        int x = slotX + 9 - width / 2;
-        guiGraphics.drawString(this.font, text, x, y, LABEL_COLOR, false);
+    private List<ItemStack> bagSlotItems() {
+        NonNullList<ItemStack> items = NonNullList.withSize(GardenBagMenu.BAG_SLOTS, ItemStack.EMPTY);
+        for (int i = 0; i < GardenBagMenu.BAG_SLOTS; i++) {
+            items.set(i, this.menu.slots.get(i).getItem());
+        }
+        return items;
+    }
+
+    // Six short lines summarizing exactly what GardenBagItem#plant would configure right now, so throwing
+    // items in feels like reading a cauldron rather than filling out a form.
+    private List<String> previewLines(GardenBagContents contents) {
+        String generations = contents.generations == SpreadProfileBlockEntity.INFINITE_GENERATIONS
+                ? "infinite"
+                : contents.generations == SpreadProfileBlockEntity.NO_GENERATIONS_OVERRIDE
+                        ? Config.FLOWER_MAX_GENERATIONS.getAsInt() + " (default)"
+                        : String.valueOf(contents.generations);
+
+        boolean speedOverridden = contents.spreadChance >= 0;
+        double spreadChance = speedOverridden ? contents.spreadChance : Config.FLOWER_SPREAD_CHANCE.getAsDouble();
+        String speed = (speedOverridden ? "" : "~") + Math.round(spreadChance * 1000) / 10.0 + "%";
+
+        String range = contents.spreadDistance >= 0
+                ? contents.spreadDistance + " blocks"
+                : "~" + Config.FLOWER_SPREAD_DISTANCE.getAsInt() + " (default)";
+
+        String density = contents.densityPer16x16 >= 0 ? contents.densityPer16x16 + " / chunk" : "default";
+
+        String respects = contents.respectAllSpecies ? "yes" : "no - ignores others";
+
+        return List.of(
+                "Generations: " + generations,
+                "Speed: " + speed,
+                "Range: " + range,
+                "Density: " + density,
+                "Respects other flowers: " + respects,
+                "Est. reproduction: ~" + estimatePerDay(spreadChance) + " new flowers/day"
+        );
+    }
+
+    // Simplified estimate the player asked for: assumes this is the ONLY flower in its chunk (no
+    // crowding, always finds room to spread into) - just the raw random-tick-sampling math. A block has
+    // `randomTickSpeed` chances per game tick out of the 4096 positions in its 16x16x16 chunk section;
+    // there are 24000 game ticks per in-game day.
+    private String estimatePerDay(double spreadChance) {
+        Level level = Minecraft.getInstance().level;
+        if (level == null) {
+            return "?";
+        }
+        int randomTickSpeed = level.getGameRules().getInt(GameRules.RULE_RANDOMTICKING);
+        double ticksPerDay = 24000.0 * randomTickSpeed / 4096.0;
+        double perDay = ticksPerDay * spreadChance;
+        return perDay < 10 ? String.format("%.1f", perDay) : String.valueOf(Math.round(perDay));
     }
 }

@@ -31,8 +31,10 @@ public class SpreadProfileBlockEntity extends BlockEntity {
     private List<String> speciesWeights = List.of();
     // "Territorial": when true, density counting treats ANY nearby plant (any species, ours or vanilla)
     // as crowding, instead of only this species' own family - keeps different bag-plantings from
-    // spreading into each other's gaps. Off by default (matches the old, species-only behavior).
-    private boolean respectAllSpecies = false;
+    // spreading into each other's gaps. ON by default (player request - see GardenBagContents#
+    // IGNORE_OTHERS_ITEM, the opt-OUT item); a hand-planted flower with no bag gets this default too,
+    // since it's the same shared field/default for every Diseased plant.
+    private boolean respectAllSpecies = true;
 
     public SpreadProfileBlockEntity(BlockPos pos, BlockState state) {
         super(FlowerDisease.SPREAD_PROFILE_BLOCK_ENTITY.get(), pos, state);
@@ -44,7 +46,7 @@ public class SpreadProfileBlockEntity extends BlockEntity {
                 || spreadDistanceOverride != NO_INT_OVERRIDE
                 || densityTargetPer16x16 != NO_INT_OVERRIDE
                 || !speciesWeights.isEmpty()
-                || respectAllSpecies;
+                || !respectAllSpecies;
     }
 
     long generationsRemaining() {

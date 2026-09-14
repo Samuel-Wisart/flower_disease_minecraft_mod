@@ -103,12 +103,14 @@ Isso fica pra depois, não mexer nisso agora.
   pool da bag. `DiseasedPlantLogic#settle` reflete isso: recebe direto o bloco vanilla a virar (o
   `fallbackBlock` da planta, ou — quando um filho recém-sorteado já nasce sem orçamento de gerações — a
   própria espécie que acabou de ser sorteada pra ele), nunca um pool pra escolher entre várias opções.
-- **Modo "territorial"** (`SpreadProfileBlockEntity#respectAllSpecies`, opt-in, só pela bag): por padrão a
-  checagem de lotação (`countNearbyFieldFlowers`) só conta vizinhos da MESMA espécie/família
-  (`SettleTable.isSameSpecies`). Com o modo territorial ligado, ela conta QUALQUER planta por perto
-  (`SettleTable.isAnyPlant`, checa `instanceof BushBlock`, ignorando a metade de cima de plantas de 2
-  blocos pra não contar em dobro) — assim um jardim de rosas não invade os buracos de um jardim de peonias
-  já plantado ao lado. Ativado pela bag colocando qualquer Fence (`ItemTags.FENCES`) no slot dedicado.
+- **Modo "territorial"** (`SpreadProfileBlockEntity#respectAllSpecies`, **LIGADO por padrão** — ver "Território:
+  default invertido" na seção da Garden Bag pro porquê e o histórico dessa mudança): a checagem de lotação
+  (`countNearbyFieldFlowers`) conta QUALQUER planta por perto por padrão (`SettleTable.isAnyPlant`, checa
+  `instanceof BushBlock`, ignorando a metade de cima de plantas de 2 blocos pra não contar em dobro) — assim
+  um jardim de rosas não invade os buracos de um jardim de peonias já plantado ao lado. Colocar um
+  Fermented Spider Eye na bag desliga isso (só conta vizinhos da MESMA espécie/família,
+  `SettleTable.isSameSpecies`). Vale pra QUALQUER Diseased Flower, inclusive plantada na mão sem bag (mesmo
+  campo/default compartilhado).
   **Ajuste em relação ao plano original**: a ideia era "flor plantada na mão não tem BlockEntity nenhum".
   Na prática isso exigiria duplicar cada bloco/recurso em duas versões (com e sem dono), então a decisão
   foi dar o BlockEntity pra TODAS, sempre "vazio" por padrão pra plantio na mão. O custo é pequeno (é só
@@ -265,8 +267,9 @@ exigem `.get()` em blocos do próprio mod, que só é seguro depois que o regist
 | `SpreadProfileBlockEntity.java` | Overrides opcionais por-planta (gerações/velocidade/distância/densidade/espécies/territorial) |
 | `SettleTable.java` | Lógica compartilhada: parsing de outcomes, sorteio ponderado, flags de placement, `GENERATION` property, conversão de densidade, `isSameSpecies`/`isAnyPlant` (territorial) |
 | `GardenBagItem.java` | Item da bag: abre o menu, tooltip, lógica de plantio (`useOn`) |
-| `GardenBagMenu.java` | Container da bag (slots filtrados por tipo de item, ligação com `ItemContainerContents`) |
-| `GardenBagScreen.java` | Tela da bag (client-only, sem textura própria) |
+| `GardenBagMenu.java` | Container da bag: um inventário só de 27 slots ("caldeirão"), ligação com `ItemContainerContents` |
+| `GardenBagContents.java` | Lê os itens da bag (somados por identidade, não por posição) pros parâmetros reais — compartilhado por `GardenBagItem` (plantio) e `GardenBagScreen` (preview) |
+| `GardenBagScreen.java` | Tela da bag (client-only, sem textura própria) — painel de preview calculado + grade de 27 slots |
 | `Config.java` | `ModConfigSpec` — só os knobs globais de espalhamento (sem mais settleWeights) |
 
 Recursos (`src/main/resources`): cada espécie/bloco decorativo tem blockstate + modelo(s) de bloco +
@@ -311,48 +314,86 @@ tenta plantar (`useOn()`) — a distinção "configurar vs. plantar" é feita s�
 bloco), não por um estado da bag. Pode voltar no futuro como uma opção opt-in, mas por enquanto a bag é
 sempre editável.
 
-### Layout de slots (`GardenBagMenu`)
+### Design "caldeirão": um inventário só, sem slots dedicados
 
-6 slots dedicados de item único (cada um só aceita o item certo): Bone Meal, Sculk, Nether Star,
-Slime Ball, Feather, Fence (`ItemTags.FENCES` — qualquer cerca, madeira ou nether brick). Mais uma grade
-3x3 (9 slots, `SPECIES_SLOTS_START=6`) pra flores/grama/decorativos — qualquer item listado em
-`FlowerDisease.bagOutcomeItems()` (34 entradas: 16 espécies de 1 bloco só "full" + 6 famílias de 2 blocos
-× 3 variantes cada uma delas — Full/Top/Bottom, cada item com peso independente, e hoje as 34 são
-igualmente espalháveis/plantáveis como raiz, ver "Espécies existentes" acima). Total `BAG_SLOTS = 15`.
-`bagOutcomeItems()` é um método estático com cache preguiçoso (não um campo `static final` comum) porque
-suas chaves incluem itens do próprio mod (`SUNFLOWER_TOP_ITEM.get()` etc.) que só existem depois que o
-registro de itens roda — resolver isso direto no inicializador estático da classe `FlowerDisease` daria
-`IllegalStateException` (registro ainda não populado nesse momento do carregamento do mod).
-Todos os slots aceitam colocar/tirar item livremente a qualquer momento (sem trava — ver "Feature
-removida" acima); cada slot só filtra o TIPO de item aceito (`GardenBagMenu.FilteredSlot`).
+**Mudança de design pedida pelo dono do projeto** (depois da bag já estar funcionando com 6 slots fixos +
+grade de espécies): a ideia de slots com papel fixo não combinava com a "vibe" da bag — ele queria algo
+mais parecido com um caldeirão de bruxa onde você joga tudo junto (flores E os itens modificadores,
+misturados) e o efeito é lido de volta, não configurado por posição. `GardenBagMenu` hoje é um único
+inventário de **27 slots** (`BAG_SLOTS = 27`, 3 linhas × 9 colunas, tamanho de baú), todos do mesmo tipo de
+`FilteredSlot` — aceitam QUALQUER item que a bag reconheça (os modificadores fixos, ou qualquer espécie de
+`FlowerDisease.bagOutcomeItems()`), rejeitam o resto. Não existe mais "o slot de Bone Meal" — existe "quanta
+Bone Meal tem em QUALQUER lugar da bag, somada por cima de quantos stacks/slots ela estiver espalhada".
 
-### Conversão item → parâmetro (`GardenBagItem#plant`)
+`GardenBagContents.java` é a lógica compartilhada que faz essa leitura (soma por identidade de item, não
+por posição) e converte pros parâmetros reais — usada tanto por `GardenBagItem#plant` (server, na hora de
+plantar) quanto por `GardenBagScreen` (client, pro preview ao vivo abaixo). Antes existiam 6 helpers
+privados duplicando essa lógica dentro de `GardenBagItem`; agora é uma classe só, então as duas pontas
+NUNCA podem discordar sobre o que uma pilha de itens significa.
 
-| Slot | Vazio | Com N itens |
+Modificadores (itens fixos, reconhecidos em `GardenBagContents`):
+
+| Item | Ausente | Com N (somado em toda a bag) |
 |---|---|---|
-| Bone Meal | sem override (usa o `Config.FLOWER_MAX_GENERATIONS` da flor) | `N` gerações |
+| Bone Meal | sem override (usa `Config.FLOWER_MAX_GENERATIONS`) | `N` gerações — sem teto artificial, é só somar mais Bone Meal |
 | Nether Star | (ignorado) | gerações infinitas, sobrepõe o Bone Meal |
-| Sculk | sem override (usa `Config.FLOWER_SPREAD_CHANCE`) | `spreadChance = N/64` (linear, 1→~1.6%, 64→100%) |
-| Slime Ball | sem override (usa `Config.FLOWER_MAX_NEARBY`/`densityCheckRadius`) | `N` flores desejadas por área 16x16 (convertido internamente pro raio fixo via `SettleTable.densityTargetToMaxNearby`) |
-| Feather | sem override (usa `Config.FLOWER_SPREAD_DISTANCE`) | `min(N, 32)` blocos de distância por salto |
-| Fence | modo territorial desligado (só compete com a própria espécie/família) | modo territorial LIGADO (qualquer quantidade) — conta QUALQUER planta próxima como lotação, não só a mesma espécie |
-| Grade de flores | nenhuma espécie plantável configurada → **planta nada, comando falha** | cada slot não-vazio vira uma entrada `"<id> <peso>"` (peso = quantidade no slot; `id` é sempre um bloco FINAL — vanilla pra espécie completa, ou um dos 12 blocos Top/Bottom, cada um sua própria espécie); esse pool inteiro é `speciesWeights`, usado pro sorteio de RAIZ (`GardenBagItem#plant`) e pro sorteio de espécie de um FILHO ao espalhar (`DiseasedPlantLogic`) — todas as 34 entradas têm contraparte Doente (`FlowerDisease.diseasedByFallback()`), então todas são igualmente elegíveis pros dois. Settle NUNCA consulta esse pool (ver "Sistema de settle" acima) |
+| Sculk | sem override (usa `Config.FLOWER_SPREAD_CHANCE`) | `spreadChance = N/64` (clamped em 100%) |
+| Slime Ball | sem override (usa `Config.FLOWER_MAX_NEARBY`/`densityCheckRadius`) | `N` flores desejadas por chunk (convertido internamente via `SettleTable.densityTargetToMaxNearby`) |
+| Feather | sem override (usa `Config.FLOWER_SPREAD_DISTANCE`) | `min(N, 32)` blocos por salto |
+| Fermented Spider Eye | **respeita outras flores (padrão)** — ver "Território: default invertido" abaixo | ignora outras flores (território desligado) |
+
+Qualquer outro item da bag que não seja um desses 6 é tratado como espécie: cada stack contribui pro peso
+daquela espécie (`GardenBagContents#speciesWeights`, somado por bloco do mesmo jeito que os
+modificadores — duas pilhas da mesma flor em slots diferentes somam). Sem nenhuma espécie plantável na
+bag, plantar falha (`error.no_species`). Settle nunca consulta esse pool, só o sorteio de filho ao
+espalhar (ver "Sem lógica de cadeia" acima).
+
+### Território: default invertido (Fermented Spider Eye)
+
+Pedido do dono do projeto: "respeitar outras flores" devia ser o comportamento PADRÃO, não algo opt-in —
+uma cerca não fazia sentido pra representar "não respeitar". `SpreadProfileBlockEntity#respectAllSpecies`
+tem o campo Java default trocado de `false` pra `true` (afeta TODA planta doente, inclusive plantada na
+mão sem bag nenhuma, já que é o mesmo campo/default compartilhado). `GardenBagContents.IGNORE_OTHERS_ITEM`
+(Fermented Spider Eye — ingrediente de bruxaria, combina com o tema de caldeirão e com "essa espécie não
+liga pras outras") é o item de OPT-OUT: presente na bag, território desliga (só compete com a própria
+espécie/família); ausente, território fica ligado (comportamento novo padrão). `hasOverride()` também foi
+ajustado (`!respectAllSpecies` em vez de `respectAllSpecies`) já que agora `true` é o valor default, não
+mais uma configuração explícita.
+
+### Painel de preview ao vivo (`GardenBagScreen`)
+
+Acima da grade de 27 slots, a tela desenha 6 linhas de texto recalculadas TODO FRAME a partir do conteúdo
+atual da bag (`GardenBagContents.read(...)` sobre os itens sincronizados em `menu.slots`) — Generations,
+Speed, Range, Density, "Respects other flowers" e uma estimativa de reprodução/dia. Não é um valor
+configurado, é a mesma conta que `GardenBagItem#plant` faria se você plantasse AGORA — jogar item na bag e
+ver o número mudar reforça a "vibe" de caldeirão em vez de formulário.
+
+**Estimativa de reprodução/dia**: pedido específico do dono do projeto — em vez de expor "spreadChance por
+random tick" (abstrato), mostrar quantas flores novas por dia UMA flor sozinha produziria, assumindo que
+ela é a única flor no chunk (sem lotação, sempre acha espaço — simplificação deliberada, documentada assim
+na UI). Fórmula: um bloco tem `randomTickSpeed` chances por tick dentre as 4096 posições da sua seção de
+16x16x16; existem 24000 ticks/dia; `ticksPorDia = 24000 * randomTickSpeed / 4096`; `estimativa = ticksPorDia
+* spreadChance`. Lida o gamerule `randomTickSpeed` do nível do CLIENTE (`Minecraft.getInstance().level`) —
+gamerules são sincronizados do servidor, então isso funciona normalmente em multiplayer. Uma ressalva: o
+`Config.FLOWER_SPREAD_CHANCE`/`FLOWER_MAX_GENERATIONS`/`FLOWER_SPREAD_DISTANCE` usados como "default" na
+prévia (quando o modificador correspondente não está na bag) são lidos do config COMUM local do cliente,
+não sincronizado do servidor — em multiplayer com configs cliente/servidor diferentes a prévia pode não
+bater exatamente com o que vai ser aplicado de verdade (o valor real sempre vem do servidor na hora de
+plantar); é só uma prévia, não a fonte de verdade.
 
 ### Limitações conhecidas
 
-Nenhuma conhecida no momento — a restrição de categoria/família no espalhamento e a limitação de Top/Bottom
-nunca poderem ser raiz foram ambas corrigidas (ver "Sem lógica de cadeia" e "Espécies existentes" acima).
+Nenhuma conhecida no momento.
 
 ### Limitação conhecida de implementação (transparência sobre o que não pude verificar)
 
 **Não consigo ver a tela renderizada** (não tenho como tirar screenshot do Minecraft rodando), então o
-layout exato de `GardenBagScreen` (posições dos 15 slots, tamanho do painel,
-textos curtos tipo "Gens"/"Speed" embaixo de cada slot) foi calculado matematicamente, não visualmente
-conferido. É bem provável que precise de ajuste fino depois que você testar e me disser o que ficou
-errado (texto cortado, slot fora do lugar, etc). Não usei nenhuma textura customizada (não consigo
-desenhar pixel art) — o painel e os slots são retângulos desenhados na hora (`GuiGraphics.fill`), não uma
-imagem de fundo tipo baú. A explicação completa de cada slot está no tooltip do item (passe o mouse em
-cima da bag), não só na tela.
+layout exato de `GardenBagScreen` (posições dos 27 slots, tamanho do painel de preview, altura de cada
+linha de texto) foi calculado matematicamente, não visualmente conferido. É bem provável que precise de
+ajuste fino depois que você testar e me disser o que ficou errado (texto cortado, sobreposição, painel
+apertado, etc). Não usei nenhuma textura customizada (não consigo desenhar pixel art) — o painel e os
+slots são retângulos desenhados na hora (`GuiGraphics.fill`), não uma imagem de fundo tipo baú. A
+explicação completa de cada item ainda está no tooltip do item (passe o mouse em cima da bag).
 
 ### Ordem de implementação (todos os passos originais)
 
@@ -364,6 +405,8 @@ cima da bag), não só na tela.
 6. ~~Lock permanente~~ — **feito, e depois REMOVIDO** a pedido do dono do projeto (atrapalhava testar) —
    ver "Feature removida: selar a bag" acima. Pode voltar no futuro como opt-in.
 7. ~~Ligar os itens de proporção ao sorteio de espécie~~ — **feito**.
+8. ~~Redesenho "caldeirão" (inventário único sem slots dedicados + preview calculado)~~ — **feito**, a
+   pedido do dono do projeto depois de testar a versão de slots fixos. Ver "Design 'caldeirão'" acima.
 
 Tudo que estava planejado pra Garden Bag está implementado (menos o lock, removido de propósito). Falta só
 testar em jogo e ajustar o que não ficar bom visualmente ou no balanceamento das conversões

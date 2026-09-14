@@ -156,7 +156,7 @@ final class FlowerDiseaseCommands {
             return 0;
         }
 
-        profile.configure(SpreadProfileBlockEntity.NO_GENERATIONS_OVERRIDE, -1, -1, -1, List.of(), false);
+        profile.configure(SpreadProfileBlockEntity.NO_GENERATIONS_OVERRIDE, -1, -1, -1, List.of(), true);
         context.getSource().sendSuccess(() -> Component.literal("Flower Disease: profile cleared, back to global config"), false);
         return 1;
     }
