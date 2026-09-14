@@ -1,7 +1,5 @@
 package com.iridium.flowerdisease;
 
-import java.util.List;
-
 import javax.annotation.Nullable;
 
 import net.minecraft.core.BlockPos;
@@ -17,27 +15,24 @@ import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockBehaviour;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.StateDefinition;
-import net.neoforged.neoforge.common.ModConfigSpec;
 
 // Spreads via vanilla's random-tick sampler instead of a custom scheduler, so idle flowers cost nothing.
 // One class is shared by every single-block diseased flower type; what it settles into is entirely
-// config-driven (see Config.java / SettleTable). The two-block counterpart is DiseasedTallFlowerBlock.
-// The actual spread/settle logic lives in DiseasedFlowerLogic, shared with DiseasedWitherRoseBlock.
+// driven by the Garden Bag's per-planting profile (see SettleTable/SpreadProfileBlockEntity). The
+// two-block counterpart is DiseasedTallFlowerBlock. The actual spread/settle logic lives in
+// DiseasedPlantLogic, shared with every other Diseased plant class.
 public class DiseasedFlowerBlock extends FlowerBlock implements EntityBlock {
 
     private final Block fallbackBlock;
-    private final ModConfigSpec.ConfigValue<List<? extends String>> settleWeights;
 
     public DiseasedFlowerBlock(
             Holder<MobEffect> suspiciousStewEffect,
             float effectSeconds,
             Block fallbackBlock,
-            ModConfigSpec.ConfigValue<List<? extends String>> settleWeights,
             BlockBehaviour.Properties properties
     ) {
         super(suspiciousStewEffect, effectSeconds, properties);
         this.fallbackBlock = fallbackBlock;
-        this.settleWeights = settleWeights;
         this.registerDefaultState(this.stateDefinition.any().setValue(SettleTable.GENERATION, 0));
     }
 
@@ -63,6 +58,6 @@ public class DiseasedFlowerBlock extends FlowerBlock implements EntityBlock {
 
     @Override
     protected void randomTick(BlockState state, ServerLevel level, BlockPos pos, RandomSource random) {
-        DiseasedFlowerLogic.randomTick(state, level, pos, random, this, fallbackBlock, settleWeights);
+        DiseasedPlantLogic.randomTickSingle(state, level, pos, random, this, fallbackBlock);
     }
 }

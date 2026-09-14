@@ -17,7 +17,6 @@ import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.fml.ModContainer;
 import net.neoforged.fml.common.EventBusSubscriber;
 import net.neoforged.fml.common.Mod;
-import net.neoforged.fml.event.lifecycle.FMLClientSetupEvent;
 import net.neoforged.neoforge.client.event.ClientTickEvent;
 import net.neoforged.neoforge.client.event.RegisterColorHandlersEvent;
 import net.neoforged.neoforge.client.event.RegisterKeyMappingsEvent;
@@ -51,13 +50,6 @@ public class FlowerDiseaseClient {
     }
 
     @SubscribeEvent
-    static void onClientSetup(FMLClientSetupEvent event) {
-        // Some client setup code
-        FlowerDisease.LOGGER.info("HELLO FROM CLIENT SETUP");
-        FlowerDisease.LOGGER.info("MINECRAFT NAME >> {}", Minecraft.getInstance().getUser().getName());
-    }
-
-    @SubscribeEvent
     static void onRegisterKeyMappings(RegisterKeyMappingsEvent event) {
         event.register(CLEAR_GARDEN_KEY);
     }
@@ -84,11 +76,25 @@ public class FlowerDiseaseClient {
                         : GrassColor.getDefaultColor(),
                 FlowerDisease.DISEASED_TALL_GRASS.get(), FlowerDisease.DISEASED_LARGE_FERN.get()
         );
+        // The decorative top/bottom stand-ins for Tall Grass/Large Fern are always a single full block at
+        // pos (no HALF property to worry about), same as Short Grass/Fern's own tint above.
+        event.register(
+                (state, level, pos, tintIndex) -> level != null && pos != null
+                        ? BiomeColors.getAverageGrassColor(level, pos)
+                        : GrassColor.getDefaultColor(),
+                FlowerDisease.TALL_GRASS_TOP.get(), FlowerDisease.TALL_GRASS_BOTTOM.get(),
+                FlowerDisease.LARGE_FERN_TOP.get(), FlowerDisease.LARGE_FERN_BOTTOM.get()
+        );
     }
 
     @SubscribeEvent
     static void onRegisterItemColors(RegisterColorHandlersEvent.Item event) {
-        event.register((stack, tintIndex) -> GrassColor.get(0.5, 1.0), FlowerDisease.DISEASED_TALL_GRASS.get(), FlowerDisease.DISEASED_LARGE_FERN.get());
+        event.register(
+                (stack, tintIndex) -> GrassColor.get(0.5, 1.0),
+                FlowerDisease.DISEASED_TALL_GRASS.get(), FlowerDisease.DISEASED_LARGE_FERN.get(),
+                FlowerDisease.TALL_GRASS_TOP.get(), FlowerDisease.TALL_GRASS_BOTTOM.get(),
+                FlowerDisease.LARGE_FERN_TOP.get(), FlowerDisease.LARGE_FERN_BOTTOM.get()
+        );
 
         BlockColors blockColors = event.getBlockColors();
         event.register((stack, tintIndex) -> {

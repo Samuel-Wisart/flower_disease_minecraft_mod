@@ -1,7 +1,5 @@
 package com.iridium.flowerdisease;
 
-import java.util.List;
-
 import javax.annotation.Nullable;
 
 import net.minecraft.core.BlockPos;
@@ -17,26 +15,22 @@ import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockBehaviour;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.StateDefinition;
-import net.neoforged.neoforge.common.ModConfigSpec;
 
-// Same spread/settle behavior as DiseasedFlowerBlock (delegated to the shared DiseasedFlowerLogic), but
+// Same spread/settle behavior as DiseasedFlowerBlock (delegated to the shared DiseasedPlantLogic), but
 // based on WitherRoseBlock instead of plain FlowerBlock, so it keeps the wither-damage-on-touch and the
 // "can also grow on netherrack/soul sand/soul soil" ground rules of a real Wither Rose.
 public class DiseasedWitherRoseBlock extends WitherRoseBlock implements EntityBlock {
 
     private final Block fallbackBlock;
-    private final ModConfigSpec.ConfigValue<List<? extends String>> settleWeights;
 
     public DiseasedWitherRoseBlock(
             Holder<MobEffect> suspiciousStewEffect,
             float effectSeconds,
             Block fallbackBlock,
-            ModConfigSpec.ConfigValue<List<? extends String>> settleWeights,
             BlockBehaviour.Properties properties
     ) {
         super(suspiciousStewEffect, effectSeconds, properties);
         this.fallbackBlock = fallbackBlock;
-        this.settleWeights = settleWeights;
         this.registerDefaultState(this.stateDefinition.any().setValue(SettleTable.GENERATION, 0));
     }
 
@@ -61,6 +55,6 @@ public class DiseasedWitherRoseBlock extends WitherRoseBlock implements EntityBl
 
     @Override
     protected void randomTick(BlockState state, ServerLevel level, BlockPos pos, RandomSource random) {
-        DiseasedFlowerLogic.randomTick(state, level, pos, random, this, fallbackBlock, settleWeights);
+        DiseasedPlantLogic.randomTickSingle(state, level, pos, random, this, fallbackBlock);
     }
 }

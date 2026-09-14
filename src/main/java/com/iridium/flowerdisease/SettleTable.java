@@ -97,14 +97,16 @@ final class SettleTable {
     }
 
     // Places the chosen outcome at pos. For a two-block target, "full" places both halves properly
-    // (the correct, botanically complete result); "lower" places just the bottom half - a deliberately
-    // partial, shorter look some players like better in a dense field, and it's stable on its own since
-    // a lower half's canSurvive only cares about the ground below it, same as any single-block flower.
+    // (the correct, botanically complete result); "lower"/"upper" each place a standalone decorative
+    // single-block stand-in instead (see placeBottom/placeTop) - this format still exists for the debug
+    // command's free-form species strings, but the Garden Bag itself never produces it: it always names
+    // the exact block it wants (the vanilla species for "full", or the specific decorative top/bottom
+    // block for those), with an implicit FULL half, since Bottom/Top are now their own real blocks/items.
     static void place(ServerLevel level, BlockPos pos, Option option) {
         Block block = option.block();
         if (block instanceof DoublePlantBlock) {
             switch (option.half()) {
-                case LOWER -> level.setBlock(pos, block.defaultBlockState().setValue(DoublePlantBlock.HALF, DoubleBlockHalf.LOWER), PLACEMENT_FLAGS);
+                case LOWER -> placeBottom(level, pos, block);
                 case UPPER -> placeTop(level, pos, block);
                 case FULL -> DoublePlantBlock.placeAt(level, block.defaultBlockState(), pos, PLACEMENT_FLAGS);
             }
@@ -126,6 +128,20 @@ final class SettleTable {
         }
     }
 
+    // A lone lower half is already stable on its own (its canSurvive only cares about the ground below
+    // it, same as any single-block flower), but placing the dedicated decorative "bottom" block instead
+    // gives it its own real block/item identity, so the Garden Bag can offer it as a distinct choice in
+    // the species grid. Falls back to the raw lower-half placement for any DoublePlantBlock we don't have
+    // one registered for.
+    private static void placeBottom(ServerLevel level, BlockPos pos, Block tallFlower) {
+        DeferredBlock<DecorativeFlowerBlock> decorativeBottom = FlowerDisease.DECORATIVE_BOTTOMS.get(tallFlower);
+        if (decorativeBottom != null) {
+            level.setBlock(pos, decorativeBottom.get().defaultBlockState(), PLACEMENT_FLAGS);
+        } else {
+            level.setBlock(pos, tallFlower.defaultBlockState().setValue(DoublePlantBlock.HALF, DoubleBlockHalf.LOWER), PLACEMENT_FLAGS);
+        }
+    }
+
     // "Same species" for density purposes: this block, its fallback, or any of its settle outcomes.
     // A two-block plant's upper half is skipped since its paired lower half (scanned separately) already
     // represents the same physical plant - otherwise every tall flower would count double.
@@ -143,13 +159,15 @@ final class SettleTable {
                 return true;
             }
 
-            // An "upper" option is actually represented on the ground by its decorative top stand-in
-            // (see placeTop), not by the tall flower block named in the option itself.
-            if (option.half() == Half.UPPER) {
-                DeferredBlock<DecorativeFlowerBlock> decorativeTop = FlowerDisease.DECORATIVE_TOPS.get(option.block());
-                if (decorativeTop != null && state.is(decorativeTop.get())) {
-                    return true;
-                }
+            // An "upper"/"lower" option is actually represented on the ground by its decorative top/bottom
+            // stand-in (see placeTop/placeBottom), not by the tall flower block named in the option itself.
+            DeferredBlock<DecorativeFlowerBlock> decorativeStandIn = switch (option.half()) {
+                case UPPER -> FlowerDisease.DECORATIVE_TOPS.get(option.block());
+                case LOWER -> FlowerDisease.DECORATIVE_BOTTOMS.get(option.block());
+                case FULL -> null;
+            };
+            if (decorativeStandIn != null && state.is(decorativeStandIn.get())) {
+                return true;
             }
         }
         return false;

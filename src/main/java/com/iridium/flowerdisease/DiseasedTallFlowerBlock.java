@@ -1,7 +1,5 @@
 package com.iridium.flowerdisease;
 
-import java.util.List;
-
 import javax.annotation.Nullable;
 
 import net.minecraft.core.BlockPos;
@@ -16,25 +14,21 @@ import net.minecraft.world.level.block.state.BlockBehaviour;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.StateDefinition;
 import net.minecraft.world.level.block.state.properties.DoubleBlockHalf;
-import net.neoforged.neoforge.common.ModConfigSpec;
 
 // Two-block counterpart to DiseasedFlowerBlock, for the four TallFlowerBlock-based species (Sunflower,
-// Lilac, Rose Bush, Peony). The actual spread/settle logic lives in DiseasedTallPlantLogic, shared with
+// Lilac, Rose Bush, Peony). The actual spread/settle logic lives in DiseasedPlantLogic, shared with
 // DiseasedTallGrassBlock (Tall Grass/Large Fern extend plain DoublePlantBlock instead, so they can't
 // share a superclass with this class, only the static logic).
 public class DiseasedTallFlowerBlock extends TallFlowerBlock implements EntityBlock {
 
     private final Block fallbackBlock;
-    private final ModConfigSpec.ConfigValue<List<? extends String>> settleWeights;
 
     public DiseasedTallFlowerBlock(
             Block fallbackBlock,
-            ModConfigSpec.ConfigValue<List<? extends String>> settleWeights,
             BlockBehaviour.Properties properties
     ) {
         super(properties);
         this.fallbackBlock = fallbackBlock;
-        this.settleWeights = settleWeights;
         this.registerDefaultState(this.stateDefinition.any().setValue(HALF, DoubleBlockHalf.LOWER).setValue(SettleTable.GENERATION, 0));
     }
 
@@ -60,6 +54,6 @@ public class DiseasedTallFlowerBlock extends TallFlowerBlock implements EntityBl
 
     @Override
     protected void randomTick(BlockState state, ServerLevel level, BlockPos pos, RandomSource random) {
-        DiseasedTallPlantLogic.randomTick(state, level, pos, random, this, fallbackBlock, settleWeights);
+        DiseasedPlantLogic.randomTickTall(state, level, pos, random, this, fallbackBlock);
     }
 }

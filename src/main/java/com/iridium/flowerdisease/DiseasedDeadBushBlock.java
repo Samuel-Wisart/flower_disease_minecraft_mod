@@ -1,7 +1,5 @@
 package com.iridium.flowerdisease;
 
-import java.util.List;
-
 import javax.annotation.Nullable;
 
 import net.minecraft.core.BlockPos;
@@ -15,24 +13,20 @@ import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockBehaviour;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.StateDefinition;
-import net.neoforged.neoforge.common.ModConfigSpec;
 
 // Single-block diseased Dead Bush - based on DeadBushBlock instead of FlowerBlock/TallGrassBlock so it
 // keeps its own ground rules (sand/dead soil, via BlockTags.DEAD_BUSH_MAY_PLACE_ON). Delegates to
-// DiseasedFlowerLogic, same as the other single-block species.
+// DiseasedPlantLogic, same as the other single-block species.
 public class DiseasedDeadBushBlock extends DeadBushBlock implements EntityBlock {
 
     private final Block fallbackBlock;
-    private final ModConfigSpec.ConfigValue<List<? extends String>> settleWeights;
 
     public DiseasedDeadBushBlock(
             Block fallbackBlock,
-            ModConfigSpec.ConfigValue<List<? extends String>> settleWeights,
             BlockBehaviour.Properties properties
     ) {
         super(properties);
         this.fallbackBlock = fallbackBlock;
-        this.settleWeights = settleWeights;
         this.registerDefaultState(this.stateDefinition.any().setValue(SettleTable.GENERATION, 0));
     }
 
@@ -57,6 +51,6 @@ public class DiseasedDeadBushBlock extends DeadBushBlock implements EntityBlock 
 
     @Override
     protected void randomTick(BlockState state, ServerLevel level, BlockPos pos, RandomSource random) {
-        DiseasedFlowerLogic.randomTick(state, level, pos, random, this, fallbackBlock, settleWeights);
+        DiseasedPlantLogic.randomTickSingle(state, level, pos, random, this, fallbackBlock);
     }
 }

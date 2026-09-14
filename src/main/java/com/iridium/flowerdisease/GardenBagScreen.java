@@ -1,7 +1,6 @@
 package com.iridium.flowerdisease;
 
 import net.minecraft.client.gui.GuiGraphics;
-import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.screens.inventory.AbstractContainerScreen;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.entity.player.Inventory;
@@ -17,31 +16,12 @@ public class GardenBagScreen extends AbstractContainerScreen<GardenBagMenu> {
     private static final int PANEL_FILL = 0xC0101010;
     private static final int PANEL_BORDER = 0xFF3F3F3F;
     private static final int LABEL_COLOR = 0xFFE0E0E0;
-    private static final int LOCKED_COLOR = 0xFFFF5555;
 
     public GardenBagScreen(GardenBagMenu menu, Inventory playerInventory, Component title) {
         super(menu, playerInventory, title);
         this.imageWidth = 176;
         this.imageHeight = 238;
         this.inventoryLabelY = 144;
-    }
-
-    @Override
-    protected void init() {
-        super.init();
-        int buttonWidth = 90;
-        this.addRenderableWidget(Button.builder(lockButtonLabel(), button -> {
-            if (this.menu.clickMenuButton(this.minecraft.player, GardenBagMenu.LOCK_BUTTON_ID)) {
-                this.minecraft.gameMode.handleInventoryButtonClick(this.menu.containerId, GardenBagMenu.LOCK_BUTTON_ID);
-                this.rebuildWidgets();
-            }
-        }).bounds(this.leftPos + (imageWidth - buttonWidth) / 2, this.topPos + 118, buttonWidth, 16).build());
-    }
-
-    private Component lockButtonLabel() {
-        return this.menu.isLocked()
-                ? Component.translatable("gui.flowerdisease.bag_locked")
-                : Component.translatable("gui.flowerdisease.lock_bag");
     }
 
     @Override
@@ -68,10 +48,6 @@ public class GardenBagScreen extends AbstractContainerScreen<GardenBagMenu> {
         drawCentered(guiGraphics, "Range", 96, 40);
         drawCentered(guiGraphics, "Fence", 118, 40);
         drawCentered(guiGraphics, "Species", 62, 49);
-
-        if (this.menu.isLocked()) {
-            guiGraphics.drawString(this.font, "Locked", 8, 40 - 9, LOCKED_COLOR, false);
-        }
 
         guiGraphics.drawString(this.font, this.playerInventoryTitle, this.inventoryLabelX, this.inventoryLabelY, LABEL_COLOR, false);
     }

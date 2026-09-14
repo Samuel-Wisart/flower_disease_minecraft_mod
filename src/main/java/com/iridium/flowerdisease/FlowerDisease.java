@@ -1,6 +1,5 @@
 package com.iridium.flowerdisease;
 
-import java.util.List;
 import java.util.Map;
 
 import org.slf4j.Logger;
@@ -11,7 +10,6 @@ import net.minecraft.core.Holder;
 import net.minecraft.core.component.DataComponentType;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.core.registries.Registries;
-import net.minecraft.network.codec.ByteBufCodecs;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.effect.MobEffect;
 import net.minecraft.world.effect.MobEffects;
@@ -35,12 +33,10 @@ import net.neoforged.fml.common.Mod;
 import net.neoforged.fml.config.ModConfig;
 import net.neoforged.fml.ModContainer;
 import net.neoforged.fml.event.lifecycle.FMLCommonSetupEvent;
-import net.neoforged.neoforge.common.ModConfigSpec;
 import net.neoforged.neoforge.common.NeoForge;
 import net.neoforged.neoforge.common.extensions.IMenuTypeExtension;
 import net.neoforged.neoforge.event.BuildCreativeModeTabContentsEvent;
 import net.neoforged.neoforge.event.RegisterCommandsEvent;
-import net.neoforged.neoforge.event.server.ServerStartingEvent;
 import net.neoforged.neoforge.registries.DeferredBlock;
 import net.neoforged.neoforge.registries.DeferredHolder;
 import net.neoforged.neoforge.registries.DeferredItem;
@@ -65,97 +61,154 @@ public class FlowerDisease {
     public static final DeferredRegister<MenuType<?>> MENU_TYPES = DeferredRegister.create(Registries.MENU, MODID);
 
     // Each Diseased Flower shares the DiseasedFlowerBlock behavior; the suspicious stew effect matches the
-    // vanilla flower it's based on, and what it settles into once it can't spread is configured in Config.java.
+    // vanilla flower it's based on. What it settles into is entirely driven by the Garden Bag now (see
+    // SpreadProfileBlockEntity/SettleTable) - a hand-placed one with no bag profile just settles into
+    // fallbackBlock, its own plain vanilla self.
     public static final DeferredBlock<DiseasedFlowerBlock> DISEASED_DANDELION =
-            registerDiseased("diseased_dandelion", MobEffects.SATURATION, 0.35F, Blocks.DANDELION, Config.DANDELION_SETTLE_WEIGHTS);
+            registerDiseased("diseased_dandelion", MobEffects.SATURATION, 0.35F, Blocks.DANDELION);
     public static final DeferredBlock<DiseasedFlowerBlock> DISEASED_POPPY =
-            registerDiseased("diseased_poppy", MobEffects.NIGHT_VISION, 5.0F, Blocks.POPPY, Config.POPPY_SETTLE_WEIGHTS);
+            registerDiseased("diseased_poppy", MobEffects.NIGHT_VISION, 5.0F, Blocks.POPPY);
     public static final DeferredBlock<DiseasedFlowerBlock> DISEASED_BLUE_ORCHID =
-            registerDiseased("diseased_blue_orchid", MobEffects.SATURATION, 0.35F, Blocks.BLUE_ORCHID, Config.BLUE_ORCHID_SETTLE_WEIGHTS);
+            registerDiseased("diseased_blue_orchid", MobEffects.SATURATION, 0.35F, Blocks.BLUE_ORCHID);
     public static final DeferredBlock<DiseasedFlowerBlock> DISEASED_ALLIUM =
-            registerDiseased("diseased_allium", MobEffects.FIRE_RESISTANCE, 4.0F, Blocks.ALLIUM, Config.ALLIUM_SETTLE_WEIGHTS);
+            registerDiseased("diseased_allium", MobEffects.FIRE_RESISTANCE, 4.0F, Blocks.ALLIUM);
     public static final DeferredBlock<DiseasedFlowerBlock> DISEASED_AZURE_BLUET =
-            registerDiseased("diseased_azure_bluet", MobEffects.BLINDNESS, 8.0F, Blocks.AZURE_BLUET, Config.AZURE_BLUET_SETTLE_WEIGHTS);
+            registerDiseased("diseased_azure_bluet", MobEffects.BLINDNESS, 8.0F, Blocks.AZURE_BLUET);
     public static final DeferredBlock<DiseasedFlowerBlock> DISEASED_RED_TULIP =
-            registerDiseased("diseased_red_tulip", MobEffects.WEAKNESS, 9.0F, Blocks.RED_TULIP, Config.RED_TULIP_SETTLE_WEIGHTS);
+            registerDiseased("diseased_red_tulip", MobEffects.WEAKNESS, 9.0F, Blocks.RED_TULIP);
     public static final DeferredBlock<DiseasedFlowerBlock> DISEASED_ORANGE_TULIP =
-            registerDiseased("diseased_orange_tulip", MobEffects.WEAKNESS, 9.0F, Blocks.ORANGE_TULIP, Config.ORANGE_TULIP_SETTLE_WEIGHTS);
+            registerDiseased("diseased_orange_tulip", MobEffects.WEAKNESS, 9.0F, Blocks.ORANGE_TULIP);
     public static final DeferredBlock<DiseasedFlowerBlock> DISEASED_WHITE_TULIP =
-            registerDiseased("diseased_white_tulip", MobEffects.WEAKNESS, 9.0F, Blocks.WHITE_TULIP, Config.WHITE_TULIP_SETTLE_WEIGHTS);
+            registerDiseased("diseased_white_tulip", MobEffects.WEAKNESS, 9.0F, Blocks.WHITE_TULIP);
     public static final DeferredBlock<DiseasedFlowerBlock> DISEASED_PINK_TULIP =
-            registerDiseased("diseased_pink_tulip", MobEffects.WEAKNESS, 9.0F, Blocks.PINK_TULIP, Config.PINK_TULIP_SETTLE_WEIGHTS);
+            registerDiseased("diseased_pink_tulip", MobEffects.WEAKNESS, 9.0F, Blocks.PINK_TULIP);
     public static final DeferredBlock<DiseasedFlowerBlock> DISEASED_OXEYE_DAISY =
-            registerDiseased("diseased_oxeye_daisy", MobEffects.REGENERATION, 8.0F, Blocks.OXEYE_DAISY, Config.OXEYE_DAISY_SETTLE_WEIGHTS);
+            registerDiseased("diseased_oxeye_daisy", MobEffects.REGENERATION, 8.0F, Blocks.OXEYE_DAISY);
     public static final DeferredBlock<DiseasedFlowerBlock> DISEASED_CORNFLOWER =
-            registerDiseased("diseased_cornflower", MobEffects.JUMP, 6.0F, Blocks.CORNFLOWER, Config.CORNFLOWER_SETTLE_WEIGHTS);
+            registerDiseased("diseased_cornflower", MobEffects.JUMP, 6.0F, Blocks.CORNFLOWER);
     public static final DeferredBlock<DiseasedFlowerBlock> DISEASED_LILY_OF_THE_VALLEY =
-            registerDiseased("diseased_lily_of_the_valley", MobEffects.POISON, 12.0F, Blocks.LILY_OF_THE_VALLEY, Config.LILY_OF_THE_VALLEY_SETTLE_WEIGHTS);
+            registerDiseased("diseased_lily_of_the_valley", MobEffects.POISON, 12.0F, Blocks.LILY_OF_THE_VALLEY);
 
     // Same spread/settle behavior, but based on WitherRoseBlock so it keeps the wither-damage-on-touch
     // and the "also grows on netherrack/soul sand/soul soil" ground rules of a real Wither Rose.
     public static final DeferredBlock<DiseasedWitherRoseBlock> DISEASED_WITHER_ROSE = BLOCKS.registerBlock(
             "diseased_wither_rose",
-            properties -> new DiseasedWitherRoseBlock(MobEffects.WITHER, 8.0F, Blocks.WITHER_ROSE, Config.WITHER_ROSE_SETTLE_WEIGHTS, properties),
+            properties -> new DiseasedWitherRoseBlock(MobEffects.WITHER, 8.0F, Blocks.WITHER_ROSE, properties),
             flowerProperties()
     );
 
     // Two-block flowers: no suspicious stew effect (vanilla doesn't give these one either).
-    public static final DeferredBlock<DiseasedTallFlowerBlock> DISEASED_SUNFLOWER =
-            registerDiseasedTall("diseased_sunflower", Blocks.SUNFLOWER, Config.SUNFLOWER_SETTLE_WEIGHTS);
-    public static final DeferredBlock<DiseasedTallFlowerBlock> DISEASED_LILAC =
-            registerDiseasedTall("diseased_lilac", Blocks.LILAC, Config.LILAC_SETTLE_WEIGHTS);
-    public static final DeferredBlock<DiseasedTallFlowerBlock> DISEASED_ROSE_BUSH =
-            registerDiseasedTall("diseased_rose_bush", Blocks.ROSE_BUSH, Config.ROSE_BUSH_SETTLE_WEIGHTS);
-    public static final DeferredBlock<DiseasedTallFlowerBlock> DISEASED_PEONY =
-            registerDiseasedTall("diseased_peony", Blocks.PEONY, Config.PEONY_SETTLE_WEIGHTS);
+    public static final DeferredBlock<DiseasedTallFlowerBlock> DISEASED_SUNFLOWER = registerDiseasedTall("diseased_sunflower", Blocks.SUNFLOWER);
+    public static final DeferredBlock<DiseasedTallFlowerBlock> DISEASED_LILAC = registerDiseasedTall("diseased_lilac", Blocks.LILAC);
+    public static final DeferredBlock<DiseasedTallFlowerBlock> DISEASED_ROSE_BUSH = registerDiseasedTall("diseased_rose_bush", Blocks.ROSE_BUSH);
+    public static final DeferredBlock<DiseasedTallFlowerBlock> DISEASED_PEONY = registerDiseasedTall("diseased_peony", Blocks.PEONY);
 
     // Short Grass and Fern both use vanilla's plain TallGrassBlock class, so one block class
-    // (DiseasedGrassBlock) covers both - only the fallback/settleWeights differ per registration.
+    // (DiseasedGrassBlock) covers both - only the fallback differs per registration.
     public static final DeferredBlock<DiseasedGrassBlock> DISEASED_SHORT_GRASS = BLOCKS.registerBlock(
             "diseased_short_grass",
-            properties -> new DiseasedGrassBlock(Blocks.SHORT_GRASS, Config.SHORT_GRASS_SETTLE_WEIGHTS, properties),
+            properties -> new DiseasedGrassBlock(Blocks.SHORT_GRASS, properties),
             grassProperties()
     );
     public static final DeferredBlock<DiseasedGrassBlock> DISEASED_FERN = BLOCKS.registerBlock(
             "diseased_fern",
-            properties -> new DiseasedGrassBlock(Blocks.FERN, Config.FERN_SETTLE_WEIGHTS, properties),
+            properties -> new DiseasedGrassBlock(Blocks.FERN, properties),
             grassProperties()
     );
     public static final DeferredBlock<DiseasedDeadBushBlock> DISEASED_DEAD_BUSH = BLOCKS.registerBlock(
             "diseased_dead_bush",
-            properties -> new DiseasedDeadBushBlock(Blocks.DEAD_BUSH, Config.DEAD_BUSH_SETTLE_WEIGHTS, properties),
+            properties -> new DiseasedDeadBushBlock(Blocks.DEAD_BUSH, properties),
             deadBushProperties()
     );
     // Tall Grass and Large Fern both use vanilla's plain DoublePlantBlock class directly (no bonemeal
     // behavior, unlike the TallFlowerBlock-based species above).
     public static final DeferredBlock<DiseasedTallGrassBlock> DISEASED_TALL_GRASS = BLOCKS.registerBlock(
             "diseased_tall_grass",
-            properties -> new DiseasedTallGrassBlock(Blocks.TALL_GRASS, Config.TALL_GRASS_SETTLE_WEIGHTS, properties),
+            properties -> new DiseasedTallGrassBlock(Blocks.TALL_GRASS, properties),
             tallGrassProperties()
     );
     public static final DeferredBlock<DiseasedTallGrassBlock> DISEASED_LARGE_FERN = BLOCKS.registerBlock(
             "diseased_large_fern",
-            properties -> new DiseasedTallGrassBlock(Blocks.LARGE_FERN, Config.LARGE_FERN_SETTLE_WEIGHTS, properties),
+            properties -> new DiseasedTallGrassBlock(Blocks.LARGE_FERN, properties),
             tallGrassProperties()
     );
 
-    // Standalone "just the top half" decorative flowers - see SettleTable.placeTop for why these exist
-    // instead of placing an orphaned upper half of the real two-block plant.
+    // Standalone "just the top half"/"just the bottom half" decorative single-block plants - see
+    // SettleTable.placeTop/placeBottom for why these exist instead of placing an orphaned half of the
+    // real two-block plant. They're also the Garden Bag's own separate "Top"/"Bottom" species grid
+    // choices, each with its own weight, distinct from the full two-block "Full" species item.
     public static final DeferredBlock<DecorativeFlowerBlock> SUNFLOWER_TOP =
             BLOCKS.registerBlock("sunflower_top", DecorativeFlowerBlock::new, decorativeFlowerProperties());
+    public static final DeferredBlock<DecorativeFlowerBlock> SUNFLOWER_BOTTOM =
+            BLOCKS.registerBlock("sunflower_bottom", DecorativeFlowerBlock::new, decorativeFlowerProperties());
     public static final DeferredBlock<DecorativeFlowerBlock> LILAC_TOP =
             BLOCKS.registerBlock("lilac_top", DecorativeFlowerBlock::new, decorativeFlowerProperties());
+    public static final DeferredBlock<DecorativeFlowerBlock> LILAC_BOTTOM =
+            BLOCKS.registerBlock("lilac_bottom", DecorativeFlowerBlock::new, decorativeFlowerProperties());
     public static final DeferredBlock<DecorativeFlowerBlock> ROSE_BUSH_TOP =
             BLOCKS.registerBlock("rose_bush_top", DecorativeFlowerBlock::new, decorativeFlowerProperties());
+    public static final DeferredBlock<DecorativeFlowerBlock> ROSE_BUSH_BOTTOM =
+            BLOCKS.registerBlock("rose_bush_bottom", DecorativeFlowerBlock::new, decorativeFlowerProperties());
     public static final DeferredBlock<DecorativeFlowerBlock> PEONY_TOP =
             BLOCKS.registerBlock("peony_top", DecorativeFlowerBlock::new, decorativeFlowerProperties());
+    public static final DeferredBlock<DecorativeFlowerBlock> PEONY_BOTTOM =
+            BLOCKS.registerBlock("peony_bottom", DecorativeFlowerBlock::new, decorativeFlowerProperties());
+    public static final DeferredBlock<DecorativeFlowerBlock> TALL_GRASS_TOP =
+            BLOCKS.registerBlock("tall_grass_top", DecorativeFlowerBlock::new, decorativeFlowerProperties());
+    public static final DeferredBlock<DecorativeFlowerBlock> TALL_GRASS_BOTTOM =
+            BLOCKS.registerBlock("tall_grass_bottom", DecorativeFlowerBlock::new, decorativeFlowerProperties());
+    public static final DeferredBlock<DecorativeFlowerBlock> LARGE_FERN_TOP =
+            BLOCKS.registerBlock("large_fern_top", DecorativeFlowerBlock::new, decorativeFlowerProperties());
+    public static final DeferredBlock<DecorativeFlowerBlock> LARGE_FERN_BOTTOM =
+            BLOCKS.registerBlock("large_fern_bottom", DecorativeFlowerBlock::new, decorativeFlowerProperties());
 
-    // Which decorative top stands in for a given vanilla two-block plant's "upper" settle outcome.
+    // Which decorative top/bottom stands in for a given vanilla two-block plant's "upper"/"lower" settle
+    // outcome (used by SettleTable.placeTop/placeBottom and isSameSpecies for the debug command's legacy
+    // "lower"/"upper" string format - the Garden Bag itself always names the exact block it wants).
     public static final Map<Block, DeferredBlock<DecorativeFlowerBlock>> DECORATIVE_TOPS = Map.of(
             Blocks.SUNFLOWER, SUNFLOWER_TOP,
             Blocks.LILAC, LILAC_TOP,
             Blocks.ROSE_BUSH, ROSE_BUSH_TOP,
-            Blocks.PEONY, PEONY_TOP
+            Blocks.PEONY, PEONY_TOP,
+            Blocks.TALL_GRASS, TALL_GRASS_TOP,
+            Blocks.LARGE_FERN, LARGE_FERN_TOP
+    );
+    public static final Map<Block, DeferredBlock<DecorativeFlowerBlock>> DECORATIVE_BOTTOMS = Map.of(
+            Blocks.SUNFLOWER, SUNFLOWER_BOTTOM,
+            Blocks.LILAC, LILAC_BOTTOM,
+            Blocks.ROSE_BUSH, ROSE_BUSH_BOTTOM,
+            Blocks.PEONY, PEONY_BOTTOM,
+            Blocks.TALL_GRASS, TALL_GRASS_BOTTOM,
+            Blocks.LARGE_FERN, LARGE_FERN_BOTTOM
+    );
+
+    // Reverse lookup from a vanilla "full species" block (as named in a Garden Bag/settle outcome pool)
+    // to the Diseased block that actually spreads as that species. A decorative top/bottom block is
+    // deliberately absent from here - it has no Diseased counterpart, so it can never be picked as a
+    // spreading child or a plantable bag root, only as a settle-only outcome.
+    public static final Map<Block, DeferredBlock<? extends Block>> DISEASED_BY_FALLBACK = Map.ofEntries(
+            Map.entry(Blocks.DANDELION, DISEASED_DANDELION),
+            Map.entry(Blocks.POPPY, DISEASED_POPPY),
+            Map.entry(Blocks.BLUE_ORCHID, DISEASED_BLUE_ORCHID),
+            Map.entry(Blocks.ALLIUM, DISEASED_ALLIUM),
+            Map.entry(Blocks.AZURE_BLUET, DISEASED_AZURE_BLUET),
+            Map.entry(Blocks.RED_TULIP, DISEASED_RED_TULIP),
+            Map.entry(Blocks.ORANGE_TULIP, DISEASED_ORANGE_TULIP),
+            Map.entry(Blocks.WHITE_TULIP, DISEASED_WHITE_TULIP),
+            Map.entry(Blocks.PINK_TULIP, DISEASED_PINK_TULIP),
+            Map.entry(Blocks.OXEYE_DAISY, DISEASED_OXEYE_DAISY),
+            Map.entry(Blocks.CORNFLOWER, DISEASED_CORNFLOWER),
+            Map.entry(Blocks.LILY_OF_THE_VALLEY, DISEASED_LILY_OF_THE_VALLEY),
+            Map.entry(Blocks.WITHER_ROSE, DISEASED_WITHER_ROSE),
+            Map.entry(Blocks.SUNFLOWER, DISEASED_SUNFLOWER),
+            Map.entry(Blocks.LILAC, DISEASED_LILAC),
+            Map.entry(Blocks.ROSE_BUSH, DISEASED_ROSE_BUSH),
+            Map.entry(Blocks.PEONY, DISEASED_PEONY),
+            Map.entry(Blocks.SHORT_GRASS, DISEASED_SHORT_GRASS),
+            Map.entry(Blocks.FERN, DISEASED_FERN),
+            Map.entry(Blocks.DEAD_BUSH, DISEASED_DEAD_BUSH),
+            Map.entry(Blocks.TALL_GRASS, DISEASED_TALL_GRASS),
+            Map.entry(Blocks.LARGE_FERN, DISEASED_LARGE_FERN)
     );
 
     // Optional per-planting spread overrides (see SpreadProfileBlockEntity) - every spreading Diseased
@@ -175,13 +228,6 @@ public class FlowerDisease {
             ).build(null)
     );
 
-    // Whether a Garden Bag has been sealed - once true, its slots can no longer be changed (see
-    // GardenBagMenu.RestrictedSlot) and using it on a block plants instead of reopening the config screen.
-    public static final DeferredHolder<DataComponentType<?>, DataComponentType<Boolean>> GARDEN_BAG_LOCKED = DATA_COMPONENT_TYPES.register(
-            "garden_bag_locked",
-            () -> DataComponentType.<Boolean>builder().persistent(com.mojang.serialization.Codec.BOOL).networkSynchronized(ByteBufCodecs.BOOL).build()
-    );
-
     // Garden Bag menu: constructed the same way on both sides from (windowId, playerInventory, hand) - the
     // hand is the only "extra data" the client needs to know which held stack the menu is backed by.
     public static final DeferredHolder<MenuType<?>, MenuType<GardenBagMenu>> GARDEN_BAG_MENU = MENU_TYPES.register(
@@ -192,33 +238,6 @@ public class FlowerDisease {
     public static final DeferredItem<GardenBagItem> GARDEN_BAG = ITEMS.register(
             "garden_bag",
             () -> new GardenBagItem(new Item.Properties().stacksTo(1))
-    );
-
-    // Which Diseased species a vanilla flower item stands for when dropped into one of the Garden Bag's
-    // species slots - the stack count in that slot becomes that species' relative weight.
-    public static final Map<Item, DeferredBlock<? extends Block>> SPECIES_SEED_ITEMS = Map.ofEntries(
-            Map.entry(Items.DANDELION, DISEASED_DANDELION),
-            Map.entry(Items.POPPY, DISEASED_POPPY),
-            Map.entry(Items.BLUE_ORCHID, DISEASED_BLUE_ORCHID),
-            Map.entry(Items.ALLIUM, DISEASED_ALLIUM),
-            Map.entry(Items.AZURE_BLUET, DISEASED_AZURE_BLUET),
-            Map.entry(Items.RED_TULIP, DISEASED_RED_TULIP),
-            Map.entry(Items.ORANGE_TULIP, DISEASED_ORANGE_TULIP),
-            Map.entry(Items.WHITE_TULIP, DISEASED_WHITE_TULIP),
-            Map.entry(Items.PINK_TULIP, DISEASED_PINK_TULIP),
-            Map.entry(Items.OXEYE_DAISY, DISEASED_OXEYE_DAISY),
-            Map.entry(Items.CORNFLOWER, DISEASED_CORNFLOWER),
-            Map.entry(Items.LILY_OF_THE_VALLEY, DISEASED_LILY_OF_THE_VALLEY),
-            Map.entry(Items.WITHER_ROSE, DISEASED_WITHER_ROSE),
-            Map.entry(Items.SUNFLOWER, DISEASED_SUNFLOWER),
-            Map.entry(Items.LILAC, DISEASED_LILAC),
-            Map.entry(Items.ROSE_BUSH, DISEASED_ROSE_BUSH),
-            Map.entry(Items.PEONY, DISEASED_PEONY),
-            Map.entry(Items.SHORT_GRASS, DISEASED_SHORT_GRASS),
-            Map.entry(Items.FERN, DISEASED_FERN),
-            Map.entry(Items.DEAD_BUSH, DISEASED_DEAD_BUSH),
-            Map.entry(Items.TALL_GRASS, DISEASED_TALL_GRASS),
-            Map.entry(Items.LARGE_FERN, DISEASED_LARGE_FERN)
     );
 
     public static final DeferredItem<BlockItem> DISEASED_DANDELION_ITEM = ITEMS.registerSimpleBlockItem("diseased_dandelion", DISEASED_DANDELION);
@@ -239,25 +258,83 @@ public class FlowerDisease {
     public static final DeferredItem<BlockItem> DISEASED_ROSE_BUSH_ITEM = ITEMS.registerSimpleBlockItem("diseased_rose_bush", DISEASED_ROSE_BUSH);
     public static final DeferredItem<BlockItem> DISEASED_PEONY_ITEM = ITEMS.registerSimpleBlockItem("diseased_peony", DISEASED_PEONY);
     public static final DeferredItem<BlockItem> SUNFLOWER_TOP_ITEM = ITEMS.registerSimpleBlockItem("sunflower_top", SUNFLOWER_TOP);
+    public static final DeferredItem<BlockItem> SUNFLOWER_BOTTOM_ITEM = ITEMS.registerSimpleBlockItem("sunflower_bottom", SUNFLOWER_BOTTOM);
     public static final DeferredItem<BlockItem> LILAC_TOP_ITEM = ITEMS.registerSimpleBlockItem("lilac_top", LILAC_TOP);
+    public static final DeferredItem<BlockItem> LILAC_BOTTOM_ITEM = ITEMS.registerSimpleBlockItem("lilac_bottom", LILAC_BOTTOM);
     public static final DeferredItem<BlockItem> ROSE_BUSH_TOP_ITEM = ITEMS.registerSimpleBlockItem("rose_bush_top", ROSE_BUSH_TOP);
+    public static final DeferredItem<BlockItem> ROSE_BUSH_BOTTOM_ITEM = ITEMS.registerSimpleBlockItem("rose_bush_bottom", ROSE_BUSH_BOTTOM);
     public static final DeferredItem<BlockItem> PEONY_TOP_ITEM = ITEMS.registerSimpleBlockItem("peony_top", PEONY_TOP);
+    public static final DeferredItem<BlockItem> PEONY_BOTTOM_ITEM = ITEMS.registerSimpleBlockItem("peony_bottom", PEONY_BOTTOM);
+    public static final DeferredItem<BlockItem> TALL_GRASS_TOP_ITEM = ITEMS.registerSimpleBlockItem("tall_grass_top", TALL_GRASS_TOP);
+    public static final DeferredItem<BlockItem> TALL_GRASS_BOTTOM_ITEM = ITEMS.registerSimpleBlockItem("tall_grass_bottom", TALL_GRASS_BOTTOM);
+    public static final DeferredItem<BlockItem> LARGE_FERN_TOP_ITEM = ITEMS.registerSimpleBlockItem("large_fern_top", LARGE_FERN_TOP);
+    public static final DeferredItem<BlockItem> LARGE_FERN_BOTTOM_ITEM = ITEMS.registerSimpleBlockItem("large_fern_bottom", LARGE_FERN_BOTTOM);
     public static final DeferredItem<BlockItem> DISEASED_SHORT_GRASS_ITEM = ITEMS.registerSimpleBlockItem("diseased_short_grass", DISEASED_SHORT_GRASS);
     public static final DeferredItem<BlockItem> DISEASED_FERN_ITEM = ITEMS.registerSimpleBlockItem("diseased_fern", DISEASED_FERN);
     public static final DeferredItem<BlockItem> DISEASED_DEAD_BUSH_ITEM = ITEMS.registerSimpleBlockItem("diseased_dead_bush", DISEASED_DEAD_BUSH);
     public static final DeferredItem<BlockItem> DISEASED_TALL_GRASS_ITEM = ITEMS.registerSimpleBlockItem("diseased_tall_grass", DISEASED_TALL_GRASS);
     public static final DeferredItem<BlockItem> DISEASED_LARGE_FERN_ITEM = ITEMS.registerSimpleBlockItem("diseased_large_fern", DISEASED_LARGE_FERN);
 
+    // What dropping a given item into one of the Garden Bag's species grid slots means - the stack count
+    // in that slot becomes that outcome's relative weight (see GardenBagItem). A "full species" item maps
+    // to its own vanilla block (spreadable AND a valid settle target, via DISEASED_BY_FALLBACK); a
+    // Top/Bottom item maps directly to its decorative block (settle-only, never spreadable). Built lazily
+    // (not a plain static field) because the keys/values here include mod-registered DeferredItem/
+    // DeferredBlock instances that aren't safe to resolve via .get() until registration has actually run,
+    // which happens well after this class's own static fields are initialized.
+    private static Map<Item, Block> bagOutcomeItems;
+
+    public static Map<Item, Block> bagOutcomeItems() {
+        if (bagOutcomeItems == null) {
+            bagOutcomeItems = Map.ofEntries(
+                    Map.entry(Items.DANDELION, Blocks.DANDELION),
+                    Map.entry(Items.POPPY, Blocks.POPPY),
+                    Map.entry(Items.BLUE_ORCHID, Blocks.BLUE_ORCHID),
+                    Map.entry(Items.ALLIUM, Blocks.ALLIUM),
+                    Map.entry(Items.AZURE_BLUET, Blocks.AZURE_BLUET),
+                    Map.entry(Items.RED_TULIP, Blocks.RED_TULIP),
+                    Map.entry(Items.ORANGE_TULIP, Blocks.ORANGE_TULIP),
+                    Map.entry(Items.WHITE_TULIP, Blocks.WHITE_TULIP),
+                    Map.entry(Items.PINK_TULIP, Blocks.PINK_TULIP),
+                    Map.entry(Items.OXEYE_DAISY, Blocks.OXEYE_DAISY),
+                    Map.entry(Items.CORNFLOWER, Blocks.CORNFLOWER),
+                    Map.entry(Items.LILY_OF_THE_VALLEY, Blocks.LILY_OF_THE_VALLEY),
+                    Map.entry(Items.WITHER_ROSE, Blocks.WITHER_ROSE),
+                    Map.entry(Items.SHORT_GRASS, Blocks.SHORT_GRASS),
+                    Map.entry(Items.FERN, Blocks.FERN),
+                    Map.entry(Items.DEAD_BUSH, Blocks.DEAD_BUSH),
+                    Map.entry(Items.SUNFLOWER, Blocks.SUNFLOWER),
+                    Map.entry(SUNFLOWER_TOP_ITEM.get(), SUNFLOWER_TOP.get()),
+                    Map.entry(SUNFLOWER_BOTTOM_ITEM.get(), SUNFLOWER_BOTTOM.get()),
+                    Map.entry(Items.LILAC, Blocks.LILAC),
+                    Map.entry(LILAC_TOP_ITEM.get(), LILAC_TOP.get()),
+                    Map.entry(LILAC_BOTTOM_ITEM.get(), LILAC_BOTTOM.get()),
+                    Map.entry(Items.ROSE_BUSH, Blocks.ROSE_BUSH),
+                    Map.entry(ROSE_BUSH_TOP_ITEM.get(), ROSE_BUSH_TOP.get()),
+                    Map.entry(ROSE_BUSH_BOTTOM_ITEM.get(), ROSE_BUSH_BOTTOM.get()),
+                    Map.entry(Items.PEONY, Blocks.PEONY),
+                    Map.entry(PEONY_TOP_ITEM.get(), PEONY_TOP.get()),
+                    Map.entry(PEONY_BOTTOM_ITEM.get(), PEONY_BOTTOM.get()),
+                    Map.entry(Items.TALL_GRASS, Blocks.TALL_GRASS),
+                    Map.entry(TALL_GRASS_TOP_ITEM.get(), TALL_GRASS_TOP.get()),
+                    Map.entry(TALL_GRASS_BOTTOM_ITEM.get(), TALL_GRASS_BOTTOM.get()),
+                    Map.entry(Items.LARGE_FERN, Blocks.LARGE_FERN),
+                    Map.entry(LARGE_FERN_TOP_ITEM.get(), LARGE_FERN_TOP.get()),
+                    Map.entry(LARGE_FERN_BOTTOM_ITEM.get(), LARGE_FERN_BOTTOM.get())
+            );
+        }
+        return bagOutcomeItems;
+    }
+
     private static DeferredBlock<DiseasedFlowerBlock> registerDiseased(
             String name,
             Holder<MobEffect> suspiciousStewEffect,
             float effectSeconds,
-            Block fallbackBlock,
-            ModConfigSpec.ConfigValue<List<? extends String>> settleWeights
+            Block fallbackBlock
     ) {
         return BLOCKS.registerBlock(
                 name,
-                properties -> new DiseasedFlowerBlock(suspiciousStewEffect, effectSeconds, fallbackBlock, settleWeights, properties),
+                properties -> new DiseasedFlowerBlock(suspiciousStewEffect, effectSeconds, fallbackBlock, properties),
                 flowerProperties()
         );
     }
@@ -275,12 +352,11 @@ public class FlowerDisease {
 
     private static DeferredBlock<DiseasedTallFlowerBlock> registerDiseasedTall(
             String name,
-            Block fallbackBlock,
-            ModConfigSpec.ConfigValue<List<? extends String>> settleWeights
+            Block fallbackBlock
     ) {
         return BLOCKS.registerBlock(
                 name,
-                properties -> new DiseasedTallFlowerBlock(fallbackBlock, settleWeights, properties),
+                properties -> new DiseasedTallFlowerBlock(fallbackBlock, properties),
                 tallFlowerProperties()
         );
     }
@@ -416,20 +492,21 @@ public class FlowerDisease {
         insertDiseasedAfter(event, Items.TALL_GRASS, DISEASED_TALL_GRASS_ITEM);
         insertDiseasedAfter(event, Items.LARGE_FERN, DISEASED_LARGE_FERN_ITEM);
         insertDiseasedAfter(event, DISEASED_SUNFLOWER_ITEM.get(), SUNFLOWER_TOP_ITEM);
+        insertDiseasedAfter(event, SUNFLOWER_TOP_ITEM.get(), SUNFLOWER_BOTTOM_ITEM);
         insertDiseasedAfter(event, DISEASED_LILAC_ITEM.get(), LILAC_TOP_ITEM);
+        insertDiseasedAfter(event, LILAC_TOP_ITEM.get(), LILAC_BOTTOM_ITEM);
         insertDiseasedAfter(event, DISEASED_ROSE_BUSH_ITEM.get(), ROSE_BUSH_TOP_ITEM);
+        insertDiseasedAfter(event, ROSE_BUSH_TOP_ITEM.get(), ROSE_BUSH_BOTTOM_ITEM);
         insertDiseasedAfter(event, DISEASED_PEONY_ITEM.get(), PEONY_TOP_ITEM);
+        insertDiseasedAfter(event, PEONY_TOP_ITEM.get(), PEONY_BOTTOM_ITEM);
+        insertDiseasedAfter(event, DISEASED_TALL_GRASS_ITEM.get(), TALL_GRASS_TOP_ITEM);
+        insertDiseasedAfter(event, TALL_GRASS_TOP_ITEM.get(), TALL_GRASS_BOTTOM_ITEM);
+        insertDiseasedAfter(event, DISEASED_LARGE_FERN_ITEM.get(), LARGE_FERN_TOP_ITEM);
+        insertDiseasedAfter(event, LARGE_FERN_TOP_ITEM.get(), LARGE_FERN_BOTTOM_ITEM);
     }
 
     private static void insertDiseasedAfter(BuildCreativeModeTabContentsEvent event, Item anchor, DeferredItem<BlockItem> diseased) {
         event.insertAfter(new ItemStack(anchor), new ItemStack(diseased.get()), CreativeModeTab.TabVisibility.PARENT_AND_SEARCH_TABS);
-    }
-
-    // You can use SubscribeEvent and let the Event Bus discover methods to call
-    @SubscribeEvent
-    public void onServerStarting(ServerStartingEvent event) {
-        // Do something when the server starts
-        LOGGER.info("HELLO from server starting");
     }
 
     // Debug-only "/cleargarden [radius]" command, bound to Ctrl+P client-side (see FlowerDiseaseClient).

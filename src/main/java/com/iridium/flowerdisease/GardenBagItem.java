@@ -29,28 +29,20 @@ import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.DoublePlantBlock;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.properties.DoubleBlockHalf;
-import net.neoforged.neoforge.registries.DeferredBlock;
 
-// Fill the bag's slots (right-click in the air to open the config screen), then lock it for good, then
-// right-click a block with it to plant one root Diseased Flower configured with everything in the bag -
-// see GardenBagMenu for the slots and SpreadProfileBlockEntity for what gets configured.
+// Right-click in the air to open the config screen (can be reconfigured any time, no locking - that may
+// come back later as an opt-in), right-click a block with it to plant one root Diseased Flower configured
+// with whatever is currently in the bag - see GardenBagMenu for the slots and SpreadProfileBlockEntity for
+// what gets configured. The bag isn't consumed either way, so it's reusable for repeated testing.
 public class GardenBagItem extends Item {
 
     public GardenBagItem(Properties properties) {
         super(properties);
     }
 
-    static boolean isLocked(ItemStack stack) {
-        return stack.getOrDefault(FlowerDisease.GARDEN_BAG_LOCKED.get(), false);
-    }
-
-    static void setLocked(ItemStack stack, boolean locked) {
-        stack.set(FlowerDisease.GARDEN_BAG_LOCKED.get(), locked);
-    }
-
     @Override
     public void appendHoverText(ItemStack stack, TooltipContext context, List<Component> tooltip, TooltipFlag flag) {
-        tooltip.add(Component.translatable(isLocked(stack) ? "item.flowerdisease.garden_bag.tooltip.locked" : "item.flowerdisease.garden_bag.tooltip.unlocked"));
+        tooltip.add(Component.translatable("item.flowerdisease.garden_bag.tooltip.usage"));
         tooltip.add(Component.translatable("item.flowerdisease.garden_bag.tooltip.generations"));
         tooltip.add(Component.translatable("item.flowerdisease.garden_bag.tooltip.speed"));
         tooltip.add(Component.translatable("item.flowerdisease.garden_bag.tooltip.infinite"));
@@ -63,11 +55,6 @@ public class GardenBagItem extends Item {
     @Override
     public InteractionResult useOn(UseOnContext context) {
         ItemStack stack = context.getItemInHand();
-        if (!isLocked(stack)) {
-            // Not configured yet - fall through to use(), which opens the config screen instead.
-            return InteractionResult.PASS;
-        }
-
         if (!(context.getLevel() instanceof ServerLevel level)) {
             return InteractionResult.SUCCESS;
         }
@@ -87,10 +74,6 @@ public class GardenBagItem extends Item {
     @Override
     public InteractionResultHolder<ItemStack> use(Level level, Player player, InteractionHand hand) {
         ItemStack stack = player.getItemInHand(hand);
-        if (isLocked(stack)) {
-            return InteractionResultHolder.pass(stack);
-        }
-
         if (!level.isClientSide) {
             player.openMenu(
                     new SimpleMenuProvider(
@@ -109,13 +92,19 @@ public class GardenBagItem extends Item {
     @Nullable
     private Component plant(ServerLevel level, BlockPos target, ItemStack bagStack) {
         NonNullList<ItemStack> slots = readSlots(bagStack);
-        List<SettleTable.Option> species = SettleTable.parse(speciesWeightStrings(slots));
-        SettleTable.Option chosen = species.isEmpty() ? null : SettleTable.pickWeighted(species, level.getRandom());
+        List<String> outcomeStrings = outcomeWeightStrings(slots);
+
+        // The root must be an actual growing plant, so only entries with a spreadable Diseased
+        // counterpart are eligible here - a bag with only Top/Bottom decorative items (no full species)
+        // has nothing plantable, same as an empty grid. Drawn from the whole pool regardless of shape,
+        // same as every child/settle draw - see DiseasedPlantLogic.
+        List<SettleTable.Option> spreadable = DiseasedPlantLogic.spreadableOptions(SettleTable.parse(outcomeStrings));
+        SettleTable.Option chosen = SettleTable.pickWeighted(spreadable, level.getRandom());
         if (chosen == null) {
             return Component.translatable("item.flowerdisease.garden_bag.error.no_species");
         }
 
-        Block block = chosen.block();
+        Block block = FlowerDisease.DISEASED_BY_FALLBACK.get(chosen.block()).get();
         boolean tall = block instanceof DoublePlantBlock;
         BlockState lowerState = tall ? block.defaultBlockState().setValue(DoublePlantBlock.HALF, DoubleBlockHalf.LOWER) : block.defaultBlockState();
 
@@ -138,7 +127,7 @@ public class GardenBagItem extends Item {
                     spreadChance(slots),
                     spreadDistance(slots),
                     densityPer16x16(slots),
-                    speciesWeightStrings(slots),
+                    outcomeStrings,
                     respectAllSpecies(slots)
             );
         }
@@ -182,7 +171,11 @@ public class GardenBagItem extends Item {
         return slimeBall.isEmpty() ? -1 : slimeBall.getCount();
     }
 
-    private static List<String> speciesWeightStrings(NonNullList<ItemStack> slots) {
+    // Each non-empty species-grid slot becomes one "<block id> <weight>" outcome entry (half is always
+    // implicit FULL - see SettleTable.parse - since every grid item already names the exact final block
+    // it wants, full species or decorative top/bottom alike). This is both the spreading pool (filtered
+    // to spreadable entries, see plant()) and the settle pool (used as-is, see SpreadProfileBlockEntity).
+    private static List<String> outcomeWeightStrings(NonNullList<ItemStack> slots) {
         List<String> result = new ArrayList<>();
         for (int i = GardenBagMenu.SPECIES_SLOTS_START; i < GardenBagMenu.BAG_SLOTS; i++) {
             ItemStack stack = slots.get(i);
@@ -190,12 +183,12 @@ public class GardenBagItem extends Item {
                 continue;
             }
 
-            DeferredBlock<? extends Block> species = FlowerDisease.SPECIES_SEED_ITEMS.get(stack.getItem());
-            if (species == null) {
+            Block outcome = FlowerDisease.bagOutcomeItems().get(stack.getItem());
+            if (outcome == null) {
                 continue;
             }
 
-            ResourceLocation id = BuiltInRegistries.BLOCK.getKey(species.get());
+            ResourceLocation id = BuiltInRegistries.BLOCK.getKey(outcome);
             result.add(id + " " + stack.getCount());
         }
         return result;

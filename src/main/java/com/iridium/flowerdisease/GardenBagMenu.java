@@ -29,7 +29,6 @@ public class GardenBagMenu extends AbstractContainerMenu {
     static final int SPECIES_SLOTS_START = 6;
     static final int SPECIES_SLOT_COUNT = 9;
     static final int BAG_SLOTS = SPECIES_SLOTS_START + SPECIES_SLOT_COUNT;
-    static final int LOCK_BUTTON_ID = 0;
 
     private final ItemStack bagStack;
     private final InteractionHand hand;
@@ -43,19 +42,19 @@ public class GardenBagMenu extends AbstractContainerMenu {
 
         Container bag = new BagContainer(this.bagStack);
 
-        addSlot(new RestrictedSlot(bag, this.bagStack, GENERATIONS_SLOT, 8, 20, stack -> stack.is(Items.BONE_MEAL)));
-        addSlot(new RestrictedSlot(bag, this.bagStack, SPEED_SLOT, 30, 20, stack -> stack.is(Items.SCULK)));
-        addSlot(new RestrictedSlot(bag, this.bagStack, INFINITE_SLOT, 52, 20, stack -> stack.is(Items.NETHER_STAR)));
-        addSlot(new RestrictedSlot(bag, this.bagStack, DENSITY_SLOT, 74, 20, stack -> stack.is(Items.SLIME_BALL)));
-        addSlot(new RestrictedSlot(bag, this.bagStack, RANGE_SLOT, 96, 20, stack -> stack.is(Items.FEATHER)));
-        addSlot(new RestrictedSlot(bag, this.bagStack, TERRITORIAL_SLOT, 118, 20, stack -> stack.is(ItemTags.FENCES)));
+        addSlot(new FilteredSlot(bag, GENERATIONS_SLOT, 8, 20, stack -> stack.is(Items.BONE_MEAL)));
+        addSlot(new FilteredSlot(bag, SPEED_SLOT, 30, 20, stack -> stack.is(Items.SCULK)));
+        addSlot(new FilteredSlot(bag, INFINITE_SLOT, 52, 20, stack -> stack.is(Items.NETHER_STAR)));
+        addSlot(new FilteredSlot(bag, DENSITY_SLOT, 74, 20, stack -> stack.is(Items.SLIME_BALL)));
+        addSlot(new FilteredSlot(bag, RANGE_SLOT, 96, 20, stack -> stack.is(Items.FEATHER)));
+        addSlot(new FilteredSlot(bag, TERRITORIAL_SLOT, 118, 20, stack -> stack.is(ItemTags.FENCES)));
 
         for (int i = 0; i < SPECIES_SLOT_COUNT; i++) {
             int col = i % 3;
             int row = i / 3;
-            addSlot(new RestrictedSlot(
-                    bag, this.bagStack, SPECIES_SLOTS_START + i, 62 + col * 18, 60 + row * 18,
-                    stack -> FlowerDisease.SPECIES_SEED_ITEMS.containsKey(stack.getItem())
+            addSlot(new FilteredSlot(
+                    bag, SPECIES_SLOTS_START + i, 62 + col * 18, 60 + row * 18,
+                    stack -> FlowerDisease.bagOutcomeItems().containsKey(stack.getItem())
             ));
         }
 
@@ -67,19 +66,6 @@ public class GardenBagMenu extends AbstractContainerMenu {
         for (int col = 0; col < 9; col++) {
             addSlot(new Slot(playerInventory, col, 8 + col * 18, 212));
         }
-    }
-
-    boolean isLocked() {
-        return GardenBagItem.isLocked(bagStack);
-    }
-
-    @Override
-    public boolean clickMenuButton(Player player, int id) {
-        if (id == LOCK_BUTTON_ID && !isLocked()) {
-            GardenBagItem.setLocked(bagStack, true);
-            return true;
-        }
-        return super.clickMenuButton(player, id);
     }
 
     @Override
@@ -138,26 +124,18 @@ public class GardenBagMenu extends AbstractContainerMenu {
         }
     }
 
-    // Both placing into and taking out of a bag slot are refused once the bag is locked - "isLocked" is
-    // read live from the bag stack (not captured once), so the button click takes effect immediately.
-    private static final class RestrictedSlot extends Slot {
-        private final ItemStack bagStack;
+    // Only accepts the one item type it's meant for - unlike a vanilla slot, which accepts anything.
+    private static final class FilteredSlot extends Slot {
         private final Predicate<ItemStack> itemFilter;
 
-        RestrictedSlot(Container container, ItemStack bagStack, int index, int x, int y, Predicate<ItemStack> itemFilter) {
+        FilteredSlot(Container container, int index, int x, int y, Predicate<ItemStack> itemFilter) {
             super(container, index, x, y);
-            this.bagStack = bagStack;
             this.itemFilter = itemFilter;
         }
 
         @Override
         public boolean mayPlace(ItemStack stack) {
-            return !GardenBagItem.isLocked(bagStack) && itemFilter.test(stack);
-        }
-
-        @Override
-        public boolean mayPickup(Player player) {
-            return !GardenBagItem.isLocked(bagStack);
+            return itemFilter.test(stack);
         }
     }
 }
