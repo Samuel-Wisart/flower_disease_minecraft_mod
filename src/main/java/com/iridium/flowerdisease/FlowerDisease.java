@@ -8,9 +8,14 @@ import org.slf4j.Logger;
 import com.mojang.logging.LogUtils;
 
 import net.minecraft.core.Holder;
+import net.minecraft.core.component.DataComponentType;
 import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.core.registries.Registries;
+import net.minecraft.network.codec.ByteBufCodecs;
+import net.minecraft.world.InteractionHand;
 import net.minecraft.world.effect.MobEffect;
 import net.minecraft.world.effect.MobEffects;
+import net.minecraft.world.inventory.MenuType;
 import net.minecraft.world.item.BlockItem;
 import net.minecraft.world.item.CreativeModeTab;
 import net.minecraft.world.item.CreativeModeTabs;
@@ -32,6 +37,7 @@ import net.neoforged.fml.ModContainer;
 import net.neoforged.fml.event.lifecycle.FMLCommonSetupEvent;
 import net.neoforged.neoforge.common.ModConfigSpec;
 import net.neoforged.neoforge.common.NeoForge;
+import net.neoforged.neoforge.common.extensions.IMenuTypeExtension;
 import net.neoforged.neoforge.event.BuildCreativeModeTabContentsEvent;
 import net.neoforged.neoforge.event.RegisterCommandsEvent;
 import net.neoforged.neoforge.event.server.ServerStartingEvent;
@@ -53,6 +59,10 @@ public class FlowerDisease {
     public static final DeferredRegister.Items ITEMS = DeferredRegister.createItems(MODID);
     // Create a Deferred Register to hold Block Entity Types which will all be registered under the "flowerdisease" namespace
     public static final DeferredRegister<BlockEntityType<?>> BLOCK_ENTITY_TYPES = DeferredRegister.create(BuiltInRegistries.BLOCK_ENTITY_TYPE, MODID);
+    // Create a Deferred Register to hold Data Component Types which will all be registered under the "flowerdisease" namespace
+    public static final DeferredRegister<DataComponentType<?>> DATA_COMPONENT_TYPES = DeferredRegister.create(Registries.DATA_COMPONENT_TYPE, MODID);
+    // Create a Deferred Register to hold Menu Types which will all be registered under the "flowerdisease" namespace
+    public static final DeferredRegister<MenuType<?>> MENU_TYPES = DeferredRegister.create(Registries.MENU, MODID);
 
     // Each Diseased Flower shares the DiseasedFlowerBlock behavior; the suspicious stew effect matches the
     // vanilla flower it's based on, and what it settles into once it can't spread is configured in Config.java.
@@ -99,6 +109,36 @@ public class FlowerDisease {
     public static final DeferredBlock<DiseasedTallFlowerBlock> DISEASED_PEONY =
             registerDiseasedTall("diseased_peony", Blocks.PEONY, Config.PEONY_SETTLE_WEIGHTS);
 
+    // Short Grass and Fern both use vanilla's plain TallGrassBlock class, so one block class
+    // (DiseasedGrassBlock) covers both - only the fallback/settleWeights differ per registration.
+    public static final DeferredBlock<DiseasedGrassBlock> DISEASED_SHORT_GRASS = BLOCKS.registerBlock(
+            "diseased_short_grass",
+            properties -> new DiseasedGrassBlock(Blocks.SHORT_GRASS, Config.SHORT_GRASS_SETTLE_WEIGHTS, properties),
+            grassProperties()
+    );
+    public static final DeferredBlock<DiseasedGrassBlock> DISEASED_FERN = BLOCKS.registerBlock(
+            "diseased_fern",
+            properties -> new DiseasedGrassBlock(Blocks.FERN, Config.FERN_SETTLE_WEIGHTS, properties),
+            grassProperties()
+    );
+    public static final DeferredBlock<DiseasedDeadBushBlock> DISEASED_DEAD_BUSH = BLOCKS.registerBlock(
+            "diseased_dead_bush",
+            properties -> new DiseasedDeadBushBlock(Blocks.DEAD_BUSH, Config.DEAD_BUSH_SETTLE_WEIGHTS, properties),
+            deadBushProperties()
+    );
+    // Tall Grass and Large Fern both use vanilla's plain DoublePlantBlock class directly (no bonemeal
+    // behavior, unlike the TallFlowerBlock-based species above).
+    public static final DeferredBlock<DiseasedTallGrassBlock> DISEASED_TALL_GRASS = BLOCKS.registerBlock(
+            "diseased_tall_grass",
+            properties -> new DiseasedTallGrassBlock(Blocks.TALL_GRASS, Config.TALL_GRASS_SETTLE_WEIGHTS, properties),
+            tallGrassProperties()
+    );
+    public static final DeferredBlock<DiseasedTallGrassBlock> DISEASED_LARGE_FERN = BLOCKS.registerBlock(
+            "diseased_large_fern",
+            properties -> new DiseasedTallGrassBlock(Blocks.LARGE_FERN, Config.LARGE_FERN_SETTLE_WEIGHTS, properties),
+            tallGrassProperties()
+    );
+
     // Standalone "just the top half" decorative flowers - see SettleTable.placeTop for why these exist
     // instead of placing an orphaned upper half of the real two-block plant.
     public static final DeferredBlock<DecorativeFlowerBlock> SUNFLOWER_TOP =
@@ -129,8 +169,56 @@ public class FlowerDisease {
                     DISEASED_AZURE_BLUET.get(), DISEASED_RED_TULIP.get(), DISEASED_ORANGE_TULIP.get(), DISEASED_WHITE_TULIP.get(),
                     DISEASED_PINK_TULIP.get(), DISEASED_OXEYE_DAISY.get(), DISEASED_CORNFLOWER.get(), DISEASED_LILY_OF_THE_VALLEY.get(),
                     DISEASED_WITHER_ROSE.get(),
-                    DISEASED_SUNFLOWER.get(), DISEASED_LILAC.get(), DISEASED_ROSE_BUSH.get(), DISEASED_PEONY.get()
+                    DISEASED_SUNFLOWER.get(), DISEASED_LILAC.get(), DISEASED_ROSE_BUSH.get(), DISEASED_PEONY.get(),
+                    DISEASED_SHORT_GRASS.get(), DISEASED_FERN.get(), DISEASED_DEAD_BUSH.get(),
+                    DISEASED_TALL_GRASS.get(), DISEASED_LARGE_FERN.get()
             ).build(null)
+    );
+
+    // Whether a Garden Bag has been sealed - once true, its slots can no longer be changed (see
+    // GardenBagMenu.RestrictedSlot) and using it on a block plants instead of reopening the config screen.
+    public static final DeferredHolder<DataComponentType<?>, DataComponentType<Boolean>> GARDEN_BAG_LOCKED = DATA_COMPONENT_TYPES.register(
+            "garden_bag_locked",
+            () -> DataComponentType.<Boolean>builder().persistent(com.mojang.serialization.Codec.BOOL).networkSynchronized(ByteBufCodecs.BOOL).build()
+    );
+
+    // Garden Bag menu: constructed the same way on both sides from (windowId, playerInventory, hand) - the
+    // hand is the only "extra data" the client needs to know which held stack the menu is backed by.
+    public static final DeferredHolder<MenuType<?>, MenuType<GardenBagMenu>> GARDEN_BAG_MENU = MENU_TYPES.register(
+            "garden_bag",
+            () -> IMenuTypeExtension.create((windowId, inventory, buf) -> new GardenBagMenu(windowId, inventory, buf.readEnum(InteractionHand.class)))
+    );
+
+    public static final DeferredItem<GardenBagItem> GARDEN_BAG = ITEMS.register(
+            "garden_bag",
+            () -> new GardenBagItem(new Item.Properties().stacksTo(1))
+    );
+
+    // Which Diseased species a vanilla flower item stands for when dropped into one of the Garden Bag's
+    // species slots - the stack count in that slot becomes that species' relative weight.
+    public static final Map<Item, DeferredBlock<? extends Block>> SPECIES_SEED_ITEMS = Map.ofEntries(
+            Map.entry(Items.DANDELION, DISEASED_DANDELION),
+            Map.entry(Items.POPPY, DISEASED_POPPY),
+            Map.entry(Items.BLUE_ORCHID, DISEASED_BLUE_ORCHID),
+            Map.entry(Items.ALLIUM, DISEASED_ALLIUM),
+            Map.entry(Items.AZURE_BLUET, DISEASED_AZURE_BLUET),
+            Map.entry(Items.RED_TULIP, DISEASED_RED_TULIP),
+            Map.entry(Items.ORANGE_TULIP, DISEASED_ORANGE_TULIP),
+            Map.entry(Items.WHITE_TULIP, DISEASED_WHITE_TULIP),
+            Map.entry(Items.PINK_TULIP, DISEASED_PINK_TULIP),
+            Map.entry(Items.OXEYE_DAISY, DISEASED_OXEYE_DAISY),
+            Map.entry(Items.CORNFLOWER, DISEASED_CORNFLOWER),
+            Map.entry(Items.LILY_OF_THE_VALLEY, DISEASED_LILY_OF_THE_VALLEY),
+            Map.entry(Items.WITHER_ROSE, DISEASED_WITHER_ROSE),
+            Map.entry(Items.SUNFLOWER, DISEASED_SUNFLOWER),
+            Map.entry(Items.LILAC, DISEASED_LILAC),
+            Map.entry(Items.ROSE_BUSH, DISEASED_ROSE_BUSH),
+            Map.entry(Items.PEONY, DISEASED_PEONY),
+            Map.entry(Items.SHORT_GRASS, DISEASED_SHORT_GRASS),
+            Map.entry(Items.FERN, DISEASED_FERN),
+            Map.entry(Items.DEAD_BUSH, DISEASED_DEAD_BUSH),
+            Map.entry(Items.TALL_GRASS, DISEASED_TALL_GRASS),
+            Map.entry(Items.LARGE_FERN, DISEASED_LARGE_FERN)
     );
 
     public static final DeferredItem<BlockItem> DISEASED_DANDELION_ITEM = ITEMS.registerSimpleBlockItem("diseased_dandelion", DISEASED_DANDELION);
@@ -154,6 +242,11 @@ public class FlowerDisease {
     public static final DeferredItem<BlockItem> LILAC_TOP_ITEM = ITEMS.registerSimpleBlockItem("lilac_top", LILAC_TOP);
     public static final DeferredItem<BlockItem> ROSE_BUSH_TOP_ITEM = ITEMS.registerSimpleBlockItem("rose_bush_top", ROSE_BUSH_TOP);
     public static final DeferredItem<BlockItem> PEONY_TOP_ITEM = ITEMS.registerSimpleBlockItem("peony_top", PEONY_TOP);
+    public static final DeferredItem<BlockItem> DISEASED_SHORT_GRASS_ITEM = ITEMS.registerSimpleBlockItem("diseased_short_grass", DISEASED_SHORT_GRASS);
+    public static final DeferredItem<BlockItem> DISEASED_FERN_ITEM = ITEMS.registerSimpleBlockItem("diseased_fern", DISEASED_FERN);
+    public static final DeferredItem<BlockItem> DISEASED_DEAD_BUSH_ITEM = ITEMS.registerSimpleBlockItem("diseased_dead_bush", DISEASED_DEAD_BUSH);
+    public static final DeferredItem<BlockItem> DISEASED_TALL_GRASS_ITEM = ITEMS.registerSimpleBlockItem("diseased_tall_grass", DISEASED_TALL_GRASS);
+    public static final DeferredItem<BlockItem> DISEASED_LARGE_FERN_ITEM = ITEMS.registerSimpleBlockItem("diseased_large_fern", DISEASED_LARGE_FERN);
 
     private static DeferredBlock<DiseasedFlowerBlock> registerDiseased(
             String name,
@@ -204,6 +297,48 @@ public class FlowerDisease {
                 .randomTicks();
     }
 
+    // Short Grass/Fern: matches vanilla's TallGrassBlock properties, including .replaceable() and the
+    // XYZ offset (a little extra vertical jitter, on top of the XZ horizontal jitter flowers get).
+    private static BlockBehaviour.Properties grassProperties() {
+        return BlockBehaviour.Properties.of()
+                .mapColor(MapColor.PLANT)
+                .replaceable()
+                .noCollission()
+                .instabreak()
+                .sound(SoundType.GRASS)
+                .offsetType(BlockBehaviour.OffsetType.XYZ)
+                .ignitedByLava()
+                .pushReaction(PushReaction.DESTROY)
+                .randomTicks();
+    }
+
+    private static BlockBehaviour.Properties deadBushProperties() {
+        return BlockBehaviour.Properties.of()
+                .mapColor(MapColor.WOOD)
+                .replaceable()
+                .noCollission()
+                .instabreak()
+                .sound(SoundType.GRASS)
+                .ignitedByLava()
+                .pushReaction(PushReaction.DESTROY)
+                .randomTicks();
+    }
+
+    // Tall Grass/Large Fern: matches vanilla's DoublePlantBlock properties (XZ offset, like the tall
+    // flowers, not XYZ like their own single-block versions above).
+    private static BlockBehaviour.Properties tallGrassProperties() {
+        return BlockBehaviour.Properties.of()
+                .mapColor(MapColor.PLANT)
+                .replaceable()
+                .noCollission()
+                .instabreak()
+                .sound(SoundType.GRASS)
+                .offsetType(BlockBehaviour.OffsetType.XZ)
+                .ignitedByLava()
+                .pushReaction(PushReaction.DESTROY)
+                .randomTicks();
+    }
+
     // No .randomTicks() - these are purely decorative and never spread or settle on their own.
     private static BlockBehaviour.Properties decorativeFlowerProperties() {
         return BlockBehaviour.Properties.of()
@@ -227,6 +362,10 @@ public class FlowerDisease {
         ITEMS.register(modEventBus);
         // Register the Deferred Register to the mod event bus so block entity types get registered
         BLOCK_ENTITY_TYPES.register(modEventBus);
+        // Register the Deferred Register to the mod event bus so data component types get registered
+        DATA_COMPONENT_TYPES.register(modEventBus);
+        // Register the Deferred Register to the mod event bus so menu types get registered
+        MENU_TYPES.register(modEventBus);
 
         // Register ourselves for server and other game events we are interested in.
         NeoForge.EVENT_BUS.register(this);
@@ -242,8 +381,14 @@ public class FlowerDisease {
         LOGGER.info("Flower Disease loaded");
     }
 
-    // Place each Diseased Flower right after its vanilla counterpart in the Natural Blocks tab
+    // Place each Diseased Flower right after its vanilla counterpart in the Natural Blocks tab, and the
+    // Garden Bag in Tools and Utilities (it's a utility item, not a flower).
     private void addCreative(BuildCreativeModeTabContentsEvent event) {
+        if (event.getTabKey() == CreativeModeTabs.TOOLS_AND_UTILITIES) {
+            event.accept(GARDEN_BAG);
+            return;
+        }
+
         if (event.getTabKey() != CreativeModeTabs.NATURAL_BLOCKS) {
             return;
         }
@@ -265,6 +410,11 @@ public class FlowerDisease {
         insertDiseasedAfter(event, Items.LILAC, DISEASED_LILAC_ITEM);
         insertDiseasedAfter(event, Items.ROSE_BUSH, DISEASED_ROSE_BUSH_ITEM);
         insertDiseasedAfter(event, Items.PEONY, DISEASED_PEONY_ITEM);
+        insertDiseasedAfter(event, Items.SHORT_GRASS, DISEASED_SHORT_GRASS_ITEM);
+        insertDiseasedAfter(event, Items.FERN, DISEASED_FERN_ITEM);
+        insertDiseasedAfter(event, Items.DEAD_BUSH, DISEASED_DEAD_BUSH_ITEM);
+        insertDiseasedAfter(event, Items.TALL_GRASS, DISEASED_TALL_GRASS_ITEM);
+        insertDiseasedAfter(event, Items.LARGE_FERN, DISEASED_LARGE_FERN_ITEM);
         insertDiseasedAfter(event, DISEASED_SUNFLOWER_ITEM.get(), SUNFLOWER_TOP_ITEM);
         insertDiseasedAfter(event, DISEASED_LILAC_ITEM.get(), LILAC_TOP_ITEM);
         insertDiseasedAfter(event, DISEASED_ROSE_BUSH_ITEM.get(), ROSE_BUSH_TOP_ITEM);

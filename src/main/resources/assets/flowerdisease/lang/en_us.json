@@ -23,6 +23,28 @@
   "block.flowerdisease.lilac_top": "Lilac Top",
   "block.flowerdisease.rose_bush_top": "Rose Bush Top",
   "block.flowerdisease.peony_top": "Peony Top",
+  "block.flowerdisease.diseased_short_grass": "Diseased Short Grass",
+  "block.flowerdisease.diseased_fern": "Diseased Fern",
+  "block.flowerdisease.diseased_dead_bush": "Diseased Dead Bush",
+  "block.flowerdisease.diseased_tall_grass": "Diseased Tall Grass",
+  "block.flowerdisease.diseased_large_fern": "Diseased Large Fern",
+
+  "item.flowerdisease.garden_bag": "Garden Bag",
+  "item.flowerdisease.garden_bag.tooltip.unlocked": "Right-click to configure. Not sealed yet.",
+  "item.flowerdisease.garden_bag.tooltip.locked": "Sealed - right-click a block to plant.",
+  "item.flowerdisease.garden_bag.tooltip.generations": "Bone Meal: how many generations it can spread",
+  "item.flowerdisease.garden_bag.tooltip.speed": "Sculk: spread speed",
+  "item.flowerdisease.garden_bag.tooltip.infinite": "Nether Star: unlimited generations",
+  "item.flowerdisease.garden_bag.tooltip.density": "Slime Ball: flowers per 16x16 area",
+  "item.flowerdisease.garden_bag.tooltip.range": "Feather: spread distance",
+  "item.flowerdisease.garden_bag.tooltip.species": "Flowers (in the grid): which species, weighted by count",
+  "item.flowerdisease.garden_bag.tooltip.territorial": "Fence: treat ANY nearby plant as crowding, not just this species (stops it invading other plantings)",
+  "item.flowerdisease.garden_bag.error.no_species": "Garden Bag: no flowers in the species grid - put at least one flower item in it",
+  "item.flowerdisease.garden_bag.error.occupied": "Garden Bag: that spot is occupied",
+  "item.flowerdisease.garden_bag.error.bad_ground": "Garden Bag: can't grow on that ground",
+
+  "gui.flowerdisease.lock_bag": "Seal Bag",
+  "gui.flowerdisease.bag_locked": "Sealed",
 
   "flowerdisease.configuration.title": "FlowerDisease Configs",
   "flowerdisease.configuration.section.flowerdisease.common.toml": "FlowerDisease Configs",
@@ -51,5 +73,10 @@
   "flowerdisease.configuration.settleWeights.lilac": "Lilac Settle Weights",
   "flowerdisease.configuration.settleWeights.roseBush": "Rose Bush Settle Weights",
   "flowerdisease.configuration.settleWeights.peony": "Peony Settle Weights",
-  "flowerdisease.configuration.settleWeights.witherRose": "Wither Rose Settle Weights"
+  "flowerdisease.configuration.settleWeights.witherRose": "Wither Rose Settle Weights",
+  "flowerdisease.configuration.settleWeights.shortGrass": "Short Grass Settle Weights",
+  "flowerdisease.configuration.settleWeights.fern": "Fern Settle Weights",
+  "flowerdisease.configuration.settleWeights.deadBush": "Dead Bush Settle Weights",
+  "flowerdisease.configuration.settleWeights.tallGrass": "Tall Grass Settle Weights",
+  "flowerdisease.configuration.settleWeights.largeFern": "Large Fern Settle Weights"
 }

@@ -1,0 +1,20 @@
+{
+  "multipart": [
+    {
+      "when": {
+        "half": "lower"
+      },
+      "apply": {
+        "model": "flowerdisease:block/diseased_large_fern_bottom"
+      }
+    },
+    {
+      "when": {
+        "half": "upper"
+      },
+      "apply": {
+        "model": "flowerdisease:block/diseased_large_fern_top"
+      }
+    }
+  ]
+}

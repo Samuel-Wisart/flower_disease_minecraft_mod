@@ -9,8 +9,8 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.util.RandomSource;
 import net.minecraft.world.item.context.BlockPlaceContext;
 import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.DoublePlantBlock;
 import net.minecraft.world.level.block.EntityBlock;
-import net.minecraft.world.level.block.TallFlowerBlock;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockBehaviour;
 import net.minecraft.world.level.block.state.BlockState;
@@ -18,16 +18,15 @@ import net.minecraft.world.level.block.state.StateDefinition;
 import net.minecraft.world.level.block.state.properties.DoubleBlockHalf;
 import net.neoforged.neoforge.common.ModConfigSpec;
 
-// Two-block counterpart to DiseasedFlowerBlock, for the four TallFlowerBlock-based species (Sunflower,
-// Lilac, Rose Bush, Peony). The actual spread/settle logic lives in DiseasedTallPlantLogic, shared with
-// DiseasedTallGrassBlock (Tall Grass/Large Fern extend plain DoublePlantBlock instead, so they can't
-// share a superclass with this class, only the static logic).
-public class DiseasedTallFlowerBlock extends TallFlowerBlock implements EntityBlock {
+// Two-block diseased grass/fern (Tall Grass and Large Fern both use vanilla's plain DoublePlantBlock
+// class directly - no bonemeal behavior, unlike TallFlowerBlock), so one class covers both species. The
+// actual spread/settle logic lives in DiseasedTallPlantLogic, shared with DiseasedTallFlowerBlock.
+public class DiseasedTallGrassBlock extends DoublePlantBlock implements EntityBlock {
 
     private final Block fallbackBlock;
     private final ModConfigSpec.ConfigValue<List<? extends String>> settleWeights;
 
-    public DiseasedTallFlowerBlock(
+    public DiseasedTallGrassBlock(
             Block fallbackBlock,
             ModConfigSpec.ConfigValue<List<? extends String>> settleWeights,
             BlockBehaviour.Properties properties
@@ -44,7 +43,6 @@ public class DiseasedTallFlowerBlock extends TallFlowerBlock implements EntityBl
         builder.add(SettleTable.GENERATION);
     }
 
-    // A hand-planted flower always starts with a full budget of generations (see Config.FLOWER_MAX_GENERATIONS).
     @Nullable
     @Override
     public BlockState getStateForPlacement(BlockPlaceContext context) {

@@ -6,6 +6,7 @@ import java.util.List;
 import javax.annotation.Nullable;
 
 import com.mojang.brigadier.CommandDispatcher;
+import com.mojang.brigadier.arguments.BoolArgumentType;
 import com.mojang.brigadier.arguments.DoubleArgumentType;
 import com.mojang.brigadier.arguments.IntegerArgumentType;
 import com.mojang.brigadier.arguments.LongArgumentType;
@@ -60,9 +61,10 @@ final class FlowerDiseaseCommands {
                                                 .then(Commands.argument("spreadChance", DoubleArgumentType.doubleArg(-1, 1))
                                                         .then(Commands.argument("spreadDistance", IntegerArgumentType.integer(-1, 64))
                                                                 .then(Commands.argument("densityPer16x16", IntegerArgumentType.integer(-1, 999))
-                                                                        .executes(context -> setProfile(context, ""))
-                                                                        .then(Commands.argument("species", StringArgumentType.greedyString())
-                                                                                .executes(context -> setProfile(context, StringArgumentType.getString(context, "species"))))))))))
+                                                                        .then(Commands.argument("territorial", BoolArgumentType.bool())
+                                                                                .executes(context -> setProfile(context, ""))
+                                                                                .then(Commands.argument("species", StringArgumentType.greedyString())
+                                                                                        .executes(context -> setProfile(context, StringArgumentType.getString(context, "species")))))))))))
         );
     }
 
@@ -135,11 +137,12 @@ final class FlowerDiseaseCommands {
         double spreadChance = DoubleArgumentType.getDouble(context, "spreadChance");
         int spreadDistance = IntegerArgumentType.getInteger(context, "spreadDistance");
         int densityPer16x16 = IntegerArgumentType.getInteger(context, "densityPer16x16");
+        boolean territorial = BoolArgumentType.getBool(context, "territorial");
         List<String> species = speciesArg.isBlank()
                 ? List.of()
                 : Arrays.stream(speciesArg.split(",")).map(String::trim).filter(s -> !s.isEmpty()).toList();
 
-        profile.configure(generations, spreadChance, spreadDistance, densityPer16x16, species);
+        profile.configure(generations, spreadChance, spreadDistance, densityPer16x16, species, territorial);
         context.getSource().sendSuccess(() -> Component.literal("Flower Disease: profile set on the flower you're looking at"), false);
         return 1;
     }
@@ -151,7 +154,7 @@ final class FlowerDiseaseCommands {
             return 0;
         }
 
-        profile.configure(SpreadProfileBlockEntity.NO_GENERATIONS_OVERRIDE, -1, -1, -1, List.of());
+        profile.configure(SpreadProfileBlockEntity.NO_GENERATIONS_OVERRIDE, -1, -1, -1, List.of(), false);
         context.getSource().sendSuccess(() -> Component.literal("Flower Disease: profile cleared, back to global config"), false);
         return 1;
     }

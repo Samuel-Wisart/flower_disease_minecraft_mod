@@ -4,7 +4,14 @@ import com.mojang.blaze3d.platform.InputConstants;
 
 import net.minecraft.client.KeyMapping;
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.color.block.BlockColors;
 import net.minecraft.client.player.LocalPlayer;
+import net.minecraft.client.renderer.BiomeColors;
+import net.minecraft.world.item.BlockItem;
+import net.minecraft.world.level.GrassColor;
+import net.minecraft.world.level.block.DoublePlantBlock;
+import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.block.state.properties.DoubleBlockHalf;
 import net.neoforged.api.distmarker.Dist;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.fml.ModContainer;
@@ -12,7 +19,9 @@ import net.neoforged.fml.common.EventBusSubscriber;
 import net.neoforged.fml.common.Mod;
 import net.neoforged.fml.event.lifecycle.FMLClientSetupEvent;
 import net.neoforged.neoforge.client.event.ClientTickEvent;
+import net.neoforged.neoforge.client.event.RegisterColorHandlersEvent;
 import net.neoforged.neoforge.client.event.RegisterKeyMappingsEvent;
+import net.neoforged.neoforge.client.event.RegisterMenuScreensEvent;
 import net.neoforged.neoforge.client.gui.ConfigurationScreen;
 import net.neoforged.neoforge.client.gui.IConfigScreenFactory;
 import net.neoforged.neoforge.client.settings.KeyConflictContext;
@@ -51,6 +60,41 @@ public class FlowerDiseaseClient {
     @SubscribeEvent
     static void onRegisterKeyMappings(RegisterKeyMappingsEvent event) {
         event.register(CLEAR_GARDEN_KEY);
+    }
+
+    @SubscribeEvent
+    static void onRegisterMenuScreens(RegisterMenuScreensEvent event) {
+        event.register(FlowerDisease.GARDEN_BAG_MENU.get(), GardenBagScreen::new);
+    }
+
+    // Our grass/fern blocks aren't in vanilla's BlockColors/ItemColors registrations (those are keyed by
+    // exact Block instance), so without this they'd render white instead of biome-green. Mirrors exactly
+    // what vanilla registers for Blocks.SHORT_GRASS/FERN/TALL_GRASS/LARGE_FERN.
+    @SubscribeEvent
+    static void onRegisterBlockColors(RegisterColorHandlersEvent.Block event) {
+        event.register(
+                (state, level, pos, tintIndex) -> level != null && pos != null
+                        ? BiomeColors.getAverageGrassColor(level, pos)
+                        : GrassColor.getDefaultColor(),
+                FlowerDisease.DISEASED_SHORT_GRASS.get(), FlowerDisease.DISEASED_FERN.get()
+        );
+        event.register(
+                (state, level, pos, tintIndex) -> level != null && pos != null
+                        ? BiomeColors.getAverageGrassColor(level, state.getValue(DoublePlantBlock.HALF) == DoubleBlockHalf.UPPER ? pos.below() : pos)
+                        : GrassColor.getDefaultColor(),
+                FlowerDisease.DISEASED_TALL_GRASS.get(), FlowerDisease.DISEASED_LARGE_FERN.get()
+        );
+    }
+
+    @SubscribeEvent
+    static void onRegisterItemColors(RegisterColorHandlersEvent.Item event) {
+        event.register((stack, tintIndex) -> GrassColor.get(0.5, 1.0), FlowerDisease.DISEASED_TALL_GRASS.get(), FlowerDisease.DISEASED_LARGE_FERN.get());
+
+        BlockColors blockColors = event.getBlockColors();
+        event.register((stack, tintIndex) -> {
+            BlockState state = ((BlockItem) stack.getItem()).getBlock().defaultBlockState();
+            return blockColors.getColor(state, null, null, tintIndex);
+        }, FlowerDisease.DISEASED_SHORT_GRASS.get(), FlowerDisease.DISEASED_FERN.get());
     }
 
     @SubscribeEvent

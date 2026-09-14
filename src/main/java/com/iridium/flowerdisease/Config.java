@@ -93,6 +93,11 @@ public class Config {
     public static final ModConfigSpec.ConfigValue<List<? extends String>> ROSE_BUSH_SETTLE_WEIGHTS;
     public static final ModConfigSpec.ConfigValue<List<? extends String>> PEONY_SETTLE_WEIGHTS;
     public static final ModConfigSpec.ConfigValue<List<? extends String>> WITHER_ROSE_SETTLE_WEIGHTS;
+    public static final ModConfigSpec.ConfigValue<List<? extends String>> SHORT_GRASS_SETTLE_WEIGHTS;
+    public static final ModConfigSpec.ConfigValue<List<? extends String>> FERN_SETTLE_WEIGHTS;
+    public static final ModConfigSpec.ConfigValue<List<? extends String>> DEAD_BUSH_SETTLE_WEIGHTS;
+    public static final ModConfigSpec.ConfigValue<List<? extends String>> TALL_GRASS_SETTLE_WEIGHTS;
+    public static final ModConfigSpec.ConfigValue<List<? extends String>> LARGE_FERN_SETTLE_WEIGHTS;
 
     static {
         BUILDER.push("settleWeights");
@@ -113,6 +118,11 @@ public class Config {
         ROSE_BUSH_SETTLE_WEIGHTS = settleWeights("roseBush", List.of("minecraft:rose_bush 100 full"));
         PEONY_SETTLE_WEIGHTS = settleWeights("peony", List.of("minecraft:peony 100 full"));
         WITHER_ROSE_SETTLE_WEIGHTS = settleWeights("witherRose", List.of("minecraft:wither_rose 100"));
+        SHORT_GRASS_SETTLE_WEIGHTS = settleWeights("shortGrass", List.of("minecraft:short_grass 50", "minecraft:tall_grass 50 full"));
+        FERN_SETTLE_WEIGHTS = settleWeights("fern", List.of("minecraft:fern 50", "minecraft:large_fern 50 full"));
+        DEAD_BUSH_SETTLE_WEIGHTS = settleWeights("deadBush", List.of("minecraft:dead_bush 100"));
+        TALL_GRASS_SETTLE_WEIGHTS = settleWeights("tallGrass", List.of("minecraft:tall_grass 100 full"));
+        LARGE_FERN_SETTLE_WEIGHTS = settleWeights("largeFern", List.of("minecraft:large_fern 100 full"));
         BUILDER.pop();
     }
 

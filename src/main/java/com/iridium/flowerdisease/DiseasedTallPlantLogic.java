@@ -10,18 +10,21 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.util.RandomSource;
 import net.minecraft.world.level.LevelReader;
 import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.DoublePlantBlock;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.block.state.properties.DoubleBlockHalf;
 import net.neoforged.neoforge.common.ModConfigSpec;
 
-// Shared spread/settle logic for single-block Diseased Flowers (DiseasedFlowerBlock and
-// DiseasedWitherRoseBlock extend different vanilla base classes, so they can't share a common
-// superclass, but the actual spreading behavior is identical). The two-block counterpart
-// (DiseasedTallFlowerBlock) keeps its own parallel implementation since a valid target for it
-// genuinely differs (needs a free cell above too).
-final class DiseasedFlowerLogic {
+// Shared spread/settle logic for two-block Diseased plants (DiseasedTallFlowerBlock extends
+// TallFlowerBlock for the bonemeal-harvest behavior; DiseasedTallGrassBlock extends plain
+// DoublePlantBlock directly for Tall Grass/Large Fern - they can't share a common superclass, so this
+// mirrors DiseasedFlowerLogic's role for the single-block classes). Kept separate from
+// DiseasedFlowerLogic since a valid target here genuinely differs: it needs a free cell above too, and
+// settling has to also clear the old upper half.
+final class DiseasedTallPlantLogic {
 
-    private DiseasedFlowerLogic() {
+    private DiseasedTallPlantLogic() {
     }
 
     static void randomTick(
@@ -33,7 +36,11 @@ final class DiseasedFlowerLogic {
             Block fallbackBlock,
             ModConfigSpec.ConfigValue<List<? extends String>> settleWeights
     ) {
-        SpreadProfileBlockEntity profile = profileAt(level, pos);
+        if (state.getValue(DoublePlantBlock.HALF) != DoubleBlockHalf.LOWER) {
+            return;
+        }
+
+        SpreadProfileBlockEntity profile = level.getBlockEntity(pos) instanceof SpreadProfileBlockEntity p ? p : null;
 
         double spreadChance = profile != null && profile.spreadChanceOverride() >= 0
                 ? profile.spreadChanceOverride()
@@ -45,6 +52,10 @@ final class DiseasedFlowerLogic {
         List<SettleTable.Option> settleOptions = SettleTable.parse(settleWeights.get());
         List<SettleTable.Option> speciesOptions = compatibleSpeciesOptions(profile);
 
+        // A bag profile's species list is the whole recipe for that planting - see DiseasedFlowerLogic
+        // for the full explanation of why this replaces (not just supplements) the class's own settleWeights.
+        List<SettleTable.Option> effectiveSettleOptions = speciesOptions.isEmpty() ? settleOptions : speciesOptions;
+
         long generationsLeft = profile != null && profile.generationsRemaining() != SpreadProfileBlockEntity.NO_GENERATIONS_OVERRIDE
                 ? profile.generationsRemaining()
                 : state.getValue(SettleTable.GENERATION);
@@ -53,13 +64,6 @@ final class DiseasedFlowerLogic {
         int maxNearby = profile != null && profile.densityTargetPer16x16() >= 0
                 ? SettleTable.densityTargetToMaxNearby(profile.densityTargetPer16x16(), densityRadius)
                 : Config.FLOWER_MAX_NEARBY.getAsInt();
-
-        // A bag profile's species list is the whole recipe for that planting - if it names any species
-        // at all, that's ALSO what this settles into (not the block's own global settleWeights, which
-        // only applies to hand-placed flowers / bags with no species configured). Without this, a
-        // Poppy-only bag could still occasionally settle into whatever minecraft:diseased_poppy's class
-        // -level settleWeights says (e.g. Rose Bush), even though the bag was never given any Rose Bush.
-        List<SettleTable.Option> effectiveSettleOptions = speciesOptions.isEmpty() ? settleOptions : speciesOptions;
 
         boolean territorial = profile != null && profile.respectAllSpecies();
         List<SettleTable.Option> familyOptions = new ArrayList<>(settleOptions.size() + speciesOptions.size());
@@ -73,33 +77,28 @@ final class DiseasedFlowerLogic {
         if (target != null) {
             long childGenerations = generationsLeft < 0 ? generationsLeft : generationsLeft - 1;
             if (childGenerations == 0) {
-                // No budget left for the child to spread itself, so it settles the instant it's
-                // created instead of existing as an active Diseased Flower even briefly.
+                // No budget left for the child to spread itself, so it settles the instant it's created
+                // instead of existing as an active (randomly-ticking) Diseased Flower even briefly.
                 SettleTable.Option picked = SettleTable.pickWeighted(effectiveSettleOptions, random);
                 SettleTable.place(level, target, picked != null ? picked : new SettleTable.Option(fallbackBlock, 1, SettleTable.Half.FULL));
             } else {
                 int blockstateGenerations = (int) Math.max(0, Math.min(64, childGenerations < 0 ? 64 : childGenerations));
-                level.setBlock(target, species.defaultBlockState().setValue(SettleTable.GENERATION, blockstateGenerations), SettleTable.PLACEMENT_FLAGS);
+                DoublePlantBlock.placeAt(level, species.defaultBlockState().setValue(SettleTable.GENERATION, blockstateGenerations), target, SettleTable.PLACEMENT_FLAGS);
                 if (profile != null && profile.hasOverride() && level.getBlockEntity(target) instanceof SpreadProfileBlockEntity childProfile) {
                     childProfile.copyFrom(profile, childGenerations);
                 }
             }
         } else {
-            // Either crowded, out of generations, or structurally stuck (e.g. a steep cave with no
-            // reachable ground within spreadVerticalRange): either way it can't reproduce here, so it
-            // settles for good instead of retrying forever on terrain that will never change.
             SettleTable.Option picked = SettleTable.pickWeighted(effectiveSettleOptions, random);
+            // The old upper half won't be overwritten unless the outcome is itself a "full" two-block
+            // placement, so clear it first - otherwise it would be left floating with nothing below it.
+            level.setBlock(pos.above(), Blocks.AIR.defaultBlockState(), SettleTable.PLACEMENT_FLAGS);
             SettleTable.place(level, pos, picked != null ? picked : new SettleTable.Option(fallbackBlock, 1, SettleTable.Half.FULL));
         }
     }
 
-    @Nullable
-    private static SpreadProfileBlockEntity profileAt(LevelReader level, BlockPos pos) {
-        return level.getBlockEntity(pos) instanceof SpreadProfileBlockEntity profile ? profile : null;
-    }
-
-    // Only single-block species are valid here (a bag's species ratio might list a two-block plant too,
-    // meant for DiseasedTallFlowerBlock's own spreading) - anything else is silently skipped.
+    // Only two-block species are valid here - a bag's species ratio might also list single-block
+    // flowers, meant for DiseasedFlowerBlock/DiseasedWitherRoseBlock's own spreading instead.
     private static List<SettleTable.Option> compatibleSpeciesOptions(@Nullable SpreadProfileBlockEntity profile) {
         if (profile == null || profile.speciesWeights().isEmpty()) {
             return List.of();
@@ -107,7 +106,7 @@ final class DiseasedFlowerLogic {
 
         List<SettleTable.Option> compatible = new ArrayList<>();
         for (SettleTable.Option option : SettleTable.parse(profile.speciesWeights())) {
-            if (!(option.block() instanceof DoublePlantBlock)) {
+            if (option.block() instanceof DoublePlantBlock) {
                 compatible.add(option);
             }
         }
@@ -155,7 +154,7 @@ final class DiseasedFlowerLogic {
                 ? profile.spreadDistanceOverride()
                 : Config.FLOWER_SPREAD_DISTANCE.getAsInt();
         int verticalRange = Config.FLOWER_SPREAD_VERTICAL_RANGE.getAsInt();
-        BlockState newState = species.defaultBlockState();
+        BlockState newLowerState = species.defaultBlockState();
 
         for (int attempt = 0; attempt < Config.FLOWER_SPREAD_ATTEMPTS.getAsInt(); attempt++) {
             int dx = random.nextInt(maxDistance * 2 + 1) - maxDistance;
@@ -164,7 +163,7 @@ final class DiseasedFlowerLogic {
                 continue;
             }
 
-            BlockPos candidate = followTerrain(level, origin.offset(dx, 0, dz), newState, verticalRange);
+            BlockPos candidate = followTerrain(level, origin.offset(dx, 0, dz), newLowerState, verticalRange);
             if (candidate != null) {
                 return candidate;
             }
@@ -174,25 +173,30 @@ final class DiseasedFlowerLogic {
     }
 
     // Slopes/steps mean the target column often isn't level with the parent flower, so this checks
-    // nearby heights too (closest to the parent's Y first) instead of only the exact same Y.
+    // nearby heights too (closest to the parent's Y first) instead of only the exact same Y. Unlike the
+    // single-block flower, a valid spot also needs its ABOVE cell free for the second half.
     @Nullable
-    private static BlockPos followTerrain(ServerLevel level, BlockPos column, BlockState newState, int verticalRange) {
-        if (level.isEmptyBlock(column) && newState.canSurvive(level, column)) {
+    private static BlockPos followTerrain(ServerLevel level, BlockPos column, BlockState newLowerState, int verticalRange) {
+        if (isValidSpot(level, column, newLowerState)) {
             return column;
         }
 
         for (int dy = 1; dy <= verticalRange; dy++) {
             BlockPos up = column.above(dy);
-            if (level.isEmptyBlock(up) && newState.canSurvive(level, up)) {
+            if (isValidSpot(level, up, newLowerState)) {
                 return up;
             }
 
             BlockPos down = column.below(dy);
-            if (level.isEmptyBlock(down) && newState.canSurvive(level, down)) {
+            if (isValidSpot(level, down, newLowerState)) {
                 return down;
             }
         }
 
         return null;
+    }
+
+    private static boolean isValidSpot(ServerLevel level, BlockPos pos, BlockState newLowerState) {
+        return level.isEmptyBlock(pos) && level.isEmptyBlock(pos.above()) && newLowerState.canSurvive(level, pos);
     }
 }

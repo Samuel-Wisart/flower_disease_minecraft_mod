@@ -13,6 +13,7 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.util.RandomSource;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.BushBlock;
 import net.minecraft.world.level.block.DoublePlantBlock;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.properties.DoubleBlockHalf;
@@ -152,6 +153,16 @@ final class SettleTable {
             }
         }
         return false;
+    }
+
+    // "Territorial" mode (Fence in the bag): any plant at all counts as crowding, not just this
+    // species' own family - so a rose garden won't spread into the gaps of an existing peony garden.
+    // Same upper-half skip as isSameSpecies, so a two-block plant still only counts once.
+    static boolean isAnyPlant(BlockState state) {
+        if (state.hasProperty(DoublePlantBlock.HALF) && state.getValue(DoublePlantBlock.HALF) == DoubleBlockHalf.UPPER) {
+            return false;
+        }
+        return state.getBlock() instanceof BushBlock;
     }
 
     // Converts a player-facing "desired flowers per 16x16 area" target into the maxNearby cap actually

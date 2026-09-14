@@ -9,25 +9,23 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.util.RandomSource;
 import net.minecraft.world.item.context.BlockPlaceContext;
 import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.DeadBushBlock;
 import net.minecraft.world.level.block.EntityBlock;
-import net.minecraft.world.level.block.TallFlowerBlock;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockBehaviour;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.StateDefinition;
-import net.minecraft.world.level.block.state.properties.DoubleBlockHalf;
 import net.neoforged.neoforge.common.ModConfigSpec;
 
-// Two-block counterpart to DiseasedFlowerBlock, for the four TallFlowerBlock-based species (Sunflower,
-// Lilac, Rose Bush, Peony). The actual spread/settle logic lives in DiseasedTallPlantLogic, shared with
-// DiseasedTallGrassBlock (Tall Grass/Large Fern extend plain DoublePlantBlock instead, so they can't
-// share a superclass with this class, only the static logic).
-public class DiseasedTallFlowerBlock extends TallFlowerBlock implements EntityBlock {
+// Single-block diseased Dead Bush - based on DeadBushBlock instead of FlowerBlock/TallGrassBlock so it
+// keeps its own ground rules (sand/dead soil, via BlockTags.DEAD_BUSH_MAY_PLACE_ON). Delegates to
+// DiseasedFlowerLogic, same as the other single-block species.
+public class DiseasedDeadBushBlock extends DeadBushBlock implements EntityBlock {
 
     private final Block fallbackBlock;
     private final ModConfigSpec.ConfigValue<List<? extends String>> settleWeights;
 
-    public DiseasedTallFlowerBlock(
+    public DiseasedDeadBushBlock(
             Block fallbackBlock,
             ModConfigSpec.ConfigValue<List<? extends String>> settleWeights,
             BlockBehaviour.Properties properties
@@ -35,7 +33,7 @@ public class DiseasedTallFlowerBlock extends TallFlowerBlock implements EntityBl
         super(properties);
         this.fallbackBlock = fallbackBlock;
         this.settleWeights = settleWeights;
-        this.registerDefaultState(this.stateDefinition.any().setValue(HALF, DoubleBlockHalf.LOWER).setValue(SettleTable.GENERATION, 0));
+        this.registerDefaultState(this.stateDefinition.any().setValue(SettleTable.GENERATION, 0));
     }
 
     @Override
@@ -44,7 +42,6 @@ public class DiseasedTallFlowerBlock extends TallFlowerBlock implements EntityBl
         builder.add(SettleTable.GENERATION);
     }
 
-    // A hand-planted flower always starts with a full budget of generations (see Config.FLOWER_MAX_GENERATIONS).
     @Nullable
     @Override
     public BlockState getStateForPlacement(BlockPlaceContext context) {
@@ -60,6 +57,6 @@ public class DiseasedTallFlowerBlock extends TallFlowerBlock implements EntityBl
 
     @Override
     protected void randomTick(BlockState state, ServerLevel level, BlockPos pos, RandomSource random) {
-        DiseasedTallPlantLogic.randomTick(state, level, pos, random, this, fallbackBlock, settleWeights);
+        DiseasedFlowerLogic.randomTick(state, level, pos, random, this, fallbackBlock, settleWeights);
     }
 }
