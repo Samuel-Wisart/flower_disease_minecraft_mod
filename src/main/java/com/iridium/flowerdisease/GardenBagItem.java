@@ -104,7 +104,7 @@ public class GardenBagItem extends Item {
             return Component.translatable("item.flowerdisease.garden_bag.error.no_species");
         }
 
-        Block block = FlowerDisease.DISEASED_BY_FALLBACK.get(chosen.block()).get();
+        Block block = FlowerDisease.diseasedByFallback().get(chosen.block()).get();
         boolean tall = block instanceof DoublePlantBlock;
         BlockState lowerState = tall ? block.defaultBlockState().setValue(DoublePlantBlock.HALF, DoubleBlockHalf.LOWER) : block.defaultBlockState();
 
@@ -171,10 +171,11 @@ public class GardenBagItem extends Item {
         return slimeBall.isEmpty() ? -1 : slimeBall.getCount();
     }
 
-    // Each non-empty species-grid slot becomes one "<block id> <weight>" outcome entry (half is always
-    // implicit FULL - see SettleTable.parse - since every grid item already names the exact final block
-    // it wants, full species or decorative top/bottom alike). This is both the spreading pool (filtered
-    // to spreadable entries, see plant()) and the settle pool (used as-is, see SpreadProfileBlockEntity).
+    // Each non-empty species-grid slot becomes one "<block id> <weight>" outcome entry (see
+    // SettleTable.parse) - every grid item already names the exact species it means, full plant or
+    // Top/Bottom alike, each independent. This pool is used to pick a spreading child's species (filtered
+    // to spreadable entries, see plant() and DiseasedPlantLogic) - settling never consults this pool, a
+    // plant that stops spreading always just becomes its own species (see DiseasedPlantLogic#settle).
     private static List<String> outcomeWeightStrings(NonNullList<ItemStack> slots) {
         List<String> result = new ArrayList<>();
         for (int i = GardenBagMenu.SPECIES_SLOTS_START; i < GardenBagMenu.BAG_SLOTS; i++) {

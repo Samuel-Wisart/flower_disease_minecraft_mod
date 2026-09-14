@@ -2,14 +2,11 @@ package com.iridium.flowerdisease;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Locale;
 
 import javax.annotation.Nullable;
 
-import net.minecraft.core.BlockPos;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.ResourceLocation;
-import net.minecraft.server.level.ServerLevel;
 import net.minecraft.util.RandomSource;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
@@ -18,12 +15,11 @@ import net.minecraft.world.level.block.DoublePlantBlock;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.properties.DoubleBlockHalf;
 import net.minecraft.world.level.block.state.properties.IntegerProperty;
-import net.neoforged.neoforge.registries.DeferredBlock;
 
-// Shared "what does this diseased plant settle into" logic, used by both DiseasedFlowerBlock
-// (single-block flowers) and DiseasedTallFlowerBlock (two-block flowers like Rose Bush). Config
-// entries look like "<block id> <weight> [full|lower|upper]"; the half only matters when the
-// target itself is a two-block plant.
+// Shared species-pool parsing/weighting logic for every Diseased plant (see DiseasedPlantLogic for what
+// actually spreads/settles). Config entries look like "<block id> <weight>" - every entry names the exact
+// final block it means (a vanilla species for a full plant, or one of the decorative/spreading Top/Bottom
+// blocks for those - they're independent species in their own right, not a half of something else).
 final class SettleTable {
 
     // UPDATE_CLIENTS alone still lets the engine reactively re-check canSurvive on neighbors (that's
@@ -38,11 +34,7 @@ final class SettleTable {
     // instead of needing a variant per generation value.
     static final IntegerProperty GENERATION = IntegerProperty.create("generation", 0, 64);
 
-    enum Half {
-        FULL, LOWER, UPPER
-    }
-
-    record Option(Block block, int weight, Half half) {
+    record Option(Block block, int weight) {
     }
 
     private SettleTable() {
@@ -52,7 +44,7 @@ final class SettleTable {
         List<Option> options = new ArrayList<>();
         for (String entry : entries) {
             String[] parts = entry.trim().split("\\s+");
-            if (parts.length < 2 || parts.length > 3) {
+            if (parts.length != 2) {
                 continue;
             }
 
@@ -64,13 +56,11 @@ final class SettleTable {
 
                 Block block = BuiltInRegistries.BLOCK.get(id);
                 int weight = Integer.parseInt(parts[1]);
-                Half half = parts.length == 3 ? Half.valueOf(parts[2].toUpperCase(Locale.ROOT)) : Half.FULL;
                 if (block != Blocks.AIR && weight > 0) {
-                    options.add(new Option(block, weight, half));
+                    options.add(new Option(block, weight));
                 }
             } catch (Exception ignored) {
-                // Malformed entry (bad id, bad weight, unknown half); skip it rather than crash
-                // the server over a typo in the config.
+                // Malformed entry (bad id, bad weight); skip it rather than crash the server over a typo.
             }
         }
         return options;
@@ -96,52 +86,6 @@ final class SettleTable {
         return null;
     }
 
-    // Places the chosen outcome at pos. For a two-block target, "full" places both halves properly
-    // (the correct, botanically complete result); "lower"/"upper" each place a standalone decorative
-    // single-block stand-in instead (see placeBottom/placeTop) - this format still exists for the debug
-    // command's free-form species strings, but the Garden Bag itself never produces it: it always names
-    // the exact block it wants (the vanilla species for "full", or the specific decorative top/bottom
-    // block for those), with an implicit FULL half, since Bottom/Top are now their own real blocks/items.
-    static void place(ServerLevel level, BlockPos pos, Option option) {
-        Block block = option.block();
-        if (block instanceof DoublePlantBlock) {
-            switch (option.half()) {
-                case LOWER -> placeBottom(level, pos, block);
-                case UPPER -> placeTop(level, pos, block);
-                case FULL -> DoublePlantBlock.placeAt(level, block.defaultBlockState(), pos, PLACEMENT_FLAGS);
-            }
-        } else {
-            level.setBlock(pos, block.defaultBlockState(), PLACEMENT_FLAGS);
-        }
-    }
-
-    // An upper half's canSurvive requires an actual lower half of the same block directly beneath it,
-    // so an orphaned upper half is inherently fragile (any later neighbor update near it can pop it with
-    // a drop). Placing the matching standalone decorative "top" flower instead sidesteps that entirely.
-    // Falls back to a full two-block placement for any DoublePlantBlock we don't have one registered for.
-    private static void placeTop(ServerLevel level, BlockPos pos, Block tallFlower) {
-        DeferredBlock<DecorativeFlowerBlock> decorativeTop = FlowerDisease.DECORATIVE_TOPS.get(tallFlower);
-        if (decorativeTop != null) {
-            level.setBlock(pos, decorativeTop.get().defaultBlockState(), PLACEMENT_FLAGS);
-        } else {
-            DoublePlantBlock.placeAt(level, tallFlower.defaultBlockState(), pos, PLACEMENT_FLAGS);
-        }
-    }
-
-    // A lone lower half is already stable on its own (its canSurvive only cares about the ground below
-    // it, same as any single-block flower), but placing the dedicated decorative "bottom" block instead
-    // gives it its own real block/item identity, so the Garden Bag can offer it as a distinct choice in
-    // the species grid. Falls back to the raw lower-half placement for any DoublePlantBlock we don't have
-    // one registered for.
-    private static void placeBottom(ServerLevel level, BlockPos pos, Block tallFlower) {
-        DeferredBlock<DecorativeFlowerBlock> decorativeBottom = FlowerDisease.DECORATIVE_BOTTOMS.get(tallFlower);
-        if (decorativeBottom != null) {
-            level.setBlock(pos, decorativeBottom.get().defaultBlockState(), PLACEMENT_FLAGS);
-        } else {
-            level.setBlock(pos, tallFlower.defaultBlockState().setValue(DoublePlantBlock.HALF, DoubleBlockHalf.LOWER), PLACEMENT_FLAGS);
-        }
-    }
-
     // "Same species" for density purposes: this block, its fallback, or any of its settle outcomes.
     // A two-block plant's upper half is skipped since its paired lower half (scanned separately) already
     // represents the same physical plant - otherwise every tall flower would count double.
@@ -156,17 +100,6 @@ final class SettleTable {
 
         for (Option option : options) {
             if (state.is(option.block())) {
-                return true;
-            }
-
-            // An "upper"/"lower" option is actually represented on the ground by its decorative top/bottom
-            // stand-in (see placeTop/placeBottom), not by the tall flower block named in the option itself.
-            DeferredBlock<DecorativeFlowerBlock> decorativeStandIn = switch (option.half()) {
-                case UPPER -> FlowerDisease.DECORATIVE_TOPS.get(option.block());
-                case LOWER -> FlowerDisease.DECORATIVE_BOTTOMS.get(option.block());
-                case FULL -> null;
-            };
-            if (decorativeStandIn != null && state.is(decorativeStandIn.get())) {
                 return true;
             }
         }

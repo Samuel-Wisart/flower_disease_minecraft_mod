@@ -125,10 +125,9 @@ final class FlowerDiseaseCommands {
 
     // "-1" means "no override, use Config.java/blockstate for that field" for every numeric argument
     // here except generations, where "-1" means "infinite" (see SpreadProfileBlockEntity). species is a
-    // comma-separated list of "<block id> <weight>" outcome entries - use a vanilla species id (e.g.
-    // "minecraft:rose_bush") for a spreadable full species, or one of the decorative top/bottom block ids
-    // (e.g. "flowerdisease:rose_bush_top") for a settle-only outcome, same as the Garden Bag itself
-    // produces from its species grid.
+    // comma-separated list of "<block id> <weight>" outcome entries - a vanilla species id (e.g.
+    // "minecraft:rose_bush") or one of the Top/Bottom block ids (e.g. "flowerdisease:rose_bush_top",
+    // its own independent species) both work the same way, same as the Garden Bag's species grid.
     private static int setProfile(CommandContext<CommandSourceStack> context, String speciesArg) throws CommandSyntaxException {
         SpreadProfileBlockEntity profile = profileLookedAt(context.getSource());
         if (profile == null) {

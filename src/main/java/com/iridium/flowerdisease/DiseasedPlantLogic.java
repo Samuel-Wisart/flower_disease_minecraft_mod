@@ -19,11 +19,12 @@ import net.neoforged.neoforge.registries.DeferredBlock;
 // Shared spread/settle logic for every Diseased plant, both single-block (Poppy, Dandelion, Wither Rose,
 // Short Grass, Fern, Dead Bush) and two-block (Sunflower, Lilac, Rose Bush, Peony, Tall Grass, Large
 // Fern). One engine handles both shapes on purpose: the bag's species pool (SpreadProfileBlockEntity#
-// speciesWeights) is never split or restricted by shape/family. Every single time a plant is born - a
-// spreading child, or the final settle outcome of a plant that can't spread anymore - it's an independent
-// weighted draw over the WHOLE pool, constrained only by what physically fits at that position (see
-// spreadableOptions/fittingOptions below). No "this plant's species/family" concept is tracked or enforced
-// anywhere; see PLANNING.md for why an earlier version of this mod did that and why it was wrong.
+// speciesWeights) is never split or restricted by shape when a NEW plant is born - every spreading child
+// is an independent weighted draw over the WHOLE pool (see spreadableOptions below), which may be a
+// completely different species/shape than its parent. No "family" is tracked to constrain that. Settling
+// is different, though: a plant that gives up spreading isn't being "born" again, it's just stabilizing,
+// so it always keeps its own species (fallbackBlock) - see settle() below and PLANNING.md for why an
+// earlier version of this mod (wrongly) turned settling into another pool draw too.
 final class DiseasedPlantLogic {
 
     enum Shape { SINGLE, TALL }
@@ -98,41 +99,41 @@ final class DiseasedPlantLogic {
             // keeps a hand-planted flower with no bag profile spreading as its own species like before.
             SettleTable.Option pickedSpecies = SettleTable.pickWeighted(spreadableOptions(outcomePool), random);
             Shape childShape = pickedSpecies != null ? shapeOf(pickedSpecies.block()) : selfShape;
-            Block species = pickedSpecies != null ? diseasedOf(pickedSpecies.block(), self) : self;
+            Block vanillaSpecies = pickedSpecies != null ? pickedSpecies.block() : fallbackBlock;
+            Block diseasedSpecies = pickedSpecies != null ? diseasedOf(pickedSpecies.block(), self) : self;
 
-            BlockPos target = findSpreadTarget(level, pos, random, species, profile, childShape);
+            BlockPos target = findSpreadTarget(level, pos, random, diseasedSpecies, profile, childShape);
             if (target != null) {
-                placeChild(level, target, random, species, childShape, generationsLeft, profile, outcomePool);
+                placeChild(level, target, diseasedSpecies, vanillaSpecies, childShape, generationsLeft, profile);
                 return;
             }
         }
 
         // Couldn't produce a spreading child this tick (crowded, out of generation budget, or no valid
-        // target found anywhere): this plant settles for good, right where it stands.
-        settle(level, pos, random, fallbackBlock, selfShape, outcomePool);
+        // target found anywhere): this plant settles for good, right where it stands, as its own species.
+        settle(level, pos, fallbackBlock, selfShape);
     }
 
     private static void placeChild(
             ServerLevel level,
             BlockPos target,
-            RandomSource random,
-            Block species,
+            Block diseasedSpecies,
+            Block vanillaSpecies,
             Shape childShape,
             long generationsLeft,
-            @Nullable SpreadProfileBlockEntity profile,
-            List<SettleTable.Option> outcomePool
+            @Nullable SpreadProfileBlockEntity profile
     ) {
         long childGenerations = generationsLeft < 0 ? generationsLeft : generationsLeft - 1;
         if (childGenerations == 0) {
             // No budget left for the child to spread itself, so it settles the instant it's created
-            // instead of existing as an active Diseased Flower even briefly - still an independent draw
-            // over the whole pool, same as any other settle decision.
-            settle(level, target, random, species, childShape, outcomePool);
+            // instead of existing as an active Diseased Flower even briefly - as its own (just-picked)
+            // species, same as any other settle decision.
+            settle(level, target, vanillaSpecies, childShape);
             return;
         }
 
         int blockstateGenerations = (int) Math.max(0, Math.min(64, childGenerations < 0 ? 64 : childGenerations));
-        BlockState childState = species.defaultBlockState().setValue(SettleTable.GENERATION, blockstateGenerations);
+        BlockState childState = diseasedSpecies.defaultBlockState().setValue(SettleTable.GENERATION, blockstateGenerations);
         if (childShape == Shape.TALL) {
             DoublePlantBlock.placeAt(level, childState, target, SettleTable.PLACEMENT_FLAGS);
         } else {
@@ -144,35 +145,17 @@ final class DiseasedPlantLogic {
         }
     }
 
-    // Picks this plant's final resting place from the WHOLE bag pool - never restricted to its own
-    // species - keeping only outcomes that actually fit at `pos`: a single-block plant can only host a
-    // two-block "full" outcome if the cell above is free too, and every outcome needs the right ground
-    // (canSurvive) since the pool may now mix species with different ground requirements (e.g. Dead Bush
-    // needs sand, Wither Rose accepts netherrack/soul sand/soul soil too).
-    private static void settle(ServerLevel level, BlockPos pos, RandomSource random, Block fallbackBlock, Shape atShape, List<SettleTable.Option> outcomePool) {
-        List<SettleTable.Option> fitting = fittingOptions(level, pos, atShape, outcomePool);
-        SettleTable.Option picked = fitting.isEmpty() ? null : SettleTable.pickWeighted(fitting, random);
-
+    // A plant that can't spread anymore isn't being "born" again - it just stabilizes into its own plain
+    // vanilla species, exactly as it already is. No pool draw here on purpose (see class comment).
+    private static void settle(ServerLevel level, BlockPos pos, Block vanillaSpecies, Shape atShape) {
         if (atShape == Shape.TALL) {
-            // The old upper half won't be overwritten unless the outcome is itself a "full" two-block
-            // placement, so clear it first - otherwise it'd be left floating with nothing below it.
+            // The old upper half won't be overwritten unless the target is a real two-block plant, so
+            // clear it first - otherwise it'd be left floating with nothing below it.
             level.setBlock(pos.above(), Blocks.AIR.defaultBlockState(), SettleTable.PLACEMENT_FLAGS);
+            DoublePlantBlock.placeAt(level, vanillaSpecies.defaultBlockState(), pos, SettleTable.PLACEMENT_FLAGS);
+        } else {
+            level.setBlock(pos, vanillaSpecies.defaultBlockState(), SettleTable.PLACEMENT_FLAGS);
         }
-        SettleTable.place(level, pos, picked != null ? picked : new SettleTable.Option(fallbackBlock, 1, SettleTable.Half.FULL));
-    }
-
-    private static List<SettleTable.Option> fittingOptions(ServerLevel level, BlockPos pos, Shape atShape, List<SettleTable.Option> outcomePool) {
-        List<SettleTable.Option> fitting = new ArrayList<>();
-        for (SettleTable.Option option : outcomePool) {
-            if (atShape == Shape.SINGLE && shapeOf(option.block()) == Shape.TALL && !level.isEmptyBlock(pos.above())) {
-                continue;
-            }
-            if (!option.block().defaultBlockState().canSurvive(level, pos)) {
-                continue;
-            }
-            fitting.add(option);
-        }
-        return fitting;
     }
 
     private static Shape shapeOf(Block block) {
@@ -189,7 +172,7 @@ final class DiseasedPlantLogic {
     static List<SettleTable.Option> spreadableOptions(List<SettleTable.Option> outcomePool) {
         List<SettleTable.Option> spreadable = new ArrayList<>();
         for (SettleTable.Option option : outcomePool) {
-            if (FlowerDisease.DISEASED_BY_FALLBACK.containsKey(option.block())) {
+            if (FlowerDisease.diseasedByFallback().containsKey(option.block())) {
                 spreadable.add(option);
             }
         }
@@ -200,7 +183,7 @@ final class DiseasedPlantLogic {
     // placed as; falls back to "same species as the parent" when nothing was picked (empty pool - a
     // hand-planted flower with no bag, or a debug profile with no species configured).
     private static Block diseasedOf(Block vanillaSpecies, Block self) {
-        DeferredBlock<? extends Block> diseased = FlowerDisease.DISEASED_BY_FALLBACK.get(vanillaSpecies);
+        DeferredBlock<? extends Block> diseased = FlowerDisease.diseasedByFallback().get(vanillaSpecies);
         return diseased != null ? diseased.get() : self;
     }
 

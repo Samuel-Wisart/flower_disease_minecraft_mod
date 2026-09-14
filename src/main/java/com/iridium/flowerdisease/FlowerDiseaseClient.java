@@ -76,14 +76,17 @@ public class FlowerDiseaseClient {
                         : GrassColor.getDefaultColor(),
                 FlowerDisease.DISEASED_TALL_GRASS.get(), FlowerDisease.DISEASED_LARGE_FERN.get()
         );
-        // The decorative top/bottom stand-ins for Tall Grass/Large Fern are always a single full block at
-        // pos (no HALF property to worry about), same as Short Grass/Fern's own tint above.
+        // Tall Grass/Large Fern Top/Bottom (decorative and their spreading Diseased counterparts) are
+        // always a single full block at pos (no HALF property to worry about), same as Short Grass/Fern's
+        // own tint above.
         event.register(
                 (state, level, pos, tintIndex) -> level != null && pos != null
                         ? BiomeColors.getAverageGrassColor(level, pos)
                         : GrassColor.getDefaultColor(),
                 FlowerDisease.TALL_GRASS_TOP.get(), FlowerDisease.TALL_GRASS_BOTTOM.get(),
-                FlowerDisease.LARGE_FERN_TOP.get(), FlowerDisease.LARGE_FERN_BOTTOM.get()
+                FlowerDisease.LARGE_FERN_TOP.get(), FlowerDisease.LARGE_FERN_BOTTOM.get(),
+                FlowerDisease.DISEASED_TALL_GRASS_TOP.get(), FlowerDisease.DISEASED_TALL_GRASS_BOTTOM.get(),
+                FlowerDisease.DISEASED_LARGE_FERN_TOP.get(), FlowerDisease.DISEASED_LARGE_FERN_BOTTOM.get()
         );
     }
 
@@ -93,7 +96,9 @@ public class FlowerDiseaseClient {
                 (stack, tintIndex) -> GrassColor.get(0.5, 1.0),
                 FlowerDisease.DISEASED_TALL_GRASS.get(), FlowerDisease.DISEASED_LARGE_FERN.get(),
                 FlowerDisease.TALL_GRASS_TOP.get(), FlowerDisease.TALL_GRASS_BOTTOM.get(),
-                FlowerDisease.LARGE_FERN_TOP.get(), FlowerDisease.LARGE_FERN_BOTTOM.get()
+                FlowerDisease.LARGE_FERN_TOP.get(), FlowerDisease.LARGE_FERN_BOTTOM.get(),
+                FlowerDisease.DISEASED_TALL_GRASS_TOP.get(), FlowerDisease.DISEASED_TALL_GRASS_BOTTOM.get(),
+                FlowerDisease.DISEASED_LARGE_FERN_TOP.get(), FlowerDisease.DISEASED_LARGE_FERN_BOTTOM.get()
         );
 
         BlockColors blockColors = event.getBlockColors();

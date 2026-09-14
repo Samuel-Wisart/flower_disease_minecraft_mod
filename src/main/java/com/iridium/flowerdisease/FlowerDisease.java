@@ -133,10 +133,10 @@ public class FlowerDisease {
             tallGrassProperties()
     );
 
-    // Standalone "just the top half"/"just the bottom half" decorative single-block plants - see
-    // SettleTable.placeTop/placeBottom for why these exist instead of placing an orphaned half of the
-    // real two-block plant. They're also the Garden Bag's own separate "Top"/"Bottom" species grid
-    // choices, each with its own weight, distinct from the full two-block "Full" species item.
+    // Standalone "just the top half"/"just the bottom half" decorative single-block plants. They're
+    // their own separate Garden Bag species grid choices, each with its own weight, distinct from the
+    // full two-block "Full" species item - and each has its own spreading DiseasedDecorativeFlowerBlock
+    // counterpart below, exactly like any other species (see DISEASED_BY_FALLBACK).
     public static final DeferredBlock<DecorativeFlowerBlock> SUNFLOWER_TOP =
             BLOCKS.registerBlock("sunflower_top", DecorativeFlowerBlock::new, decorativeFlowerProperties());
     public static final DeferredBlock<DecorativeFlowerBlock> SUNFLOWER_BOTTOM =
@@ -162,54 +162,84 @@ public class FlowerDisease {
     public static final DeferredBlock<DecorativeFlowerBlock> LARGE_FERN_BOTTOM =
             BLOCKS.registerBlock("large_fern_bottom", DecorativeFlowerBlock::new, decorativeFlowerProperties());
 
-    // Which decorative top/bottom stands in for a given vanilla two-block plant's "upper"/"lower" settle
-    // outcome (used by SettleTable.placeTop/placeBottom and isSameSpecies for the debug command's legacy
-    // "lower"/"upper" string format - the Garden Bag itself always names the exact block it wants).
-    public static final Map<Block, DeferredBlock<DecorativeFlowerBlock>> DECORATIVE_TOPS = Map.of(
-            Blocks.SUNFLOWER, SUNFLOWER_TOP,
-            Blocks.LILAC, LILAC_TOP,
-            Blocks.ROSE_BUSH, ROSE_BUSH_TOP,
-            Blocks.PEONY, PEONY_TOP,
-            Blocks.TALL_GRASS, TALL_GRASS_TOP,
-            Blocks.LARGE_FERN, LARGE_FERN_TOP
-    );
-    public static final Map<Block, DeferredBlock<DecorativeFlowerBlock>> DECORATIVE_BOTTOMS = Map.of(
-            Blocks.SUNFLOWER, SUNFLOWER_BOTTOM,
-            Blocks.LILAC, LILAC_BOTTOM,
-            Blocks.ROSE_BUSH, ROSE_BUSH_BOTTOM,
-            Blocks.PEONY, PEONY_BOTTOM,
-            Blocks.TALL_GRASS, TALL_GRASS_BOTTOM,
-            Blocks.LARGE_FERN, LARGE_FERN_BOTTOM
-    );
+    // Spreading counterparts of the decorative Top/Bottom blocks above - each is its own independent
+    // species (not a variant of the full two-block plant): plantable by the bag, spreads like any other
+    // single-block flower, and settles back into its own plain DecorativeFlowerBlock (its "fallback",
+    // same pattern as every other species in this mod).
+    public static final DeferredBlock<DiseasedDecorativeFlowerBlock> DISEASED_SUNFLOWER_TOP =
+            registerDiseasedDecorative("diseased_sunflower_top", SUNFLOWER_TOP);
+    public static final DeferredBlock<DiseasedDecorativeFlowerBlock> DISEASED_SUNFLOWER_BOTTOM =
+            registerDiseasedDecorative("diseased_sunflower_bottom", SUNFLOWER_BOTTOM);
+    public static final DeferredBlock<DiseasedDecorativeFlowerBlock> DISEASED_LILAC_TOP =
+            registerDiseasedDecorative("diseased_lilac_top", LILAC_TOP);
+    public static final DeferredBlock<DiseasedDecorativeFlowerBlock> DISEASED_LILAC_BOTTOM =
+            registerDiseasedDecorative("diseased_lilac_bottom", LILAC_BOTTOM);
+    public static final DeferredBlock<DiseasedDecorativeFlowerBlock> DISEASED_ROSE_BUSH_TOP =
+            registerDiseasedDecorative("diseased_rose_bush_top", ROSE_BUSH_TOP);
+    public static final DeferredBlock<DiseasedDecorativeFlowerBlock> DISEASED_ROSE_BUSH_BOTTOM =
+            registerDiseasedDecorative("diseased_rose_bush_bottom", ROSE_BUSH_BOTTOM);
+    public static final DeferredBlock<DiseasedDecorativeFlowerBlock> DISEASED_PEONY_TOP =
+            registerDiseasedDecorative("diseased_peony_top", PEONY_TOP);
+    public static final DeferredBlock<DiseasedDecorativeFlowerBlock> DISEASED_PEONY_BOTTOM =
+            registerDiseasedDecorative("diseased_peony_bottom", PEONY_BOTTOM);
+    public static final DeferredBlock<DiseasedDecorativeFlowerBlock> DISEASED_TALL_GRASS_TOP =
+            registerDiseasedDecorative("diseased_tall_grass_top", TALL_GRASS_TOP);
+    public static final DeferredBlock<DiseasedDecorativeFlowerBlock> DISEASED_TALL_GRASS_BOTTOM =
+            registerDiseasedDecorative("diseased_tall_grass_bottom", TALL_GRASS_BOTTOM);
+    public static final DeferredBlock<DiseasedDecorativeFlowerBlock> DISEASED_LARGE_FERN_TOP =
+            registerDiseasedDecorative("diseased_large_fern_top", LARGE_FERN_TOP);
+    public static final DeferredBlock<DiseasedDecorativeFlowerBlock> DISEASED_LARGE_FERN_BOTTOM =
+            registerDiseasedDecorative("diseased_large_fern_bottom", LARGE_FERN_BOTTOM);
 
-    // Reverse lookup from a vanilla "full species" block (as named in a Garden Bag/settle outcome pool)
-    // to the Diseased block that actually spreads as that species. A decorative top/bottom block is
-    // deliberately absent from here - it has no Diseased counterpart, so it can never be picked as a
-    // spreading child or a plantable bag root, only as a settle-only outcome.
-    public static final Map<Block, DeferredBlock<? extends Block>> DISEASED_BY_FALLBACK = Map.ofEntries(
-            Map.entry(Blocks.DANDELION, DISEASED_DANDELION),
-            Map.entry(Blocks.POPPY, DISEASED_POPPY),
-            Map.entry(Blocks.BLUE_ORCHID, DISEASED_BLUE_ORCHID),
-            Map.entry(Blocks.ALLIUM, DISEASED_ALLIUM),
-            Map.entry(Blocks.AZURE_BLUET, DISEASED_AZURE_BLUET),
-            Map.entry(Blocks.RED_TULIP, DISEASED_RED_TULIP),
-            Map.entry(Blocks.ORANGE_TULIP, DISEASED_ORANGE_TULIP),
-            Map.entry(Blocks.WHITE_TULIP, DISEASED_WHITE_TULIP),
-            Map.entry(Blocks.PINK_TULIP, DISEASED_PINK_TULIP),
-            Map.entry(Blocks.OXEYE_DAISY, DISEASED_OXEYE_DAISY),
-            Map.entry(Blocks.CORNFLOWER, DISEASED_CORNFLOWER),
-            Map.entry(Blocks.LILY_OF_THE_VALLEY, DISEASED_LILY_OF_THE_VALLEY),
-            Map.entry(Blocks.WITHER_ROSE, DISEASED_WITHER_ROSE),
-            Map.entry(Blocks.SUNFLOWER, DISEASED_SUNFLOWER),
-            Map.entry(Blocks.LILAC, DISEASED_LILAC),
-            Map.entry(Blocks.ROSE_BUSH, DISEASED_ROSE_BUSH),
-            Map.entry(Blocks.PEONY, DISEASED_PEONY),
-            Map.entry(Blocks.SHORT_GRASS, DISEASED_SHORT_GRASS),
-            Map.entry(Blocks.FERN, DISEASED_FERN),
-            Map.entry(Blocks.DEAD_BUSH, DISEASED_DEAD_BUSH),
-            Map.entry(Blocks.TALL_GRASS, DISEASED_TALL_GRASS),
-            Map.entry(Blocks.LARGE_FERN, DISEASED_LARGE_FERN)
-    );
+    // Reverse lookup from a "full species" block (as named in a Garden Bag/settle outcome pool) to the
+    // Diseased block that actually spreads as that species. Includes both vanilla blocks (the 22 normal
+    // species) and our own decorative Top/Bottom blocks (each its own independent species, see above) -
+    // anything absent from this map has no Diseased counterpart and can never be picked as a spreading
+    // child or a plantable bag root. Built lazily (see bagOutcomeItems() below for why): the Top/Bottom
+    // keys need SUNFLOWER_TOP.get() etc, which isn't safe to resolve until registration has actually run.
+    private static Map<Block, DeferredBlock<? extends Block>> diseasedByFallback;
+
+    public static Map<Block, DeferredBlock<? extends Block>> diseasedByFallback() {
+        if (diseasedByFallback == null) {
+            diseasedByFallback = Map.ofEntries(
+                    Map.entry(Blocks.DANDELION, DISEASED_DANDELION),
+                    Map.entry(Blocks.POPPY, DISEASED_POPPY),
+                    Map.entry(Blocks.BLUE_ORCHID, DISEASED_BLUE_ORCHID),
+                    Map.entry(Blocks.ALLIUM, DISEASED_ALLIUM),
+                    Map.entry(Blocks.AZURE_BLUET, DISEASED_AZURE_BLUET),
+                    Map.entry(Blocks.RED_TULIP, DISEASED_RED_TULIP),
+                    Map.entry(Blocks.ORANGE_TULIP, DISEASED_ORANGE_TULIP),
+                    Map.entry(Blocks.WHITE_TULIP, DISEASED_WHITE_TULIP),
+                    Map.entry(Blocks.PINK_TULIP, DISEASED_PINK_TULIP),
+                    Map.entry(Blocks.OXEYE_DAISY, DISEASED_OXEYE_DAISY),
+                    Map.entry(Blocks.CORNFLOWER, DISEASED_CORNFLOWER),
+                    Map.entry(Blocks.LILY_OF_THE_VALLEY, DISEASED_LILY_OF_THE_VALLEY),
+                    Map.entry(Blocks.WITHER_ROSE, DISEASED_WITHER_ROSE),
+                    Map.entry(Blocks.SUNFLOWER, DISEASED_SUNFLOWER),
+                    Map.entry(Blocks.LILAC, DISEASED_LILAC),
+                    Map.entry(Blocks.ROSE_BUSH, DISEASED_ROSE_BUSH),
+                    Map.entry(Blocks.PEONY, DISEASED_PEONY),
+                    Map.entry(Blocks.SHORT_GRASS, DISEASED_SHORT_GRASS),
+                    Map.entry(Blocks.FERN, DISEASED_FERN),
+                    Map.entry(Blocks.DEAD_BUSH, DISEASED_DEAD_BUSH),
+                    Map.entry(Blocks.TALL_GRASS, DISEASED_TALL_GRASS),
+                    Map.entry(Blocks.LARGE_FERN, DISEASED_LARGE_FERN),
+                    Map.entry(SUNFLOWER_TOP.get(), DISEASED_SUNFLOWER_TOP),
+                    Map.entry(SUNFLOWER_BOTTOM.get(), DISEASED_SUNFLOWER_BOTTOM),
+                    Map.entry(LILAC_TOP.get(), DISEASED_LILAC_TOP),
+                    Map.entry(LILAC_BOTTOM.get(), DISEASED_LILAC_BOTTOM),
+                    Map.entry(ROSE_BUSH_TOP.get(), DISEASED_ROSE_BUSH_TOP),
+                    Map.entry(ROSE_BUSH_BOTTOM.get(), DISEASED_ROSE_BUSH_BOTTOM),
+                    Map.entry(PEONY_TOP.get(), DISEASED_PEONY_TOP),
+                    Map.entry(PEONY_BOTTOM.get(), DISEASED_PEONY_BOTTOM),
+                    Map.entry(TALL_GRASS_TOP.get(), DISEASED_TALL_GRASS_TOP),
+                    Map.entry(TALL_GRASS_BOTTOM.get(), DISEASED_TALL_GRASS_BOTTOM),
+                    Map.entry(LARGE_FERN_TOP.get(), DISEASED_LARGE_FERN_TOP),
+                    Map.entry(LARGE_FERN_BOTTOM.get(), DISEASED_LARGE_FERN_BOTTOM)
+            );
+        }
+        return diseasedByFallback;
+    }
 
     // Optional per-planting spread overrides (see SpreadProfileBlockEntity) - every spreading Diseased
     // Flower block has one, hand-placed included, but it only ever does anything once something (the
@@ -224,7 +254,13 @@ public class FlowerDisease {
                     DISEASED_WITHER_ROSE.get(),
                     DISEASED_SUNFLOWER.get(), DISEASED_LILAC.get(), DISEASED_ROSE_BUSH.get(), DISEASED_PEONY.get(),
                     DISEASED_SHORT_GRASS.get(), DISEASED_FERN.get(), DISEASED_DEAD_BUSH.get(),
-                    DISEASED_TALL_GRASS.get(), DISEASED_LARGE_FERN.get()
+                    DISEASED_TALL_GRASS.get(), DISEASED_LARGE_FERN.get(),
+                    DISEASED_SUNFLOWER_TOP.get(), DISEASED_SUNFLOWER_BOTTOM.get(),
+                    DISEASED_LILAC_TOP.get(), DISEASED_LILAC_BOTTOM.get(),
+                    DISEASED_ROSE_BUSH_TOP.get(), DISEASED_ROSE_BUSH_BOTTOM.get(),
+                    DISEASED_PEONY_TOP.get(), DISEASED_PEONY_BOTTOM.get(),
+                    DISEASED_TALL_GRASS_TOP.get(), DISEASED_TALL_GRASS_BOTTOM.get(),
+                    DISEASED_LARGE_FERN_TOP.get(), DISEASED_LARGE_FERN_BOTTOM.get()
             ).build(null)
     );
 
@@ -274,11 +310,23 @@ public class FlowerDisease {
     public static final DeferredItem<BlockItem> DISEASED_DEAD_BUSH_ITEM = ITEMS.registerSimpleBlockItem("diseased_dead_bush", DISEASED_DEAD_BUSH);
     public static final DeferredItem<BlockItem> DISEASED_TALL_GRASS_ITEM = ITEMS.registerSimpleBlockItem("diseased_tall_grass", DISEASED_TALL_GRASS);
     public static final DeferredItem<BlockItem> DISEASED_LARGE_FERN_ITEM = ITEMS.registerSimpleBlockItem("diseased_large_fern", DISEASED_LARGE_FERN);
+    public static final DeferredItem<BlockItem> DISEASED_SUNFLOWER_TOP_ITEM = ITEMS.registerSimpleBlockItem("diseased_sunflower_top", DISEASED_SUNFLOWER_TOP);
+    public static final DeferredItem<BlockItem> DISEASED_SUNFLOWER_BOTTOM_ITEM = ITEMS.registerSimpleBlockItem("diseased_sunflower_bottom", DISEASED_SUNFLOWER_BOTTOM);
+    public static final DeferredItem<BlockItem> DISEASED_LILAC_TOP_ITEM = ITEMS.registerSimpleBlockItem("diseased_lilac_top", DISEASED_LILAC_TOP);
+    public static final DeferredItem<BlockItem> DISEASED_LILAC_BOTTOM_ITEM = ITEMS.registerSimpleBlockItem("diseased_lilac_bottom", DISEASED_LILAC_BOTTOM);
+    public static final DeferredItem<BlockItem> DISEASED_ROSE_BUSH_TOP_ITEM = ITEMS.registerSimpleBlockItem("diseased_rose_bush_top", DISEASED_ROSE_BUSH_TOP);
+    public static final DeferredItem<BlockItem> DISEASED_ROSE_BUSH_BOTTOM_ITEM = ITEMS.registerSimpleBlockItem("diseased_rose_bush_bottom", DISEASED_ROSE_BUSH_BOTTOM);
+    public static final DeferredItem<BlockItem> DISEASED_PEONY_TOP_ITEM = ITEMS.registerSimpleBlockItem("diseased_peony_top", DISEASED_PEONY_TOP);
+    public static final DeferredItem<BlockItem> DISEASED_PEONY_BOTTOM_ITEM = ITEMS.registerSimpleBlockItem("diseased_peony_bottom", DISEASED_PEONY_BOTTOM);
+    public static final DeferredItem<BlockItem> DISEASED_TALL_GRASS_TOP_ITEM = ITEMS.registerSimpleBlockItem("diseased_tall_grass_top", DISEASED_TALL_GRASS_TOP);
+    public static final DeferredItem<BlockItem> DISEASED_TALL_GRASS_BOTTOM_ITEM = ITEMS.registerSimpleBlockItem("diseased_tall_grass_bottom", DISEASED_TALL_GRASS_BOTTOM);
+    public static final DeferredItem<BlockItem> DISEASED_LARGE_FERN_TOP_ITEM = ITEMS.registerSimpleBlockItem("diseased_large_fern_top", DISEASED_LARGE_FERN_TOP);
+    public static final DeferredItem<BlockItem> DISEASED_LARGE_FERN_BOTTOM_ITEM = ITEMS.registerSimpleBlockItem("diseased_large_fern_bottom", DISEASED_LARGE_FERN_BOTTOM);
 
     // What dropping a given item into one of the Garden Bag's species grid slots means - the stack count
-    // in that slot becomes that outcome's relative weight (see GardenBagItem). A "full species" item maps
-    // to its own vanilla block (spreadable AND a valid settle target, via DISEASED_BY_FALLBACK); a
-    // Top/Bottom item maps directly to its decorative block (settle-only, never spreadable). Built lazily
+    // in that slot becomes that outcome's relative weight (see GardenBagItem). Every item here maps to a
+    // "full species" fallback block that has its own Diseased counterpart (via diseasedByFallback()), so
+    // every grid choice - including Top/Bottom - is spreadable AND a valid settle target. Built lazily
     // (not a plain static field) because the keys/values here include mod-registered DeferredItem/
     // DeferredBlock instances that aren't safe to resolve via .get() until registration has actually run,
     // which happens well after this class's own static fields are initialized.
@@ -415,7 +463,8 @@ public class FlowerDisease {
                 .randomTicks();
     }
 
-    // No .randomTicks() - these are purely decorative and never spread or settle on their own.
+    // No .randomTicks() - these are purely decorative and never spread or settle on their own. Their
+    // spreading counterpart is DiseasedDecorativeFlowerBlock (see diseasedDecorativeFlowerProperties()).
     private static BlockBehaviour.Properties decorativeFlowerProperties() {
         return BlockBehaviour.Properties.of()
                 .mapColor(MapColor.PLANT)
@@ -424,6 +473,29 @@ public class FlowerDisease {
                 .sound(SoundType.GRASS)
                 .offsetType(BlockBehaviour.OffsetType.XZ)
                 .pushReaction(PushReaction.DESTROY);
+    }
+
+    private static DeferredBlock<DiseasedDecorativeFlowerBlock> registerDiseasedDecorative(
+            String name,
+            DeferredBlock<DecorativeFlowerBlock> fallback
+    ) {
+        return BLOCKS.registerBlock(
+                name,
+                properties -> new DiseasedDecorativeFlowerBlock(fallback.get(), properties),
+                diseasedDecorativeFlowerProperties()
+        );
+    }
+
+    // Same look/footprint as decorativeFlowerProperties(), but spreads like any other single-block flower.
+    private static BlockBehaviour.Properties diseasedDecorativeFlowerProperties() {
+        return BlockBehaviour.Properties.of()
+                .mapColor(MapColor.PLANT)
+                .noCollission()
+                .instabreak()
+                .sound(SoundType.GRASS)
+                .offsetType(BlockBehaviour.OffsetType.XZ)
+                .pushReaction(PushReaction.DESTROY)
+                .randomTicks();
     }
 
     // The constructor for the mod class is the first code that is run when your mod is loaded.
@@ -492,17 +564,29 @@ public class FlowerDisease {
         insertDiseasedAfter(event, Items.TALL_GRASS, DISEASED_TALL_GRASS_ITEM);
         insertDiseasedAfter(event, Items.LARGE_FERN, DISEASED_LARGE_FERN_ITEM);
         insertDiseasedAfter(event, DISEASED_SUNFLOWER_ITEM.get(), SUNFLOWER_TOP_ITEM);
-        insertDiseasedAfter(event, SUNFLOWER_TOP_ITEM.get(), SUNFLOWER_BOTTOM_ITEM);
-        insertDiseasedAfter(event, DISEASED_LILAC_ITEM.get(), LILAC_TOP_ITEM);
-        insertDiseasedAfter(event, LILAC_TOP_ITEM.get(), LILAC_BOTTOM_ITEM);
-        insertDiseasedAfter(event, DISEASED_ROSE_BUSH_ITEM.get(), ROSE_BUSH_TOP_ITEM);
-        insertDiseasedAfter(event, ROSE_BUSH_TOP_ITEM.get(), ROSE_BUSH_BOTTOM_ITEM);
-        insertDiseasedAfter(event, DISEASED_PEONY_ITEM.get(), PEONY_TOP_ITEM);
-        insertDiseasedAfter(event, PEONY_TOP_ITEM.get(), PEONY_BOTTOM_ITEM);
-        insertDiseasedAfter(event, DISEASED_TALL_GRASS_ITEM.get(), TALL_GRASS_TOP_ITEM);
-        insertDiseasedAfter(event, TALL_GRASS_TOP_ITEM.get(), TALL_GRASS_BOTTOM_ITEM);
-        insertDiseasedAfter(event, DISEASED_LARGE_FERN_ITEM.get(), LARGE_FERN_TOP_ITEM);
-        insertDiseasedAfter(event, LARGE_FERN_TOP_ITEM.get(), LARGE_FERN_BOTTOM_ITEM);
+        insertDiseasedAfter(event, SUNFLOWER_TOP_ITEM.get(), DISEASED_SUNFLOWER_TOP_ITEM);
+        insertDiseasedAfter(event, DISEASED_SUNFLOWER_TOP_ITEM.get(), SUNFLOWER_BOTTOM_ITEM);
+        insertDiseasedAfter(event, SUNFLOWER_BOTTOM_ITEM.get(), DISEASED_SUNFLOWER_BOTTOM_ITEM);
+        insertDiseasedAfter(event, DISEASED_SUNFLOWER_BOTTOM_ITEM.get(), LILAC_TOP_ITEM);
+        insertDiseasedAfter(event, LILAC_TOP_ITEM.get(), DISEASED_LILAC_TOP_ITEM);
+        insertDiseasedAfter(event, DISEASED_LILAC_TOP_ITEM.get(), LILAC_BOTTOM_ITEM);
+        insertDiseasedAfter(event, LILAC_BOTTOM_ITEM.get(), DISEASED_LILAC_BOTTOM_ITEM);
+        insertDiseasedAfter(event, DISEASED_LILAC_BOTTOM_ITEM.get(), ROSE_BUSH_TOP_ITEM);
+        insertDiseasedAfter(event, ROSE_BUSH_TOP_ITEM.get(), DISEASED_ROSE_BUSH_TOP_ITEM);
+        insertDiseasedAfter(event, DISEASED_ROSE_BUSH_TOP_ITEM.get(), ROSE_BUSH_BOTTOM_ITEM);
+        insertDiseasedAfter(event, ROSE_BUSH_BOTTOM_ITEM.get(), DISEASED_ROSE_BUSH_BOTTOM_ITEM);
+        insertDiseasedAfter(event, DISEASED_ROSE_BUSH_BOTTOM_ITEM.get(), PEONY_TOP_ITEM);
+        insertDiseasedAfter(event, PEONY_TOP_ITEM.get(), DISEASED_PEONY_TOP_ITEM);
+        insertDiseasedAfter(event, DISEASED_PEONY_TOP_ITEM.get(), PEONY_BOTTOM_ITEM);
+        insertDiseasedAfter(event, PEONY_BOTTOM_ITEM.get(), DISEASED_PEONY_BOTTOM_ITEM);
+        insertDiseasedAfter(event, DISEASED_PEONY_BOTTOM_ITEM.get(), TALL_GRASS_TOP_ITEM);
+        insertDiseasedAfter(event, TALL_GRASS_TOP_ITEM.get(), DISEASED_TALL_GRASS_TOP_ITEM);
+        insertDiseasedAfter(event, DISEASED_TALL_GRASS_TOP_ITEM.get(), TALL_GRASS_BOTTOM_ITEM);
+        insertDiseasedAfter(event, TALL_GRASS_BOTTOM_ITEM.get(), DISEASED_TALL_GRASS_BOTTOM_ITEM);
+        insertDiseasedAfter(event, DISEASED_TALL_GRASS_BOTTOM_ITEM.get(), LARGE_FERN_TOP_ITEM);
+        insertDiseasedAfter(event, LARGE_FERN_TOP_ITEM.get(), DISEASED_LARGE_FERN_TOP_ITEM);
+        insertDiseasedAfter(event, DISEASED_LARGE_FERN_TOP_ITEM.get(), LARGE_FERN_BOTTOM_ITEM);
+        insertDiseasedAfter(event, LARGE_FERN_BOTTOM_ITEM.get(), DISEASED_LARGE_FERN_BOTTOM_ITEM);
     }
 
     private static void insertDiseasedAfter(BuildCreativeModeTabContentsEvent event, Item anchor, DeferredItem<BlockItem> diseased) {

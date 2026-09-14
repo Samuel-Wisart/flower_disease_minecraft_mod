@@ -1,0 +1,9 @@
+{
+  "multipart": [
+    {
+      "apply": {
+        "model": "flowerdisease:block/diseased_tall_grass_top"
+      }
+    }
+  ]
+}

@@ -18,7 +18,8 @@ import net.minecraft.world.phys.shapes.VoxelShape;
 // standalone block using the same "top" texture, so it behaves like any other ordinary flower instead.
 public class DecorativeFlowerBlock extends BushBlock {
     public static final MapCodec<DecorativeFlowerBlock> CODEC = simpleCodec(DecorativeFlowerBlock::new);
-    private static final VoxelShape SHAPE = Block.box(5.0, 0.0, 5.0, 11.0, 10.0, 11.0);
+    // Package-visible so DiseasedDecorativeFlowerBlock (the spreading counterpart) can render identically.
+    static final VoxelShape SHAPE = Block.box(5.0, 0.0, 5.0, 11.0, 10.0, 11.0);
 
     @Override
     public MapCodec<DecorativeFlowerBlock> codec() {

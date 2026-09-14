@@ -8,8 +8,10 @@ planejado a seguir. Sempre que uma decisão de arquitetura relevante for tomada,
 
 Minecraft 1.21.1, NeoForge `21.1.250`. A ideia central: uma "Diseased Flower" é uma versão doente de
 cada flor do vanilla que, plantada, se espalha lentamente pelo terreno ao redor com o tempo, criando um
-campo florido de forma orgânica. Quando não consegue mais se reproduzir (lotação ou terreno sem espaço),
-ela se estabiliza virando uma flor normal (ou outra espécie, configurável).
+campo florido de forma orgânica. A cada salto, o FILHO nascido pode ser sorteado entre várias espécies
+(configurável pela bag, ver "Sem lógica de cadeia" abaixo). Quando uma planta não consegue mais se
+reproduzir (lotação ou terreno sem espaço), ela se estabiliza virando uma flor normal — sempre ELA MESMA,
+nunca um sorteio (ver "Sistema de settle" abaixo).
 
 Objetivo maior do jogador (dono do projeto): permitir tanto um "jardim de bolso" controlado (plantado via
 um item — a "Garden Bag", **implementada**, ver seção própria mais abaixo) quanto, em tese, um
@@ -60,20 +62,15 @@ Isso fica pra depois, não mexer nisso agora.
   abaixo. Ao espalhar com um perfil ativo, o filho recebe uma CÓPIA do
   perfil do pai (via `SpreadProfileBlockEntity#copyFrom`), com o contador de gerações já decrementado —
   é assim que a herança pelos filhos funciona.
-- **A lista de espécies do perfil (`speciesWeights`) é a ÚNICA fonte de "o que isso pode virar"** — tanto
-  pra escolher a espécie de um filho ao espalhar quanto pra decidir em que vira ao assentar (settle). Não
-  existe mais nenhuma tabela global de settle no `Config.java` (ver "Sistema de settle" abaixo pro
-  histórico de por que ela foi removida) — uma flor plantada na mão, sem bag, sempre assenta em si mesma
-  (`fallbackBlock`), sem sorteio nenhum.
-- **Sem "lógica de cadeia": cada nascimento é um sorteio independente sobre o pool inteiro da bag.**
-  Isso passou por várias rodadas de correção — as duas primeiras (Bug 1 e Bug 2, histórico abaixo) foram
-  legítimas, mas a correção do Bug 2 introduziu um conceito de "família" (toda planta ficava travada na
-  MESMA espécie escolhida no nascimento, inclusive pro destino final de settle) que o dono do projeto
-  **não queria**: o pedido dele sempre foi que TODO nascimento — seja um filho ao espalhar, seja o destino
-  final ao assentar — sorteie livremente entre as espécies configuradas na bag, sem herdar identidade de
-  ninguém. Uma bag com Poppy + Rose Bush deve poder produzir um filho Rose Bush a partir de uma Poppy (e
-  vice-versa), e uma planta que não consegue mais se espalhar deve poder assentar como QUALQUER espécie do
-  pool, não só como si mesma.
+- **A lista de espécies do perfil (`speciesWeights`) é a ÚNICA fonte de "o que um FILHO pode ser"** ao
+  espalhar. Não existe mais nenhuma tabela global de settle no `Config.java` (ver "Sistema de settle"
+  abaixo pro histórico de por que ela foi removida).
+- **Sem "lógica de cadeia" ao ESPALHAR: cada filho é um sorteio independente sobre o pool inteiro da
+  bag, sem herdar a espécie do pai.** Isso passou por várias rodadas de correção — as duas primeiras (Bug
+  1 e Bug 2, histórico abaixo) foram legítimas, mas a correção do Bug 2 introduziu um conceito de
+  "família" que restringia até o SORTEIO DE FILHOS à mesma espécie que o pai, o que o dono do projeto
+  **não queria**: uma bag com Poppy + Rose Bush deve poder produzir um filho Rose Bush a partir de uma
+  Poppy (e vice-versa) — cada nascimento sorteia livremente entre as espécies configuradas na bag.
   1. **Bug 1**: plantar só Poppy pela bag também gerava Fern, Tall Grass, Rose Bush etc. Causa raiz: o
      settle colocava o próprio BLOCO DOENTE escolhido da lista de espécies como "resultado final", em vez
      do bloco vanilla. Um `DiseasedFlowerBlock` recém-colocado por `SettleTable.place` nasce com
@@ -84,24 +81,28 @@ Isso fica pra depois, não mexer nisso agora.
   2. **Bug 2** (mesma família de sintoma, causa diferente, corrigido DEPOIS que o Bug 1 já tinha sido
      resolvido e a settleWeights global removida): numa bag com Lilac + Peony juntos, uma planta nascia
      como Lilac mas eventualmente assentava como Peony, o que na época pareceu um bug de "vazamento" entre
-     sorteios. A correção aplicada então foi travar cada planta na sua própria família (via
-     `SettleTable.familyOptions`), impedindo justamente esse tipo de troca — só que essa restrição
-     **overcorrigiu**: o dono do projeto esclareceu depois que uma Lilac assentar como Peony (ou uma Poppy
-     nascer filha de uma Rose Bush) não é um bug, é o comportamento desejado, desde que a espécie esteja
-     configurada na bag. `familyOptions` foi removida por completo.
-  **Estado atual**: `DiseasedPlantLogic` (engine única de espalhamento/settle, ver "Arquivos principais")
-  faz um sorteio ponderado NOVO e independente sobre o pool inteiro (`speciesWeights`) toda vez que uma
-  planta nasce — seja como filho ao espalhar, seja como destino final ao assentar. Não existe mais nenhum
-  conceito de "família"/"espécie de origem" persistido em lugar nenhum; o único filtro aplicado é
-  estrutural (`fittingOptions`/`findSpreadTarget`): a entrada sorteada precisa caber fisicamente onde vai
-  ser colocada — uma planta de 1 bloco só pode assentar como uma espécie de 2 blocos ("full") se a célula
-  acima estiver livre, e todo destino é validado com `canSurvive` no chão daquela posição (o pool pode
-  misturar espécies com exigências de chão diferentes, ex. Dead Bush precisa de areia, Wither Rose aceita
-  netherrack/soul sand/soul soil). Se nada do pool couber ali, cai no fallback de sempre (a própria
-  `fallbackBlock`). Isso também eliminou a restrição antiga de categoria no espalhamento (uma Poppy só
-  gerava filhos de 1 bloco, uma Rose Bush só gerava filhos de 2 blocos) — hoje qualquer planta pode gerar
-  um filho de qualquer formato presente no pool, e a busca de posição (`findSpreadTarget`) se adapta ao
-  formato da espécie sorteada (1 célula livre, ou 2 células livres pra uma espécie de 2 blocos).
+     sorteios. A correção aplicada então foi travar cada planta na sua própria família — inclusive o
+     sorteio de QUAL FILHO nasce ao espalhar, não só o destino de settle — impedindo justamente esse tipo
+     de troca. Essa restrição **overcorrigiu**: o dono do projeto esclareceu depois que uma Poppy nascer
+     filha de uma Rose Bush plantada pela mesma bag não é um bug, é o comportamento desejado, desde que a
+     espécie esteja configurada na bag. `SettleTable.familyOptions` foi removida.
+  **Estado atual do ESPALHAMENTO**: `DiseasedPlantLogic` (engine única de espalhamento/settle, ver
+  "Arquivos principais") faz um sorteio ponderado NOVO e independente sobre o pool inteiro
+  (`speciesWeights`) toda vez que um FILHO nasce ao espalhar — nunca restrito por "família"/espécie do
+  pai, e nunca restrito por categoria/formato (uma Poppy pode gerar um filho Rose Bush de 2 blocos, e
+  vice-versa; a busca de posição, `findSpreadTarget`, se adapta ao formato — `Shape` `SINGLE`/`TALL` — da
+  espécie sorteada: 1 célula livre, ou 2 células livres).
+- **Settle é DIFERENTE de nascer: uma planta que para de se espalhar sempre vira ELA MESMA, nunca um
+  sorteio novo.** Isso foi corrigido depois de testes em jogo: uma primeira versão desta correção também
+  fez o SETTLE sortear livremente sobre o pool inteiro (pelo mesmo raciocínio "sem lógica de cadeia" do
+  espalhamento) — só que o dono do projeto testou e reportou que isso estava errado: "quando uma planta
+  para de se reproduzir ela ainda está se transformando em outra planta aleatória da bag ao invés de
+  permanecer do mesmo tipo que ela é". A distinção que importa: nascer um FILHO é um evento novo (sorteio
+  livre, ver acima); **assentar não é um nascimento**, é a MESMA planta se estabilizando — ela sempre vira
+  sua própria `fallbackBlock` (a versão vanilla/terminal dela mesma), sem nenhum sorteio, sem olhar pro
+  pool da bag. `DiseasedPlantLogic#settle` reflete isso: recebe direto o bloco vanilla a virar (o
+  `fallbackBlock` da planta, ou — quando um filho recém-sorteado já nasce sem orçamento de gerações — a
+  própria espécie que acabou de ser sorteada pra ele), nunca um pool pra escolher entre várias opções.
 - **Modo "territorial"** (`SpreadProfileBlockEntity#respectAllSpecies`, opt-in, só pela bag): por padrão a
   checagem de lotação (`countNearbyFieldFlowers`) só conta vizinhos da MESMA espécie/família
   (`SettleTable.isSameSpecies`). Com o modo territorial ligado, ela conta QUALQUER planta por perto
@@ -136,11 +137,24 @@ superclasse Java comum (`FlowerBlock`, `WitherRoseBlock`, `TallGrassBlock`, `Dea
 `TallFlowerBlock`, `DoublePlantBlock` são todas raízes vanilla diferentes).
 
 12 blocos decorativos de bloco único (`DecorativeFlowerBlock`): um Top e um Bottom pra cada uma das 6
-espécies de 2 blocos (Sunflower, Lilac, Rose Bush, Peony, Tall Grass, Large Fern). Não se espalham, não
-têm random tick, não têm `SpreadProfileBlockEntity` — são resultados TERMINAIS. Cada um tem seu próprio
+espécies de 2 blocos (Sunflower, Lilac, Rose Bush, Peony, Tall Grass, Large Fern). Cada um tem seu próprio
 item e é uma opção SEPARADA e independente na grade de espécies da bag (ver "Garden Bag" abaixo) — colocar
 "Rose Bush Top" na grade não afeta a espécie completa "Rose Bush" nem o "Rose Bush Bottom", cada um tem seu
-próprio peso.
+próprio peso. Por si só o `DecorativeFlowerBlock` não se espalha (não tem random tick nem
+`SpreadProfileBlockEntity`) — é sempre o resultado TERMINAL de uma planta que assentou.
+
+**Top/Bottom são espécies independentes, não uma variação da planta completa** (pedido explícito do dono
+do projeto: "eu quero que as versões top e bottom ajam como flores novas adicionadas pelo mod... elas não
+são consideradas uma variação da full mas sim uma flor nova individual"). Cada um dos 12 decorativos tem
+uma contraparte que se espalha, `DiseasedDecorativeFlowerBlock` (12 blocos, ex. `DISEASED_ROSE_BUSH_TOP`)
+— mesmo formato/textura do decorativo (reaproveita `DecorativeFlowerBlock.SHAPE`), mas com random tick,
+`GENERATION`, `SpreadProfileBlockEntity` e delega pra `DiseasedPlantLogic.randomTickSingle` igual a
+qualquer outra espécie de 1 bloco. Registrado em `FlowerDisease.diseasedByFallback()` com o decorativo
+como `fallbackBlock` (ex. `ROSE_BUSH_TOP.get() -> DISEASED_ROSE_BUSH_TOP`) — como essa é a MESMA
+infraestrutura genérica usada por todas as espécies, uma bag com só "Rose Bush Top" plantado já funciona
+como raiz, espalha filhos "Rose Bush Top" (sorteados livremente do pool como qualquer outro filho, ver
+acima), e assenta de volta em "Rose Bush Top" — sem nenhuma mudança de código em `GardenBagItem`/
+`SettleTable`/`DiseasedPlantLogic`, só de registro em `FlowerDisease.java`.
 
 Grama/textura adicional, pra dar mais variedade visual às plantações (pedido do dono do projeto, não são
 "flores" no sentido de densidade cruzada com as de cima por padrão — cada família só compete com ela
@@ -165,33 +179,25 @@ mundo, `GrassColor.getDefaultColor()`/`.get(0.5, 1.0)` pro ícone do item). Os m
 **Mudança de arquitetura importante**: originalmente cada espécie tinha sua própria tabela de settle no
 `Config.java` (seção `[settleWeights]`, 22 listas). O dono do projeto esclareceu que isso era só pra testar
 a MECÂNICA de settle isoladamente, e que a configuração de verdade deveria vir inteiramente da Garden Bag.
-Essa seção do `Config.java` foi **removida** (junto com `validateSettleEntry`/o helper `settleWeights(...)`)
-— hoje a única fonte de "o que uma planta pode virar" é `SpreadProfileBlockEntity#speciesWeights`, escrito
-pela bag (ou pelo comando de debug). **Sem bag (flor plantada na mão), uma flor sempre assenta em si mesma**,
-sem tabela nenhuma.
+Essa seção do `Config.java` foi **removida** (junto com `validateSettleEntry`/o helper `settleWeights(...)`).
 
-O formato de cada entrada continua o mesmo, `"<block id> <peso> [full|lower|upper]"`, e ainda é assim que
-o comando de debug `/diseasedflower profile set ... [species]` funciona — mas a bag em si NUNCA gera o
-sufixo `lower`/`upper` mais (ver abaixo): ela sempre nomeia o bloco final exato que quer (o vanilla pra
-"full", ou o bloco decorativo específico pra Top/Bottom), sempre com `Half` implícito = `FULL`.
+**Settle não usa mais NENHUMA tabela, nem a da bag** (ver "Sem lógica de cadeia" mais acima pro porquê:
+assentar não é um sorteio, é a planta virando ela mesma). `SpreadProfileBlockEntity#speciesWeights` (escrito
+pela bag ou pelo comando de debug) continua existindo, mas hoje serve só pra UMA coisa: o pool de onde um
+FILHO é sorteado ao espalhar. O formato de cada entrada é `"<block id> <peso>"` — sem sufixo de metade
+(`full`/`lower`/`upper` foi removido junto com `SettleTable.place`/`placeTop`/`placeBottom`, que ficaram
+sem uso nenhum depois que settle parou de consultar essa lista). Cada entrada nomeia o bloco final exato
+que representa: o vanilla pra uma espécie de 2 blocos completa, ou um dos blocos decorativos Top/Bottom
+— que hoje são espécies próprias e independentes (ver "Espécies existentes" acima), não mais uma notação
+de "metade" de outra espécie.
 
-- **full** (padrão se omitido): resultado completo — se for uma planta de 2 blocos, coloca as duas
-  metades corretamente.
-- **lower**: em vez de colocar só a metade de baixo real da planta (frágil/incompleta), coloca o bloco
-  decorativo "Bottom" dedicado daquela espécie (`FlowerDisease.DECORATIVE_BOTTOMS`), se houver um
-  registrado — senão cai de volta pra colocar só a metade de baixo real (comportamento antigo). Existe
-  ainda pro formato de string livre do comando de debug; a bag sempre usa o bloco Bottom diretamente.
-- **upper**: mesma ideia, com `FlowerDisease.DECORATIVE_TOPS` — evita colocar uma metade de cima órfã e
-  frágil (`canSurvive` dela exige a metade de baixo correspondente embaixo, senão quebra com drop na
-  primeira atualização de vizinho).
-
-Se a lista de outcomes acabar vazia ou sem nenhuma entrada válida, cai no `fallbackBlock` (a versão
-vanilla normal da própria espécie), garantindo que nunca trava numa configuração inválida.
-
-`FlowerDisease.DISEASED_BY_FALLBACK` (`Map<Block vanilla, DeferredBlock<? extends Block> diseased>`) é o
-mapa reverso usado pra saber, a partir de um bloco "espécie completa" citado no pool, qual bloco Doente
-correspondente plantar como filho (ou como raiz da bag) — um bloco decorativo Top/Bottom nunca aparece
-nesse mapa, então nunca pode ser escolhido pra continuar espalhando, só como destino de settle.
+`FlowerDisease.diseasedByFallback()` (método lazy, `Map<Block vanilla-ou-decorativo, DeferredBlock<? extends
+Block> diseased>`) é o mapa reverso usado pra saber, a partir de um bloco "espécie completa" citado no
+pool, qual bloco Doente correspondente plantar como filho (ou como raiz da bag) — hoje TODAS as 34 espécies
+possíveis da grade (22 normais + 12 Top/Bottom) têm uma entrada aqui, então todas são igualmente
+espalháveis e plantáveis como raiz. É `Map.ofEntries(...)` construído só na primeira chamada (não um campo
+`static final` comum), pelo mesmo motivo do `bagOutcomeItems()` logo abaixo: as chaves dos 12 Top/Bottom
+exigem `.get()` em blocos do próprio mod, que só é seguro depois que o registro já rodou.
 
 ### Bugs corrigidos (histórico, não repetir)
 
@@ -235,10 +241,10 @@ nesse mapa, então nunca pode ser escolhido pra continuar espalhando, só como d
   jogador está mirando, pra testar o sistema de perfil por-planta ANTES da Garden Bag existir. Cada
   argumento numérico aceita `-1` pra "sem override, usa o config global nesse campo específico"
   (exceto gerações, onde `-1` = infinito de verdade). `espécies` é opcional, uma string separada por
-  vírgula de entradas `"<block id> <peso>"` — use o id VANILLA (ex. `minecraft:rose_bush`) pra uma espécie
-  completa que espalha e assenta como ela mesma, ou o id de um bloco decorativo (ex.
-  `flowerdisease:rose_bush_top`) pra um resultado só-de-settle, ex.:
-  `"minecraft:poppy 70,flowerdisease:rose_bush_top 30"`.
+  vírgula de entradas `"<block id> <peso>"` — pool de onde os FILHOS ao espalhar são sorteados (settle
+  nunca consulta essa lista, ver "Sistema de settle" acima). Tanto ids vanilla (`minecraft:rose_bush`)
+  quanto os 12 ids decorativos Top/Bottom (`flowerdisease:rose_bush_top`) funcionam igual, cada um sua
+  própria espécie espalhável, ex.: `"minecraft:poppy 70,flowerdisease:rose_bush_top 30"`.
 
 ## Arquivos principais
 
@@ -253,10 +259,11 @@ nesse mapa, então nunca pode ser escolhido pra continuar espalhando, só como d
 | `DiseasedGrassBlock.java` | Short Grass/Fern doentes, 1 bloco (delega pra `DiseasedPlantLogic`) |
 | `DiseasedDeadBushBlock.java` | Dead Bush doente, 1 bloco (delega pra `DiseasedPlantLogic`) |
 | `DiseasedTallGrassBlock.java` | Tall Grass/Large Fern doentes, 2 blocos (delega pra `DiseasedPlantLogic`) |
-| `DiseasedPlantLogic.java` | Engine única de espalhamento/settle pra TODAS as espécies (1 e 2 blocos) — sorteio de espécie sem restrição de família/categoria, ver "Sem lógica de cadeia" acima |
-| `DecorativeFlowerBlock.java` | Bloco decorativo de 1 bloco (resultados Top/Bottom, terminais) |
+| `DiseasedPlantLogic.java` | Engine única de espalhamento/settle pra TODAS as espécies (1 e 2 blocos) — filhos sorteados livremente do pool (sem restrição de família/categoria), settle sempre vira a própria espécie (sem sorteio), ver "Sem lógica de cadeia" acima |
+| `DecorativeFlowerBlock.java` | Bloco decorativo de 1 bloco, terminal (resultado de settle de um Top/Bottom) |
+| `DiseasedDecorativeFlowerBlock.java` | Contraparte espalhável de cada `DecorativeFlowerBlock` (Top/Bottom como espécie própria, delega pra `DiseasedPlantLogic`) |
 | `SpreadProfileBlockEntity.java` | Overrides opcionais por-planta (gerações/velocidade/distância/densidade/espécies/territorial) |
-| `SettleTable.java` | Lógica compartilhada: parsing de outcomes, sorteio ponderado, colocação de blocos (`placeTop`/`placeBottom`), flags de placement, `GENERATION` property, conversão de densidade, `isAnyPlant` (territorial) |
+| `SettleTable.java` | Lógica compartilhada: parsing de outcomes, sorteio ponderado, flags de placement, `GENERATION` property, conversão de densidade, `isSameSpecies`/`isAnyPlant` (territorial) |
 | `GardenBagItem.java` | Item da bag: abre o menu, tooltip, lógica de plantio (`useOn`) |
 | `GardenBagMenu.java` | Container da bag (slots filtrados por tipo de item, ligação com `ItemContainerContents`) |
 | `GardenBagScreen.java` | Tela da bag (client-only, sem textura própria) |
@@ -310,7 +317,8 @@ sempre editável.
 Slime Ball, Feather, Fence (`ItemTags.FENCES` — qualquer cerca, madeira ou nether brick). Mais uma grade
 3x3 (9 slots, `SPECIES_SLOTS_START=6`) pra flores/grama/decorativos — qualquer item listado em
 `FlowerDisease.bagOutcomeItems()` (34 entradas: 16 espécies de 1 bloco só "full" + 6 famílias de 2 blocos
-× 3 variantes cada uma delas — Full/Top/Bottom, cada item com peso independente). Total `BAG_SLOTS = 15`.
+× 3 variantes cada uma delas — Full/Top/Bottom, cada item com peso independente, e hoje as 34 são
+igualmente espalháveis/plantáveis como raiz, ver "Espécies existentes" acima). Total `BAG_SLOTS = 15`.
 `bagOutcomeItems()` é um método estático com cache preguiçoso (não um campo `static final` comum) porque
 suas chaves incluem itens do próprio mod (`SUNFLOWER_TOP_ITEM.get()` etc.) que só existem depois que o
 registro de itens roda — resolver isso direto no inicializador estático da classe `FlowerDisease` daria
@@ -328,17 +336,12 @@ removida" acima); cada slot só filtra o TIPO de item aceito (`GardenBagMenu.Fil
 | Slime Ball | sem override (usa `Config.FLOWER_MAX_NEARBY`/`densityCheckRadius`) | `N` flores desejadas por área 16x16 (convertido internamente pro raio fixo via `SettleTable.densityTargetToMaxNearby`) |
 | Feather | sem override (usa `Config.FLOWER_SPREAD_DISTANCE`) | `min(N, 32)` blocos de distância por salto |
 | Fence | modo territorial desligado (só compete com a própria espécie/família) | modo territorial LIGADO (qualquer quantidade) — conta QUALQUER planta próxima como lotação, não só a mesma espécie |
-| Grade de flores | nenhuma espécie plantável configurada → **planta nada, comando falha** | cada slot não-vazio vira uma entrada `"<id> <peso>"` (peso = quantidade no slot; `id` é sempre um bloco FINAL — vanilla pra espécie completa, ou o bloco decorativo Top/Bottom); esse pool inteiro é `speciesWeights`. Pro sorteio de RAIZ (`GardenBagItem#plant`) e pro sorteio de espécie de um FILHO ao espalhar, só entram as entradas com contraparte Doente (`DISEASED_BY_FALLBACK`); pro sorteio de destino ao assentar, entram TODAS as entradas do pool (sem restrição de família — ver "Sem lógica de cadeia" acima), filtradas só pelo que cabe fisicamente na posição |
+| Grade de flores | nenhuma espécie plantável configurada → **planta nada, comando falha** | cada slot não-vazio vira uma entrada `"<id> <peso>"` (peso = quantidade no slot; `id` é sempre um bloco FINAL — vanilla pra espécie completa, ou um dos 12 blocos Top/Bottom, cada um sua própria espécie); esse pool inteiro é `speciesWeights`, usado pro sorteio de RAIZ (`GardenBagItem#plant`) e pro sorteio de espécie de um FILHO ao espalhar (`DiseasedPlantLogic`) — todas as 34 entradas têm contraparte Doente (`FlowerDisease.diseasedByFallback()`), então todas são igualmente elegíveis pros dois. Settle NUNCA consulta esse pool (ver "Sistema de settle" acima) |
 
 ### Limitações conhecidas
 
-- Um Top/Bottom sozinho na grade (sem nenhuma espécie completa, de qualquer família) nunca pode ser a
-  RAIZ plantada pela bag (precisa de algo espalhável pra existir como planta ativa) — se a grade só tiver
-  decorativos, plantar falha com a mesma mensagem de "sem espécie".
-- ~~O sorteio de espécie ao espalhar só trocava dentro da mesma categoria (1 bloco ↔ 1 bloco, 2 blocos ↔ 2
-  blocos), e o settle só considerava a própria família~~ — **corrigido**, ver "Sem lógica de cadeia" acima
-  e `DiseasedPlantLogic`. Qualquer planta pode gerar um filho de qualquer formato do pool, e assentar como
-  qualquer espécie do pool que caiba fisicamente ali.
+Nenhuma conhecida no momento — a restrição de categoria/família no espalhamento e a limitação de Top/Bottom
+nunca poderem ser raiz foram ambas corrigidas (ver "Sem lógica de cadeia" e "Espécies existentes" acima).
 
 ### Limitação conhecida de implementação (transparência sobre o que não pude verificar)
 
