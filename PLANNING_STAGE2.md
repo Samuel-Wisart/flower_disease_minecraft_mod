@@ -6,6 +6,22 @@ implementada, o conteúdo relevante migra pro `PLANNING.md` (que descreve o que 
 Branch: `feature/climbing-creeping-corruption` (criada a partir de `main` no commit `64b8d09`, já publicada
 no GitHub). A etapa 1 fica isolada em `main`.
 
+## Status
+
+- **Fase 0 (fundação) — feita e commitada** nessa branch. `./gradlew build` passa; nenhum teste em jogo
+  ainda. Resumo do que mudou (detalhes completos já migrados pro `PLANNING.md`):
+  - Gerações saíram do blockstate, vivem só em `SpreadProfileBlockEntity#generationsRemaining` (0.1).
+  - Nova property `SettleTable.SETTLED` + `isRandomlyTicking` sobrescrito em toda classe que se espalha;
+    `DiseasedPlantLogic#settle` agora vira vanilla SE sobreviver ali, senão assenta no lugar (0.2).
+  - `PlantSupport.java` + 3 tags (`climbable`/`convertible`/`conversion_immune`) criadas, só `isClimbable`
+    tem usuário ainda — `isConvertible` só entra em uso na Fase 3 (0.3).
+  - `GardenBagContents` virou `record` de 8 campos (+ `climbing`/`spawnsFlowerBlocks`); `configure`/
+    `copyFrom` da `SpreadProfileBlockEntity` viraram um `configure(GardenBagContents)` só. Itens novos
+    (Twisting Vines, Moss Block) já são aceitos na bag e aparecem no preview, mas **sem efeito nenhum
+    ainda** — nada lê `profile.climbing()`/`profile.spawnsFlowerBlocks()` até a Fase 1/3 (0.4).
+  - Comando de debug `/diseasedflower profile set` ganhou os 2 argumentos booleanos novos.
+- **Próximo passo: Fase 1 (escalada)**, ainda não iniciada.
+
 ## Decisões travadas (perguntadas ao dono do projeto antes do plano)
 
 1. **Flower block converte o bloco DE BAIXO** (o suporte), não a própria flor. A planta continua viva e se

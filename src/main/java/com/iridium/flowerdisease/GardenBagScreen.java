@@ -32,8 +32,8 @@ public class GardenBagScreen extends AbstractContainerScreen<GardenBagMenu> {
     public GardenBagScreen(GardenBagMenu menu, Inventory playerInventory, Component title) {
         super(menu, playerInventory, title);
         this.imageWidth = 176;
-        this.imageHeight = 236;
-        this.inventoryLabelY = 144;
+        this.imageHeight = 256;
+        this.inventoryLabelY = 164;
     }
 
     @Override
@@ -71,26 +71,28 @@ public class GardenBagScreen extends AbstractContainerScreen<GardenBagMenu> {
         return items;
     }
 
-    // Six short lines summarizing exactly what GardenBagItem#plant would configure right now, so throwing
+    // Short lines summarizing exactly what GardenBagItem#plant would configure right now, so throwing
     // items in feels like reading a cauldron rather than filling out a form.
     private List<String> previewLines(GardenBagContents contents) {
-        String generations = contents.generations == SpreadProfileBlockEntity.INFINITE_GENERATIONS
+        String generations = contents.generations() == SpreadProfileBlockEntity.INFINITE_GENERATIONS
                 ? "infinite"
-                : contents.generations == SpreadProfileBlockEntity.NO_GENERATIONS_OVERRIDE
+                : contents.generations() == SpreadProfileBlockEntity.NO_GENERATIONS_OVERRIDE
                         ? Config.FLOWER_MAX_GENERATIONS.getAsInt() + " (default)"
-                        : String.valueOf(contents.generations);
+                        : String.valueOf(contents.generations());
 
-        boolean speedOverridden = contents.spreadChance >= 0;
-        double spreadChance = speedOverridden ? contents.spreadChance : Config.FLOWER_SPREAD_CHANCE.getAsDouble();
+        boolean speedOverridden = contents.spreadChance() >= 0;
+        double spreadChance = speedOverridden ? contents.spreadChance() : Config.FLOWER_SPREAD_CHANCE.getAsDouble();
         String speed = (speedOverridden ? "" : "~") + Math.round(spreadChance * 1000) / 10.0 + "%";
 
-        String range = contents.spreadDistance >= 0
-                ? contents.spreadDistance + " blocks"
+        String range = contents.spreadDistance() >= 0
+                ? contents.spreadDistance() + " blocks"
                 : "~" + Config.FLOWER_SPREAD_DISTANCE.getAsInt() + " (default)";
 
-        String density = contents.densityPer16x16 >= 0 ? contents.densityPer16x16 + " / chunk" : "default";
+        String density = contents.densityPer16x16() >= 0 ? contents.densityPer16x16() + " / chunk" : "default";
 
-        String respects = contents.respectAllSpecies ? "yes" : "no - ignores others";
+        String respects = contents.respectAllSpecies() ? "yes" : "no - ignores others";
+        String climbing = contents.climbing() ? "yes - logs/leaves/moss" : "no";
+        String flowerBlocks = contents.spawnsFlowerBlocks() ? "yes - slowly, beneath itself" : "no";
 
         return List.of(
                 "Generations: " + generations,
@@ -98,6 +100,8 @@ public class GardenBagScreen extends AbstractContainerScreen<GardenBagMenu> {
                 "Range: " + range,
                 "Density: " + density,
                 "Respects other flowers: " + respects,
+                "Climbs non-plantable ground: " + climbing,
+                "Creates flower blocks: " + flowerBlocks,
                 "Est. reproduction: ~" + estimatePerDay(spreadChance) + " new flowers/day"
         );
     }

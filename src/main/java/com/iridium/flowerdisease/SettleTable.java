@@ -13,8 +13,8 @@ import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.BushBlock;
 import net.minecraft.world.level.block.DoublePlantBlock;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.block.state.properties.BooleanProperty;
 import net.minecraft.world.level.block.state.properties.DoubleBlockHalf;
-import net.minecraft.world.level.block.state.properties.IntegerProperty;
 
 // Shared species-pool parsing/weighting logic for every Diseased plant (see DiseasedPlantLogic for what
 // actually spreads/settles). Config entries look like "<block id> <weight>" - every entry names the exact
@@ -28,11 +28,13 @@ final class SettleTable {
     // with an item drop. UPDATE_SUPPRESS_DROPS is extra insurance against that same class of bug.
     static final int PLACEMENT_FLAGS = Block.UPDATE_CLIENTS | Block.UPDATE_KNOWN_SHAPE | Block.UPDATE_SUPPRESS_DROPS;
 
-    // How many more generations of children a Diseased Flower may still produce (see Config.FLOWER_MAX_GENERATIONS
-    // and DiseasedFlowerBlock/DiseasedTallFlowerBlock). Shared here since both block classes need the same
-    // property, and it doesn't affect the model, so blockstate JSON uses "multipart" to ignore it entirely
-    // instead of needing a variant per generation value.
-    static final IntegerProperty GENERATION = IntegerProperty.create("generation", 0, 64);
+    // Whether this exact plant has stopped random-ticking for good (see DiseasedPlantLogic#settle). A
+    // settled plant keeps whatever block/shape/facing it already had - it doesn't necessarily become a
+    // distinct vanilla block, since some species (climbing onto non-plantable ground, or the creeping
+    // species entirely, see Stage 2 planning) have no vanilla equivalent that could survive there. Shared
+    // across every spreading block class; doesn't affect the model, so blockstate JSON uses "multipart"
+    // to ignore it entirely instead of needing a variant per value.
+    static final BooleanProperty SETTLED = BooleanProperty.create("settled");
 
     record Option(Block block, int weight) {
     }

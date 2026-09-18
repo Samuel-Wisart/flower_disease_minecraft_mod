@@ -13,11 +13,18 @@ import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
 
 // Optional per-planting overrides for a Diseased Flower's spread behavior - this is what the Garden Bag
-// configures. A hand-placed flower's block entity stays entirely "no override" and behaves exactly like
-// before (reading everything from Config.java / the blockstate GENERATION property). Every diseased
-// flower block gets one of these regardless of how it was planted: it's small and pure data (no ticker,
-// nothing runs on it directly), so this avoids needing two versions of every block/resource file just to
-// support the bag.
+// configures. A hand-placed flower's block entity stays entirely "no override" (generationsRemaining
+// excepted, see below) and behaves exactly like before, reading everything else from Config.java. Every
+// diseased flower block gets one of these regardless of how it was planted: it's small and pure data (no
+// ticker, nothing runs on it directly), so this avoids needing two versions of every block/resource file
+// just to support the bag.
+//
+// generationsRemaining is the one field that's ALWAYS meaningful, bag or not: it used to live in the
+// blockstate (an IntegerProperty), but that didn't scale once other per-plant properties were added (see
+// PLANNING_STAGE2.md), so it moved here. DiseasedPlantLogic reads Config.FLOWER_MAX_GENERATIONS fresh
+// whenever this is still NO_GENERATIONS_OVERRIDE (nothing has decremented it yet), and writes the
+// decremented value onto every spreading child's own BlockEntity, bag or no bag - see
+// DiseasedPlantLogic#placeChild.
 public class SpreadProfileBlockEntity extends BlockEntity {
     static final long NO_GENERATIONS_OVERRIDE = -2;
     static final long INFINITE_GENERATIONS = -1;
@@ -35,22 +42,28 @@ public class SpreadProfileBlockEntity extends BlockEntity {
     // IGNORE_OTHERS_ITEM, the opt-OUT item); a hand-planted flower with no bag gets this default too,
     // since it's the same shared field/default for every Diseased plant.
     private boolean respectAllSpecies = true;
+    // Stage 2 (see PLANNING_STAGE2.md): whether spreading may target the top/side of a non-plantable
+    // "climbable" block (logs, leaves, moss...) in addition to ordinary ground. Off by default - a
+    // hand-planted flower or a bag without Twisting Vines never leaves ordinary ground.
+    private boolean climbing = false;
+    // Stage 2: whether a reproductive plant has a (very low, config-controlled) chance per random tick of
+    // converting the block it's rooted in into a flower block. Off by default.
+    private boolean spawnsFlowerBlocks = false;
 
     public SpreadProfileBlockEntity(BlockPos pos, BlockState state) {
         super(FlowerDisease.SPREAD_PROFILE_BLOCK_ENTITY.get(), pos, state);
     }
 
-    boolean hasOverride() {
-        return generationsRemaining != NO_GENERATIONS_OVERRIDE
-                || spreadChanceOverride != NO_CHANCE_OVERRIDE
-                || spreadDistanceOverride != NO_INT_OVERRIDE
-                || densityTargetPer16x16 != NO_INT_OVERRIDE
-                || !speciesWeights.isEmpty()
-                || !respectAllSpecies;
-    }
-
     long generationsRemaining() {
         return generationsRemaining;
+    }
+
+    // Used when a spreading child is born with no active bag profile to copy from (a hand-planted
+    // lineage) - only the generation countdown needs to persist onto the child's own BlockEntity now that
+    // it's not tracked in the blockstate anymore; everything else correctly stays at "no override".
+    void setGenerationsRemaining(long value) {
+        this.generationsRemaining = value;
+        setChanged();
     }
 
     double spreadChanceOverride() {
@@ -73,27 +86,43 @@ public class SpreadProfileBlockEntity extends BlockEntity {
         return respectAllSpecies;
     }
 
-    // Used by the debug command and by GardenBagItem when planting the root flower.
-    void configure(long generationsRemaining, double spreadChanceOverride, int spreadDistanceOverride, int densityTargetPer16x16, List<String> speciesWeights, boolean respectAllSpecies) {
-        this.generationsRemaining = generationsRemaining;
-        this.spreadChanceOverride = spreadChanceOverride;
-        this.spreadDistanceOverride = spreadDistanceOverride;
-        this.densityTargetPer16x16 = densityTargetPer16x16;
-        this.speciesWeights = List.copyOf(speciesWeights);
-        this.respectAllSpecies = respectAllSpecies;
+    boolean climbing() {
+        return climbing;
+    }
+
+    boolean spawnsFlowerBlocks() {
+        return spawnsFlowerBlocks;
+    }
+
+    // Used by the debug command and by GardenBagItem when planting the root flower. Also how a spreading
+    // child inherits its parent's profile: DiseasedPlantLogic calls configure(parent.toContents(childGen))
+    // rather than a separate "copy" method, so there's exactly one place that lists every field instead of
+    // two mutators that both need updating in lockstep whenever a knob is added.
+    void configure(GardenBagContents contents) {
+        this.generationsRemaining = contents.generations();
+        this.spreadChanceOverride = contents.spreadChance();
+        this.spreadDistanceOverride = contents.spreadDistance();
+        this.densityTargetPer16x16 = contents.densityPer16x16();
+        this.speciesWeights = List.copyOf(contents.speciesWeights());
+        this.respectAllSpecies = contents.respectAllSpecies();
+        this.climbing = contents.climbing();
+        this.spawnsFlowerBlocks = contents.spawnsFlowerBlocks();
         setChanged();
     }
 
-    // Copies a parent's profile onto this (freshly placed child) block entity, with the generation
-    // count already advanced to the child's value.
-    void copyFrom(SpreadProfileBlockEntity parent, long childGenerationsRemaining) {
-        this.generationsRemaining = childGenerationsRemaining;
-        this.spreadChanceOverride = parent.spreadChanceOverride;
-        this.spreadDistanceOverride = parent.spreadDistanceOverride;
-        this.densityTargetPer16x16 = parent.densityTargetPer16x16;
-        this.speciesWeights = parent.speciesWeights;
-        this.respectAllSpecies = parent.respectAllSpecies;
-        setChanged();
+    // A snapshot of this profile's current fields, with the generation countdown swapped for the child's
+    // already-decremented value - the source a spreading child's own configure(...) copies from.
+    GardenBagContents toContents(long generationsOverride) {
+        return new GardenBagContents(
+                generationsOverride,
+                spreadChanceOverride,
+                spreadDistanceOverride,
+                densityTargetPer16x16,
+                respectAllSpecies,
+                climbing,
+                spawnsFlowerBlocks,
+                speciesWeights
+        );
     }
 
     @Override
@@ -104,6 +133,8 @@ public class SpreadProfileBlockEntity extends BlockEntity {
         tag.putInt("SpreadDistanceOverride", spreadDistanceOverride);
         tag.putInt("DensityTargetPer16x16", densityTargetPer16x16);
         tag.putBoolean("RespectAllSpecies", respectAllSpecies);
+        tag.putBoolean("Climbing", climbing);
+        tag.putBoolean("SpawnsFlowerBlocks", spawnsFlowerBlocks);
         ListTag list = new ListTag();
         for (String entry : speciesWeights) {
             list.add(StringTag.valueOf(entry));
@@ -119,6 +150,8 @@ public class SpreadProfileBlockEntity extends BlockEntity {
         spreadDistanceOverride = tag.contains("SpreadDistanceOverride") ? tag.getInt("SpreadDistanceOverride") : NO_INT_OVERRIDE;
         densityTargetPer16x16 = tag.contains("DensityTargetPer16x16") ? tag.getInt("DensityTargetPer16x16") : NO_INT_OVERRIDE;
         respectAllSpecies = tag.getBoolean("RespectAllSpecies");
+        climbing = tag.getBoolean("Climbing");
+        spawnsFlowerBlocks = tag.getBoolean("SpawnsFlowerBlocks");
         if (tag.contains("SpeciesWeights", Tag.TAG_LIST)) {
             ListTag list = tag.getList("SpeciesWeights", Tag.TAG_STRING);
             List<String> values = new ArrayList<>(list.size());

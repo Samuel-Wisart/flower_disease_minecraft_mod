@@ -22,9 +22,10 @@ import net.neoforged.neoforge.registries.DeferredBlock;
 // speciesWeights) is never split or restricted by shape when a NEW plant is born - every spreading child
 // is an independent weighted draw over the WHOLE pool (see spreadableOptions below), which may be a
 // completely different species/shape than its parent. No "family" is tracked to constrain that. Settling
-// is different, though: a plant that gives up spreading isn't being "born" again, it's just stabilizing,
-// so it always keeps its own species (fallbackBlock) - see settle() below and PLANNING.md for why an
-// earlier version of this mod (wrongly) turned settling into another pool draw too.
+// is different, though: a plant that gives up spreading isn't being "born" again, it's just stabilizing -
+// it becomes its own vanilla species (fallbackBlock) where that can actually survive, or otherwise just
+// stops ticking in place (SettleTable.SETTLED) - see settle() below and PLANNING.md for why an earlier
+// version of this mod (wrongly) turned settling into another pool draw entirely.
 final class DiseasedPlantLogic {
 
     enum Shape { SINGLE, TALL }
@@ -83,7 +84,7 @@ final class DiseasedPlantLogic {
 
         long generationsLeft = profile != null && profile.generationsRemaining() != SpreadProfileBlockEntity.NO_GENERATIONS_OVERRIDE
                 ? profile.generationsRemaining()
-                : state.getValue(SettleTable.GENERATION);
+                : Config.FLOWER_MAX_GENERATIONS.getAsInt();
 
         int densityRadius = Config.FLOWER_DENSITY_RADIUS.getAsInt();
         int maxNearby = profile != null && profile.densityTargetPer16x16() >= 0
@@ -111,7 +112,7 @@ final class DiseasedPlantLogic {
 
         // Couldn't produce a spreading child this tick (crowded, out of generation budget, or no valid
         // target found anywhere): this plant settles for good, right where it stands, as its own species.
-        settle(level, pos, fallbackBlock, selfShape);
+        settle(level, pos, self, fallbackBlock, selfShape, state);
     }
 
     private static void placeChild(
@@ -128,34 +129,50 @@ final class DiseasedPlantLogic {
             // No budget left for the child to spread itself, so it settles the instant it's created
             // instead of existing as an active Diseased Flower even briefly - as its own (just-picked)
             // species, same as any other settle decision.
-            settle(level, target, vanillaSpecies, childShape);
+            settle(level, target, diseasedSpecies, vanillaSpecies, childShape, diseasedSpecies.defaultBlockState());
             return;
         }
 
-        int blockstateGenerations = (int) Math.max(0, Math.min(64, childGenerations < 0 ? 64 : childGenerations));
-        BlockState childState = diseasedSpecies.defaultBlockState().setValue(SettleTable.GENERATION, blockstateGenerations);
+        BlockState childState = diseasedSpecies.defaultBlockState();
         if (childShape == Shape.TALL) {
             DoublePlantBlock.placeAt(level, childState, target, SettleTable.PLACEMENT_FLAGS);
         } else {
             level.setBlock(target, childState, SettleTable.PLACEMENT_FLAGS);
         }
 
-        if (profile != null && profile.hasOverride() && level.getBlockEntity(target) instanceof SpreadProfileBlockEntity childProfile) {
-            childProfile.copyFrom(profile, childGenerations);
+        if (level.getBlockEntity(target) instanceof SpreadProfileBlockEntity childProfile) {
+            // Always persists the generation countdown, bag or not - it's the only field that's tracked
+            // regardless of whether a bag profile is active (see SpreadProfileBlockEntity). The rest of
+            // the profile only gets copied down when there actually is one to copy.
+            if (profile != null) {
+                childProfile.configure(profile.toContents(childGenerations));
+            } else {
+                childProfile.setGenerationsRemaining(childGenerations);
+            }
         }
     }
 
-    // A plant that can't spread anymore isn't being "born" again - it just stabilizes into its own plain
-    // vanilla species, exactly as it already is. No pool draw here on purpose (see class comment).
-    private static void settle(ServerLevel level, BlockPos pos, Block vanillaSpecies, Shape atShape) {
-        if (atShape == Shape.TALL) {
-            // The old upper half won't be overwritten unless the target is a real two-block plant, so
-            // clear it first - otherwise it'd be left floating with nothing below it.
-            level.setBlock(pos.above(), Blocks.AIR.defaultBlockState(), SettleTable.PLACEMENT_FLAGS);
-            DoublePlantBlock.placeAt(level, vanillaSpecies.defaultBlockState(), pos, SettleTable.PLACEMENT_FLAGS);
-        } else {
-            level.setBlock(pos, vanillaSpecies.defaultBlockState(), SettleTable.PLACEMENT_FLAGS);
+    // A plant that can't spread anymore isn't being "born" again - it just stabilizes. If its own vanilla
+    // species can actually survive right here, it becomes that (unchanged from before - the common case:
+    // a flower settling on ordinary ground). Otherwise it keeps its EXACT current block/shape/facing and
+    // just gets marked SETTLED, instead of trying to become something that can't exist at this position -
+    // this covers a species with no distinct vanilla form at all (vanillaSpecies == diseasedSpecies, the
+    // creeping species from Stage 2) and a species whose vanilla form can't survive exactly here (e.g. a
+    // flower climbing a tree trunk, also Stage 2). No pool draw either way - see class comment.
+    private static void settle(ServerLevel level, BlockPos pos, Block diseasedSpecies, Block vanillaSpecies, Shape atShape, BlockState inPlaceState) {
+        if (vanillaSpecies != diseasedSpecies && vanillaSpecies.defaultBlockState().canSurvive(level, pos)) {
+            if (atShape == Shape.TALL) {
+                // The old upper half won't be overwritten unless the target is a real two-block plant, so
+                // clear it first - otherwise it'd be left floating with nothing below it.
+                level.setBlock(pos.above(), Blocks.AIR.defaultBlockState(), SettleTable.PLACEMENT_FLAGS);
+                DoublePlantBlock.placeAt(level, vanillaSpecies.defaultBlockState(), pos, SettleTable.PLACEMENT_FLAGS);
+            } else {
+                level.setBlock(pos, vanillaSpecies.defaultBlockState(), SettleTable.PLACEMENT_FLAGS);
+            }
+            return;
         }
+
+        level.setBlock(pos, inPlaceState.setValue(SettleTable.SETTLED, true), SettleTable.PLACEMENT_FLAGS);
     }
 
     private static Shape shapeOf(Block block) {

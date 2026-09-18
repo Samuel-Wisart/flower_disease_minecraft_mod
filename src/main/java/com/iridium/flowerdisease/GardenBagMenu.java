@@ -23,7 +23,8 @@ import net.minecraft.world.item.component.ItemContainerContents;
 public class GardenBagMenu extends AbstractContainerMenu {
     static final int BAG_SLOTS = 27;
     private static final int GRID_COLUMNS = 9;
-    static final int GRID_TOP_Y = 84;
+    // Leaves room above for 8 lines of preview text (see GardenBagScreen) - grows if more knobs are added.
+    static final int GRID_TOP_Y = 104;
 
     private final ItemStack bagStack;
     private final InteractionHand hand;
@@ -45,11 +46,11 @@ public class GardenBagMenu extends AbstractContainerMenu {
 
         for (int row = 0; row < 3; row++) {
             for (int col = 0; col < 9; col++) {
-                addSlot(new Slot(playerInventory, col + row * 9 + 9, 8 + col * 18, 152 + row * 18));
+                addSlot(new Slot(playerInventory, col + row * 9 + 9, 8 + col * 18, 172 + row * 18));
             }
         }
         for (int col = 0; col < 9; col++) {
-            addSlot(new Slot(playerInventory, col, 8 + col * 18, 210));
+            addSlot(new Slot(playerInventory, col, 8 + col * 18, 230));
         }
     }
 
@@ -62,6 +63,8 @@ public class GardenBagMenu extends AbstractContainerMenu {
                 || stack.is(GardenBagContents.DENSITY_ITEM)
                 || stack.is(GardenBagContents.RANGE_ITEM)
                 || stack.is(GardenBagContents.IGNORE_OTHERS_ITEM)
+                || stack.is(GardenBagContents.CLIMBING_ITEM)
+                || stack.is(GardenBagContents.FLOWER_BLOCK_ITEM)
                 || FlowerDisease.bagOutcomeItems().containsKey(stack.getItem());
     }
 

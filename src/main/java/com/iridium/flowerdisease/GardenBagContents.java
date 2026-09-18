@@ -13,14 +13,26 @@ import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.level.block.Block;
 
-// Reads the Garden Bag's "cauldron" inventory into actual spread parameters. There are no dedicated
-// slots (player request: throw everything in together, like brewing a potion, instead of a form with one
-// slot per setting) - every stack anywhere in the bag is either one of the fixed MODIFIER items below
+// Reads the Garden Bag's "cauldron" inventory into actual spread parameters, and doubles as the shape of
+// a spreading plant's whole configurable profile - SpreadProfileBlockEntity#configure takes one of these
+// directly, so there's exactly one place that lists every knob instead of a growing list of positional
+// parameters that's easy to get out of order (see PLANNING_STAGE2.md Fase 0.4). There are no dedicated
+// bag slots (player request: throw everything in together, like brewing a potion, instead of a form with
+// one slot per setting) - every stack anywhere in the bag is either one of the fixed MODIFIER items below
 // (identified by item, counted across however many stacks/slots it ends up split into) or a species item
 // (see FlowerDisease.bagOutcomeItems()); GardenBagMenu's slot filter keeps out anything else. Shared by
 // GardenBagItem (server, at planting time) and GardenBagScreen (client, for the live preview panel), so
 // both always agree on what a given pile of items means.
-final class GardenBagContents {
+record GardenBagContents(
+        long generations,
+        double spreadChance,
+        int spreadDistance,
+        int densityPer16x16,
+        boolean respectAllSpecies,
+        boolean climbing,
+        boolean spawnsFlowerBlocks,
+        List<String> speciesWeights
+) {
     static final Item GENERATIONS_ITEM = Items.BONE_MEAL;
     static final Item INFINITE_GENERATIONS_ITEM = Items.NETHER_STAR;
     static final Item SPEED_ITEM = Items.SCULK;
@@ -31,29 +43,12 @@ final class GardenBagContents {
     // them. A Fence doesn't read as "ignore everyone" so this needed a different item - a witchy/corrupting
     // ingredient fits the cauldron theme and the "this one doesn't play nice" meaning.
     static final Item IGNORE_OTHERS_ITEM = Items.FERMENTED_SPIDER_EYE;
-
-    final long generations;
-    final double spreadChance;
-    final int spreadDistance;
-    final int densityPer16x16;
-    final boolean respectAllSpecies;
-    final List<String> speciesWeights;
-
-    private GardenBagContents(
-            long generations,
-            double spreadChance,
-            int spreadDistance,
-            int densityPer16x16,
-            boolean respectAllSpecies,
-            List<String> speciesWeights
-    ) {
-        this.generations = generations;
-        this.spreadChance = spreadChance;
-        this.spreadDistance = spreadDistance;
-        this.densityPer16x16 = densityPer16x16;
-        this.respectAllSpecies = respectAllSpecies;
-        this.speciesWeights = speciesWeights;
-    }
+    // Twisting Vines specifically (not plain Vine) - a Nether plant that grows straight UP, matching the
+    // "climb" meaning better than a vine that just clings to whatever it's already touching.
+    static final Item CLIMBING_ITEM = Items.TWISTING_VINES;
+    // Moss Block - what the flower block itself looks like for now, before the real art exists (see
+    // PLANNING_STAGE2.md Fase 3).
+    static final Item FLOWER_BLOCK_ITEM = Items.MOSS_BLOCK;
 
     static GardenBagContents read(List<ItemStack> slots) {
         long boneMeal = countOf(slots, GENERATIONS_ITEM);
@@ -62,6 +57,8 @@ final class GardenBagContents {
         long slimeBall = countOf(slots, DENSITY_ITEM);
         long feather = countOf(slots, RANGE_ITEM);
         long fermentedSpiderEye = countOf(slots, IGNORE_OTHERS_ITEM);
+        long twistingVines = countOf(slots, CLIMBING_ITEM);
+        long mossBlock = countOf(slots, FLOWER_BLOCK_ITEM);
 
         long generations = netherStar > 0
                 ? SpreadProfileBlockEntity.INFINITE_GENERATIONS
@@ -70,8 +67,13 @@ final class GardenBagContents {
         int spreadDistance = feather == 0 ? -1 : (int) Math.min(feather, 32);
         int densityPer16x16 = slimeBall == 0 ? -1 : (int) slimeBall;
         boolean respectAllSpecies = fermentedSpiderEye == 0;
+        boolean climbing = twistingVines > 0;
+        boolean spawnsFlowerBlocks = mossBlock > 0;
 
-        return new GardenBagContents(generations, spreadChance, spreadDistance, densityPer16x16, respectAllSpecies, speciesWeights(slots));
+        return new GardenBagContents(
+                generations, spreadChance, spreadDistance, densityPer16x16,
+                respectAllSpecies, climbing, spawnsFlowerBlocks, speciesWeights(slots)
+        );
     }
 
     private static long countOf(List<ItemStack> slots, Item item) {

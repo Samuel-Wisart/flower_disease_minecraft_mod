@@ -7,7 +7,6 @@ import com.mojang.serialization.MapCodec;
 import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.util.RandomSource;
-import net.minecraft.world.item.context.BlockPlaceContext;
 import net.minecraft.world.level.BlockGetter;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
@@ -41,7 +40,7 @@ public class DiseasedDecorativeFlowerBlock extends BushBlock implements EntityBl
     public DiseasedDecorativeFlowerBlock(Block fallbackBlock, BlockBehaviour.Properties properties) {
         super(properties);
         this.fallbackBlock = fallbackBlock;
-        this.registerDefaultState(this.stateDefinition.any().setValue(SettleTable.GENERATION, 0));
+        this.registerDefaultState(this.stateDefinition.any().setValue(SettleTable.SETTLED, false));
     }
 
     @Override
@@ -57,15 +56,14 @@ public class DiseasedDecorativeFlowerBlock extends BushBlock implements EntityBl
     @Override
     protected void createBlockStateDefinition(StateDefinition.Builder<Block, BlockState> builder) {
         super.createBlockStateDefinition(builder);
-        builder.add(SettleTable.GENERATION);
+        builder.add(SettleTable.SETTLED);
     }
 
-    // A hand-planted flower always starts with a full budget of generations (see Config.FLOWER_MAX_GENERATIONS).
-    @Nullable
+    // A settled plant stops costing random ticks entirely instead of just no-op'ing on them - see
+    // DiseasedPlantLogic#settle.
     @Override
-    public BlockState getStateForPlacement(BlockPlaceContext context) {
-        BlockState state = super.getStateForPlacement(context);
-        return state == null ? null : state.setValue(SettleTable.GENERATION, Config.FLOWER_MAX_GENERATIONS.getAsInt());
+    protected boolean isRandomlyTicking(BlockState state) {
+        return !state.getValue(SettleTable.SETTLED);
     }
 
     @Nullable

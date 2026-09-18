@@ -62,9 +62,11 @@ final class FlowerDiseaseCommands {
                                                         .then(Commands.argument("spreadDistance", IntegerArgumentType.integer(-1, 64))
                                                                 .then(Commands.argument("densityPer16x16", IntegerArgumentType.integer(-1, 999))
                                                                         .then(Commands.argument("territorial", BoolArgumentType.bool())
-                                                                                .executes(context -> setProfile(context, ""))
-                                                                                .then(Commands.argument("species", StringArgumentType.greedyString())
-                                                                                        .executes(context -> setProfile(context, StringArgumentType.getString(context, "species")))))))))))
+                                                                                .then(Commands.argument("climbing", BoolArgumentType.bool())
+                                                                                        .then(Commands.argument("spawnsFlowerBlocks", BoolArgumentType.bool())
+                                                                                                .executes(context -> setProfile(context, ""))
+                                                                                                .then(Commands.argument("species", StringArgumentType.greedyString())
+                                                                                                        .executes(context -> setProfile(context, StringArgumentType.getString(context, "species")))))))))))))
         );
     }
 
@@ -128,6 +130,8 @@ final class FlowerDiseaseCommands {
     // comma-separated list of "<block id> <weight>" outcome entries - a vanilla species id (e.g.
     // "minecraft:rose_bush") or one of the Top/Bottom block ids (e.g. "flowerdisease:rose_bush_top",
     // its own independent species) both work the same way, same as the Garden Bag's species grid.
+    // climbing/spawnsFlowerBlocks mirror the bag's Twisting Vines/Moss Block toggles (see
+    // PLANNING_STAGE2.md).
     private static int setProfile(CommandContext<CommandSourceStack> context, String speciesArg) throws CommandSyntaxException {
         SpreadProfileBlockEntity profile = profileLookedAt(context.getSource());
         if (profile == null) {
@@ -140,11 +144,13 @@ final class FlowerDiseaseCommands {
         int spreadDistance = IntegerArgumentType.getInteger(context, "spreadDistance");
         int densityPer16x16 = IntegerArgumentType.getInteger(context, "densityPer16x16");
         boolean territorial = BoolArgumentType.getBool(context, "territorial");
+        boolean climbing = BoolArgumentType.getBool(context, "climbing");
+        boolean spawnsFlowerBlocks = BoolArgumentType.getBool(context, "spawnsFlowerBlocks");
         List<String> species = speciesArg.isBlank()
                 ? List.of()
                 : Arrays.stream(speciesArg.split(",")).map(String::trim).filter(s -> !s.isEmpty()).toList();
 
-        profile.configure(generations, spreadChance, spreadDistance, densityPer16x16, species, territorial);
+        profile.configure(new GardenBagContents(generations, spreadChance, spreadDistance, densityPer16x16, territorial, climbing, spawnsFlowerBlocks, species));
         context.getSource().sendSuccess(() -> Component.literal("Flower Disease: profile set on the flower you're looking at"), false);
         return 1;
     }
@@ -156,7 +162,7 @@ final class FlowerDiseaseCommands {
             return 0;
         }
 
-        profile.configure(SpreadProfileBlockEntity.NO_GENERATIONS_OVERRIDE, -1, -1, -1, List.of(), true);
+        profile.configure(new GardenBagContents(SpreadProfileBlockEntity.NO_GENERATIONS_OVERRIDE, -1, -1, -1, true, false, false, List.of()));
         context.getSource().sendSuccess(() -> Component.literal("Flower Disease: profile cleared, back to global config"), false);
         return 1;
     }

@@ -45,6 +45,8 @@ public class GardenBagItem extends Item {
         tooltip.add(Component.translatable("item.flowerdisease.garden_bag.tooltip.density"));
         tooltip.add(Component.translatable("item.flowerdisease.garden_bag.tooltip.range"));
         tooltip.add(Component.translatable("item.flowerdisease.garden_bag.tooltip.ignore_others"));
+        tooltip.add(Component.translatable("item.flowerdisease.garden_bag.tooltip.climbing"));
+        tooltip.add(Component.translatable("item.flowerdisease.garden_bag.tooltip.flower_block"));
         tooltip.add(Component.translatable("item.flowerdisease.garden_bag.tooltip.species"));
     }
 
@@ -93,7 +95,7 @@ public class GardenBagItem extends Item {
         // counterpart are eligible here - a bag with nothing but modifier items has nothing plantable,
         // same as an empty bag. Drawn from the whole pool regardless of shape, same as every child/settle
         // draw - see DiseasedPlantLogic.
-        List<SettleTable.Option> spreadable = DiseasedPlantLogic.spreadableOptions(SettleTable.parse(contents.speciesWeights));
+        List<SettleTable.Option> spreadable = DiseasedPlantLogic.spreadableOptions(SettleTable.parse(contents.speciesWeights()));
         SettleTable.Option chosen = SettleTable.pickWeighted(spreadable, level.getRandom());
         if (chosen == null) {
             return Component.translatable("item.flowerdisease.garden_bag.error.no_species");
@@ -117,14 +119,7 @@ public class GardenBagItem extends Item {
         }
 
         if (level.getBlockEntity(target) instanceof SpreadProfileBlockEntity profile) {
-            profile.configure(
-                    contents.generations,
-                    contents.spreadChance,
-                    contents.spreadDistance,
-                    contents.densityPer16x16,
-                    contents.speciesWeights,
-                    contents.respectAllSpecies
-            );
+            profile.configure(contents);
         }
         return null;
     }

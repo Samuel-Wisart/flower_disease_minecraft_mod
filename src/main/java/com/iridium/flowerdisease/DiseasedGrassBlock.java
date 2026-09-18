@@ -5,7 +5,6 @@ import javax.annotation.Nullable;
 import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.util.RandomSource;
-import net.minecraft.world.item.context.BlockPlaceContext;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.EntityBlock;
 import net.minecraft.world.level.block.TallGrassBlock;
@@ -27,20 +26,20 @@ public class DiseasedGrassBlock extends TallGrassBlock implements EntityBlock {
     ) {
         super(properties);
         this.fallbackBlock = fallbackBlock;
-        this.registerDefaultState(this.stateDefinition.any().setValue(SettleTable.GENERATION, 0));
+        this.registerDefaultState(this.stateDefinition.any().setValue(SettleTable.SETTLED, false));
     }
 
     @Override
     protected void createBlockStateDefinition(StateDefinition.Builder<Block, BlockState> builder) {
         super.createBlockStateDefinition(builder);
-        builder.add(SettleTable.GENERATION);
+        builder.add(SettleTable.SETTLED);
     }
 
-    @Nullable
+    // A settled plant stops costing random ticks entirely instead of just no-op'ing on them - see
+    // DiseasedPlantLogic#settle.
     @Override
-    public BlockState getStateForPlacement(BlockPlaceContext context) {
-        BlockState state = super.getStateForPlacement(context);
-        return state == null ? null : state.setValue(SettleTable.GENERATION, Config.FLOWER_MAX_GENERATIONS.getAsInt());
+    protected boolean isRandomlyTicking(BlockState state) {
+        return !state.getValue(SettleTable.SETTLED);
     }
 
     @Nullable

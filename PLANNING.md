@@ -18,8 +18,12 @@ um item — a "Garden Bag", **implementada**, ver seção própria mais abaixo) 
 espalhamento sem limite pelo mundo inteiro caso o jogador queira (plantando a flor na mão, sem a bag) —
 isso deve continuar possível mesmo que ninguém realisticamente infecte o mundo inteiro de propósito.
 
-Não-objetivo por enquanto (mas desejado no futuro): flores corrompendo blocos e subindo em árvores.
-Isso fica pra depois, não mexer nisso agora.
+**Stage 2 em andamento** (branch `feature/climbing-creeping-corruption`): flores escalando blocos
+orgânicos não-plantáveis (tronco, folha), uma variante "creeping" pras 4 flores grandes (tipo glow
+lichen/sculk vein), e um "flower block" que corrompe lentamente o terreno embaixo das plantas. Plano
+completo, decisões travadas e ordem de execução em `PLANNING_STAGE2.md` — não duplicar aqui; esta seção
+(e o resto do documento) descreve só o que já está em `main`. Conforme cada fase da Stage 2 for
+implementada e testada, o conteúdo migra pra cá.
 
 ## Estado atual — o que já está implementado
 
@@ -43,25 +47,37 @@ Isso fica pra depois, não mexer nisso agora.
   sucedido (seja por lotação, seja por terreno sem espaço) faz a flor **assentar imediatamente** (virar
   outra coisa, ver Settle abaixo). Isso evita o bug histórico de flores presas para sempre em cavernas
   íngremes sem nunca desistir (ver "Bugs corrigidos" abaixo).
-- **Contador de gerações**: cada Diseased Flower carrega um valor de "gerações restantes"
-  (`SettleTable.GENERATION`, um `IntegerProperty` de blockstate, 0-64 — usado quando NÃO há um
-  `SpreadProfileBlockEntity` com override ativo, ver abaixo). Uma flor plantada na mão começa com
-  `Config.FLOWER_MAX_GENERATIONS`; cada filho nasce com `pai - 1`. Quando o valor calculado pro filho
-  seria 0, o filho nasce **direto já como flor assentada** (nunca chega a existir como Diseased Flower
-  ativa). Isso limita o alcance máximo de uma plantação sem usar um raio fixo (que ficaria redondo
-  demais) — o contorno fica irregular porque cada salto é uma posição aleatória, não um raio geométrico.
+- **Contador de gerações**: cada Diseased Flower carrega um valor de "gerações restantes". **Mudou na
+  Stage 2** (ver `PLANNING_STAGE2.md` Fase 0.1): não é mais uma `IntegerProperty` de blockstate — vive
+  inteiramente em `SpreadProfileBlockEntity#generationsRemaining` (um `long`, sentinela `-2` =
+  "sem override ainda"). Motivo: as propriedades novas da Stage 2 (facing pra escalada, faces do creeping)
+  fariam a contagem de blockstates explodir se `generation` continuasse sendo uma property (0-64 valores
+  MULTIPLICANDO todo o resto) — no BlockEntity o custo é só alguns bytes por planta, sem explosão nenhuma.
+  `DiseasedPlantLogic` lê `Config.FLOWER_MAX_GENERATIONS` toda vez que o BE ainda está "sem override" (uma
+  flor plantada na mão, ou o primeiro random tick de uma raiz da bag sem Bone Meal) — não precisa mais
+  gravar nada na hora de plantar. Ao espalhar, o valor JÁ DECREMENTADO é sempre gravado explicitamente no
+  BE do filho (`SpreadProfileBlockEntity#setGenerationsRemaining`/`configure`), bag ou não — é assim que a
+  contagem persiste pela linhagem agora. Quando o valor calculado pro filho seria 0, o filho nasce **direto
+  já como flor assentada** (nunca chega a existir como Diseased Flower ativa). Isso limita o alcance máximo
+  de uma plantação sem usar um raio fixo (que ficaria redondo demais) — o contorno fica irregular porque
+  cada salto é uma posição aleatória, não um raio geométrico.
 - **Perfil de espalhamento por planta** (`SpreadProfileBlockEntity`) — fundação da Garden Bag: TODA
-  Diseased Flower (inclusive plantada na mão) tem um `BlockEntity` leve e opcional. Por padrão ele não
-  tem nenhum override (`hasOverride() == false`) e o comportamento é idêntico ao de antes, lendo tudo do
-  `Config.java`/blockstate. Quando algo popula esse BlockEntity (hoje, só o comando de debug
-  `/diseasedflower profile set`; no futuro, a Garden Bag), a flor passa a usar os valores dele em vez do
-  config global para: gerações restantes (sem teto, `-1` = infinito), `spreadChance`, `spreadDistance`,
-  densidade (como "flores desejadas por 16x16", convertida internamente via
-  `SettleTable.densityTargetToMaxNearby`), e uma lista de "espécies possíveis" pro filho (reaproveita o
-  parser/sorteio do `SettleTable`) — sem nenhuma restrição de categoria, ver "Sem lógica de cadeia" logo
-  abaixo. Ao espalhar com um perfil ativo, o filho recebe uma CÓPIA do
-  perfil do pai (via `SpreadProfileBlockEntity#copyFrom`), com o contador de gerações já decrementado —
-  é assim que a herança pelos filhos funciona.
+  Diseased Flower (inclusive plantada na mão) tem um `BlockEntity` leve e opcional. Por padrão ele não tem
+  nenhum override (exceto `respectAllSpecies`, que já nasce `true` — ver "Território" abaixo) e o
+  comportamento é idêntico ao de antes, lendo tudo do `Config.java`. Quando algo popula esse BlockEntity
+  (hoje, o comando de debug `/diseasedflower profile set` ou a Garden Bag), a flor passa a usar os valores
+  dele em vez do config global para: gerações restantes (sem teto, `-1` = infinito), `spreadChance`,
+  `spreadDistance`, densidade (como "flores desejadas por 16x16", convertida internamente via
+  `SettleTable.densityTargetToMaxNearby`), território, escalada e criação de flower blocks (Stage 2 —
+  esses dois últimos ainda sem efeito nenhum enquanto as Fases 1/3 não existem, ver
+  `PLANNING_STAGE2.md`), e uma lista de "espécies possíveis" pro filho (reaproveita o parser/sorteio do
+  `SettleTable`) — sem nenhuma restrição de categoria, ver "Sem lógica de cadeia" logo abaixo. Todos esses
+  campos moram juntos no `record GardenBagContents` (também é o que a bag lê dos itens jogados nela, ver
+  seção da Garden Bag) — `configure(GardenBagContents)` é o único jeito de escrever no BE, então não existe
+  mais um método separado "copiar perfil do pai" vs "configurar pela bag" com listas de parâmetros que
+  podem sair de sincronia. Ao espalhar com um perfil ativo, o filho recebe `configure(pai.toContents(gerações
+  do filho))` — uma CÓPIA do perfil do pai com o contador já decrementado; é assim que a herança pelos
+  filhos funciona.
 - **A lista de espécies do perfil (`speciesWeights`) é a ÚNICA fonte de "o que um FILHO pode ser"** ao
   espalhar. Não existe mais nenhuma tabela global de settle no `Config.java` (ver "Sistema de settle"
   abaixo pro histórico de por que ela foi removida).
@@ -103,6 +119,16 @@ Isso fica pra depois, não mexer nisso agora.
   pool da bag. `DiseasedPlantLogic#settle` reflete isso: recebe direto o bloco vanilla a virar (o
   `fallbackBlock` da planta, ou — quando um filho recém-sorteado já nasce sem orçamento de gerações — a
   própria espécie que acabou de ser sorteada pra ele), nunca um pool pra escolher entre várias opções.
+  **Ampliado na Stage 2** (`PLANNING_STAGE2.md` Fase 0.2): virar `fallbackBlock` só acontece quando esse
+  bloco vanilla REALMENTE sobrevive naquela posição exata (`canSurvive`) — o caso comum (flor em chão
+  normal) continua idêntico. Quando não sobrevive ali (Fase 1: flor escalando um tronco, onde a versão
+  vanilla morreria) OU quando a espécie não tem nenhum `fallbackBlock` distinto de si mesma (Fase 2: as
+  espécies "creeping" são seu próprio fallback), a planta em vez disso **assenta EXATAMENTE onde e como
+  está** — mantém bloco/formato/direção atuais e só liga a property `SettleTable.SETTLED` (um
+  `BooleanProperty`, também tomou o lugar da antiga `GENERATION` no blockstate). `isRandomlyTicking` é
+  sobrescrito em toda classe que se espalha pra checar essa property — uma planta assentada para de custar
+  random tick de vez (não só ignora o tick como antes), então não precisa mais existir um bloco terminal
+  separado pra cada caso "sem vanilla pra virar".
 - **Modo "territorial"** (`SpreadProfileBlockEntity#respectAllSpecies`, **LIGADO por padrão** — ver "Território:
   default invertido" na seção da Garden Bag pro porquê e o histórico dessa mudança): a checagem de lotação
   (`countNearbyFieldFlowers`) conta QUALQUER planta por perto por padrão (`SettleTable.isAnyPlant`, checa
@@ -238,15 +264,17 @@ exigem `.get()` em blocos do próprio mod, que só é seguro depois que o regist
   `player.connection.sendCommand("cleargarden")` (sem argumentos, então limpa tudo que está carregado) —
   não precisa digitar o comando, e não precisa de rede customizada (reaproveita o pipeline de comando do
   próprio vanilla).
-- Comando `/diseasedflower profile set <gerações> <spreadChance> <spreadDistance> <densidadePor16x16> [espécies]`
-  e `/diseasedflower profile clear`: configura (ou limpa) o `SpreadProfileBlockEntity` da flor que o
-  jogador está mirando, pra testar o sistema de perfil por-planta ANTES da Garden Bag existir. Cada
-  argumento numérico aceita `-1` pra "sem override, usa o config global nesse campo específico"
-  (exceto gerações, onde `-1` = infinito de verdade). `espécies` é opcional, uma string separada por
-  vírgula de entradas `"<block id> <peso>"` — pool de onde os FILHOS ao espalhar são sorteados (settle
-  nunca consulta essa lista, ver "Sistema de settle" acima). Tanto ids vanilla (`minecraft:rose_bush`)
-  quanto os 12 ids decorativos Top/Bottom (`flowerdisease:rose_bush_top`) funcionam igual, cada um sua
-  própria espécie espalhável, ex.: `"minecraft:poppy 70,flowerdisease:rose_bush_top 30"`.
+- Comando `/diseasedflower profile set <gerações> <spreadChance> <spreadDistance> <densidadePor16x16>
+  <territorial> <climbing> <spawnsFlowerBlocks> [espécies]` e `/diseasedflower profile clear`: configura
+  (ou limpa) o `SpreadProfileBlockEntity` da flor que o jogador está mirando, pra testar o sistema de
+  perfil por-planta sem precisar montar uma bag (`climbing`/`spawnsFlowerBlocks` são os dois booleanos da
+  Stage 2, espelhando Twisting Vines/Moss Block — ver `PLANNING_STAGE2.md`). Cada argumento numérico
+  aceita `-1` pra "sem override, usa o config global nesse campo específico" (exceto gerações, onde `-1` =
+  infinito de verdade). `espécies` é opcional, uma string separada por vírgula de entradas
+  `"<block id> <peso>"` — pool de onde os FILHOS ao espalhar são sorteados (settle nunca consulta essa
+  lista, ver "Sistema de settle" acima). Tanto ids vanilla (`minecraft:rose_bush`) quanto os 12 ids
+  decorativos Top/Bottom (`flowerdisease:rose_bush_top`) funcionam igual, cada um sua própria espécie
+  espalhável, ex.: `"minecraft:poppy 70,flowerdisease:rose_bush_top 30"`.
 
 ## Arquivos principais
 
@@ -264,8 +292,10 @@ exigem `.get()` em blocos do próprio mod, que só é seguro depois que o regist
 | `DiseasedPlantLogic.java` | Engine única de espalhamento/settle pra TODAS as espécies (1 e 2 blocos) — filhos sorteados livremente do pool (sem restrição de família/categoria), settle sempre vira a própria espécie (sem sorteio), ver "Sem lógica de cadeia" acima |
 | `DecorativeFlowerBlock.java` | Bloco decorativo de 1 bloco, terminal (resultado de settle de um Top/Bottom) |
 | `DiseasedDecorativeFlowerBlock.java` | Contraparte espalhável de cada `DecorativeFlowerBlock` (Top/Bottom como espécie própria, delega pra `DiseasedPlantLogic`) |
-| `SpreadProfileBlockEntity.java` | Overrides opcionais por-planta (gerações/velocidade/distância/densidade/espécies/territorial) |
-| `SettleTable.java` | Lógica compartilhada: parsing de outcomes, sorteio ponderado, flags de placement, `GENERATION` property, conversão de densidade, `isSameSpecies`/`isAnyPlant` (territorial) |
+| `SpreadProfileBlockEntity.java` | Overrides opcionais por-planta — gerações (única fonte de verdade agora, não tem mais blockstate), velocidade/distância/densidade/espécies/territorial/climbing/spawnsFlowerBlocks. `configure(GardenBagContents)` é o único método de escrita |
+| `GardenBagContents.java` | `record` com os 8 campos de um perfil completo — o que a bag lê dos itens jogados nela, E o formato que `SpreadProfileBlockEntity#configure`/`toContents` usa pra herdar perfil entre pai e filho |
+| `SettleTable.java` | Lógica compartilhada: parsing de outcomes, sorteio ponderado, flags de placement, `SETTLED` property (substituiu `GENERATION` na Stage 2), conversão de densidade, `isSameSpecies`/`isAnyPlant` (territorial) |
+| `PlantSupport.java` | Stage 2: tags de datapack (`climbable`/`convertible`/`conversion_immune`) e os predicados que leem elas — ver `PLANNING_STAGE2.md` |
 | `GardenBagItem.java` | Item da bag: abre o menu, tooltip, lógica de plantio (`useOn`) |
 | `GardenBagMenu.java` | Container da bag: um inventário só de 27 slots ("caldeirão"), ligação com `ItemContainerContents` |
 | `GardenBagContents.java` | Lê os itens da bag (somados por identidade, não por posição) pros parâmetros reais — compartilhado por `GardenBagItem` (plantio) e `GardenBagScreen` (preview) |
