@@ -69,6 +69,36 @@ Você testou e reportou 2 bugs:
    (`canStandOn`) nunca teve esse problema (só checa a tag, sempre checou), então não devia estar quebrado
    pra folha — só o lado é que precisava do fix.
 
+### Segunda rodada de correções pós-teste (mesmo dia)
+
+Você confirmou que a inclinação já estava na direção certa (ângulo/sinal aprovados, não mexi mais neles) e
+pediu 2 ajustes:
+
+3. **Flor inclinada flutuando na frente do bloco de apoio em vez de encostar nele.** Causa: os 2 elementos
+   de `tilted_cross`/`tilted_tinted_cross` ficavam centrados em z=8 (meio do bloco) antes da rotação — o
+   pivô (em z=16, na parede) girava essa geometria, mas ela nunca chegava PERTO da parede porque começava
+   longe demais dela. **Correção**: desloquei a geometria pra perto da parede antes da rotação (elemento
+   "largura" de z=8 pra z=13; elemento "profundidade" de `[0.8, 15.2]` pra `[8, 15.2]`, encurtando o quanto
+   ele avança pro meio do quarto) — mesma rotação de antes (`origin:[8,0,16], axis:x, angle:-22.5`),
+   intocada. A caixa de colisão (`PlantSupport.tiltedShape`) já assumia proximidade da parede desde o
+   início, então só o modelo visual precisava desse ajuste.
+4. **Flores grandes (2 blocos) não conseguiam nem ficar em cima de bloco escalável** — só as 5 classes de 1
+   bloco tinham ganhado esse tratamento na Fase 1; as 2 classes de 2 blocos (`DiseasedTallFlowerBlock`,
+   `DiseasedTallGrassBlock`) continuavam com o `canSurvive` 100% vanilla. Pedido específico: elas devem
+   poder nascer EM CIMA de um tronco/árvore, mas **nunca** inclinadas na lateral (continuam sem property
+   `FACING` nenhuma — a regra "espécies de 2 blocos nunca inclinam" continua valendo). **Correção**: as
+   duas ganharam um `canSurvive` igual ao caso `UP` das classes de 1 bloco
+   (`super.canSurvive(...) || PlantSupport.canStandOn(...)`), sem nenhuma outra mudança (sem `getShape`,
+   sem `getStateForPlacement`, sem `FACING`). Em `DiseasedPlantLogic#findSpreadTarget`, o alcance vertical
+   ampliado (`max(spreadVerticalRange, spreadDistance)`) agora vale pras DUAS formas quando
+   `profile.climbing()` está ligado (antes só valia pra `Shape.SINGLE`) — sem isso a busca nunca alcançaria
+   o topo de uma árvore alta mesmo depois do `canSurvive` permitir. `tryFacings` não mudou: o ramo `TALL`
+   já ignorava o parâmetro `climbing` (só faz o teste `UP`), então passar `climbing=true` pra ele nunca
+   arrisca inclinar uma flor grande — o flag só importa mesmo pro ramo `SINGLE`.
+
+Validado com `runClient` real em background de novo (log limpo, sem erro de modelo/blockstate) depois de
+cada rodada.
+
 ## Decisão nova (durante a implementação, não estava no plano original)
 
 - **`canSurvive` NUNCA lê o perfil/BlockEntity, em nenhuma das 5 classes.** Ficou explícito ao implementar:

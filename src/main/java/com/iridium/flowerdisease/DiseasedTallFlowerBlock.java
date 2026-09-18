@@ -5,6 +5,7 @@ import javax.annotation.Nullable;
 import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.util.RandomSource;
+import net.minecraft.world.level.LevelReader;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.EntityBlock;
 import net.minecraft.world.level.block.TallFlowerBlock;
@@ -17,7 +18,9 @@ import net.minecraft.world.level.block.state.properties.DoubleBlockHalf;
 // Two-block counterpart to DiseasedFlowerBlock, for the four TallFlowerBlock-based species (Sunflower,
 // Lilac, Rose Bush, Peony). The actual spread/settle logic lives in DiseasedPlantLogic, shared with
 // DiseasedTallGrassBlock (Tall Grass/Large Fern extend plain DoublePlantBlock instead, so they can't
-// share a superclass with this class, only the static logic).
+// share a superclass with this class, only the static logic). Two-block species can stand on TOP of a
+// climbable block (PlantSupport) but never tilt onto its side - no FACING property here, unlike the
+// single-block classes (see PLANNING_STAGE2.md Fase 1 "Espécies de 2 blocos nunca inclinam").
 public class DiseasedTallFlowerBlock extends TallFlowerBlock implements EntityBlock {
 
     private final Block fallbackBlock;
@@ -42,6 +45,15 @@ public class DiseasedTallFlowerBlock extends TallFlowerBlock implements EntityBl
     @Override
     protected boolean isRandomlyTicking(BlockState state) {
         return !state.getValue(SettleTable.SETTLED);
+    }
+
+    // Vanilla's own canSurvive already handles both halves correctly (lower checks the ground, upper
+    // checks its lower neighbor is this same block) - this just widens the LOWER half's ground rule to
+    // also accept standing on a climbable block. The OR is a no-op for the upper half: its own "ground"
+    // is the lower half of this same plant, which is never itself tagged climbable.
+    @Override
+    protected boolean canSurvive(BlockState state, LevelReader level, BlockPos pos) {
+        return super.canSurvive(state, level, pos) || PlantSupport.canStandOn(level, pos.below());
     }
 
     @Nullable

@@ -244,11 +244,13 @@ final class DiseasedPlantLogic {
 
     @Nullable
     private static SpreadTarget findSpreadTarget(ServerLevel level, BlockPos origin, RandomSource random, Block species, @Nullable SpreadProfileBlockEntity profile, Shape shape) {
-        // Only single-block species ever tilt onto a wall (see PlantSupport.FACING); climbing itself is
-        // still an explicit opt-in on the profile, even though canSurvive always structurally allows it
-        // (see PlantSupport - existing climbing plants must never lose canSurvive just because nothing
-        // configured them to seek out new climbing spots).
-        boolean climbing = shape == Shape.SINGLE && profile != null && profile.climbing();
+        // Climbing itself is an explicit opt-in on the profile, even though canSurvive always
+        // structurally allows standing on/clinging to a climbable block (see PlantSupport - existing
+        // climbing plants must never lose canSurvive just because nothing configured them to seek out new
+        // climbing spots). Widening the vertical search applies to BOTH shapes - a two-block species can
+        // land on TOP of a tall trunk same as a single-block one, it just never tilts onto the side (see
+        // tryFacings below, whose TALL branch never looks at this flag at all).
+        boolean climbing = profile != null && profile.climbing();
 
         int maxDistance = profile != null && profile.spreadDistanceOverride() >= 0
                 ? profile.spreadDistanceOverride()

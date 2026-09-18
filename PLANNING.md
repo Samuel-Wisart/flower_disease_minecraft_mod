@@ -142,26 +142,33 @@ implementada e testada, o conteúdo migra pra cá.
   foi dar o BlockEntity pra TODAS, sempre "vazio" por padrão pra plantio na mão. O custo é pequeno (é só
   alguns números por flor, sem ticker, nada roda nele sozinho) e evita duplicar os ~90 arquivos de
   recurso que já existem.
-- **Escalada em blocos orgânicos** (Stage 2 Fase 1, `PlantSupport.FACING` — só as 5 espécies de 1 bloco;
-  espécies de 2 blocos nunca inclinam): `FACING` é um `DirectionProperty` de 5 valores (UP + as 4
-  horizontais, sem DOWN — pendurar no teto não foi pedido) apontando pra ONDE a planta cresce; o suporte
-  fica sempre em `pos.relative(facing.getOpposite())`. Regra que não pode ser quebrada por código futuro:
-  **`canSurvive` nunca lê o `SpreadProfileBlockEntity`** — ficar de pé em cima de um bloco `#flowerdisease:
-  climbable` (`PlantSupport.canStandOn`) ou colada na lateral de um (`canClingTo`, só checa a tag — **sem**
-  exigir `isFaceSturdy`, já que a vanilla retorna `false` pra folha nesse método e isso excluiria folha da
-  tag silenciosamente; a tag já é uma lista curada, não precisa de checagem geométrica em cima) é SEMPRE
-  estruturalmente permitido, senão uma planta já escalando sumiria sozinha ao recarregar o chunk
-  (canSurvive roda no carregamento, quando o BlockEntity pode ainda não existir). Quem decide se a planta
-  PROCURA esses lugares ao espalhar é só o profile (`SpreadProfileBlockEntity#climbing`, ligado pelo item
-  Twisting Vines na bag — ver seção da Garden Bag): `DiseasedPlantLogic#findSpreadTarget` tenta UP primeiro
-  (chão comum, ou agora também o topo de um bloco escalável, já que isso é sempre permitido) e só tenta as
-  4 direções horizontais quando `climbing` está ligado, numa ordem sorteada pra não enviesar sempre pro
-  mesmo lado. O alcance vertical de busca vira `max(spreadVerticalRange, spreadDistance)` quando escalando
-  (senão nunca subiria um tronco de verdade). Visualmente: 2 modelos-pai novos (`tilted_cross`/
-  `tilted_tinted_cross`, cópias fiéis do `block/cross`/`tinted_cross` da vanilla — extraídos do jar do
-  cliente pra garantir fidelidade — só com a `rotation` dos 2 elementos trocada de "45° em Y" pra "-22.5°
-  em X, pivô na base encostada na parede") + 1 modelo `<id>_tilted.json` por espécie (só troca a textura).
-  **Importante pra qualquer rotação nova**: blockstate (`"x"`/`"y"` num `apply`) só aceita múltiplos de 90;
+- **Escalada em blocos orgânicos** (Stage 2 Fase 1): as 5 espécies de 1 bloco podem INCLINAR
+  (`PlantSupport.FACING`, `DirectionProperty` de 5 valores — UP + as 4 horizontais, sem DOWN — apontando
+  pra ONDE a planta cresce; o suporte fica sempre em `pos.relative(facing.getOpposite())`); as 2 classes de
+  2 blocos (`DiseasedTallFlowerBlock`/`DiseasedTallGrassBlock`) podem ficar EM CIMA de um bloco escalável
+  mas **nunca inclinam na lateral** (sem property `FACING` nenhuma nelas — pedido explícito do dono do
+  projeto). Regra que não pode ser quebrada por código futuro: **`canSurvive` nunca lê o
+  `SpreadProfileBlockEntity`** — ficar de pé em cima de um bloco `#flowerdisease:climbable`
+  (`PlantSupport.canStandOn`, usado pelas 7 classes que se espalham) ou colada na lateral de um
+  (`canClingTo`, só as 5 de 1 bloco; só checa a tag — **sem** exigir `isFaceSturdy`, já que a vanilla
+  retorna `false` pra folha nesse método e isso excluiria folha da tag silenciosamente; a tag já é uma
+  lista curada, não precisa de checagem geométrica em cima) é SEMPRE estruturalmente permitido, senão uma
+  planta já escalando sumiria sozinha ao recarregar o chunk (canSurvive roda no carregamento, quando o
+  BlockEntity pode ainda não existir). Quem decide se a planta PROCURA esses lugares ao espalhar é só o
+  profile (`SpreadProfileBlockEntity#climbing`, ligado pelo item Twisting Vines na bag — ver seção da
+  Garden Bag): `DiseasedPlantLogic#findSpreadTarget` tenta UP primeiro (chão comum, ou agora também o topo
+  de um bloco escalável, já que isso é sempre permitido) e só tenta as 4 direções horizontais quando
+  `climbing` está ligado E a espécie sorteada é de 1 bloco (`tryFacings` ignora esse flag inteiramente pro
+  ramo de 2 blocos — só testa `UP`), numa ordem sorteada pra não enviesar sempre pro mesmo lado. O alcance
+  vertical de busca vira `max(spreadVerticalRange, spreadDistance)` quando escalando, pras DUAS formas
+  (senão uma flor grande nunca alcançaria o topo de uma árvore alta mesmo com `canSurvive` permitindo).
+  Visualmente (só as 5 de 1 bloco, as de 2 blocos usam sempre o modelo normal): 2 modelos-pai novos
+  (`tilted_cross`/`tilted_tinted_cross`, cópias fiéis do `block/cross`/`tinted_cross` da vanilla —
+  extraídos do jar do cliente pra garantir fidelidade — com a `rotation` dos 2 elementos trocada de "45°
+  em Y" pra "-22.5° em X, pivô na base encostada na parede", e a geometria deslocada pra perto da parede
+  ANTES da rotação — senão a flor renderiza flutuando na frente do suporte em vez de encostada nele, bug
+  relatado e corrigido depois do primeiro teste visual) + 1 modelo `<id>_tilted.json` por espécie (só troca
+  a textura). **Importante pra qualquer rotação nova**: blockstate (`"x"`/`"y"` num `apply`) só aceita múltiplos de 90;
   ângulo livre só é válido DENTRO do modelo (`elements[].rotation`, e mesmo lá só -45/-22.5/0/22.5/45) — uma
   primeira tentativa desta feature usou `"x": 25` direto no blockstate e isso quebrou o carregamento do
   blockstate INTEIRO (toda diseased flower virava o cubo de textura faltando, não só as inclinadas), ver
