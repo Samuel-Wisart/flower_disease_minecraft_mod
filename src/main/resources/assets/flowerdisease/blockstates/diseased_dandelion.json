@@ -1,9 +1,24 @@
 {
   "multipart": [
     {
-      "apply": {
-        "model": "flowerdisease:block/diseased_dandelion"
-      }
+      "when": { "facing": "up" },
+      "apply": { "model": "flowerdisease:block/diseased_dandelion" }
+    },
+    {
+      "when": { "facing": "north" },
+      "apply": { "model": "flowerdisease:block/diseased_dandelion", "x": 25, "y": 0 }
+    },
+    {
+      "when": { "facing": "east" },
+      "apply": { "model": "flowerdisease:block/diseased_dandelion", "x": 25, "y": 90 }
+    },
+    {
+      "when": { "facing": "south" },
+      "apply": { "model": "flowerdisease:block/diseased_dandelion", "x": 25, "y": 180 }
+    },
+    {
+      "when": { "facing": "west" },
+      "apply": { "model": "flowerdisease:block/diseased_dandelion", "x": 25, "y": 270 }
     }
   ]
 }

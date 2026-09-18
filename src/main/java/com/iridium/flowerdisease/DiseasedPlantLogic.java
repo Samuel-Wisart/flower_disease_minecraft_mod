@@ -6,6 +6,7 @@ import java.util.List;
 import javax.annotation.Nullable;
 
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.util.RandomSource;
 import net.minecraft.world.level.LevelReader;
@@ -29,6 +30,13 @@ import net.neoforged.neoforge.registries.DeferredBlock;
 final class DiseasedPlantLogic {
 
     enum Shape { SINGLE, TALL }
+
+    // Facing is only meaningful for Shape.SINGLE (two-block species never tilt - see
+    // PLANNING_STAGE2.md Fase 1); UP always accompanies TALL targets and is otherwise ignored.
+    private record SpreadTarget(BlockPos pos, Direction facing) {
+    }
+
+    private static final Direction[] HORIZONTAL_FACINGS = {Direction.NORTH, Direction.SOUTH, Direction.EAST, Direction.WEST};
 
     private DiseasedPlantLogic() {
     }
@@ -103,7 +111,7 @@ final class DiseasedPlantLogic {
             Block vanillaSpecies = pickedSpecies != null ? pickedSpecies.block() : fallbackBlock;
             Block diseasedSpecies = pickedSpecies != null ? diseasedOf(pickedSpecies.block(), self) : self;
 
-            BlockPos target = findSpreadTarget(level, pos, random, diseasedSpecies, profile, childShape);
+            SpreadTarget target = findSpreadTarget(level, pos, random, diseasedSpecies, profile, childShape);
             if (target != null) {
                 placeChild(level, target, diseasedSpecies, vanillaSpecies, childShape, generationsLeft, profile);
                 return;
@@ -117,7 +125,7 @@ final class DiseasedPlantLogic {
 
     private static void placeChild(
             ServerLevel level,
-            BlockPos target,
+            SpreadTarget target,
             Block diseasedSpecies,
             Block vanillaSpecies,
             Shape childShape,
@@ -125,22 +133,26 @@ final class DiseasedPlantLogic {
             @Nullable SpreadProfileBlockEntity profile
     ) {
         long childGenerations = generationsLeft < 0 ? generationsLeft : generationsLeft - 1;
+        // Facing only applies to Shape.SINGLE - see PlantSupport.FACING and the SpreadTarget comment.
+        BlockState childState = childShape == Shape.SINGLE
+                ? diseasedSpecies.defaultBlockState().setValue(PlantSupport.FACING, target.facing())
+                : diseasedSpecies.defaultBlockState();
+
         if (childGenerations == 0) {
             // No budget left for the child to spread itself, so it settles the instant it's created
             // instead of existing as an active Diseased Flower even briefly - as its own (just-picked)
             // species, same as any other settle decision.
-            settle(level, target, diseasedSpecies, vanillaSpecies, childShape, diseasedSpecies.defaultBlockState());
+            settle(level, target.pos(), diseasedSpecies, vanillaSpecies, childShape, childState);
             return;
         }
 
-        BlockState childState = diseasedSpecies.defaultBlockState();
         if (childShape == Shape.TALL) {
-            DoublePlantBlock.placeAt(level, childState, target, SettleTable.PLACEMENT_FLAGS);
+            DoublePlantBlock.placeAt(level, childState, target.pos(), SettleTable.PLACEMENT_FLAGS);
         } else {
-            level.setBlock(target, childState, SettleTable.PLACEMENT_FLAGS);
+            level.setBlock(target.pos(), childState, SettleTable.PLACEMENT_FLAGS);
         }
 
-        if (level.getBlockEntity(target) instanceof SpreadProfileBlockEntity childProfile) {
+        if (level.getBlockEntity(target.pos()) instanceof SpreadProfileBlockEntity childProfile) {
             // Always persists the generation countdown, bag or not - it's the only field that's tracked
             // regardless of whether a bag profile is active (see SpreadProfileBlockEntity). The rest of
             // the profile only gets copied down when there actually is one to copy.
@@ -231,12 +243,22 @@ final class DiseasedPlantLogic {
     }
 
     @Nullable
-    private static BlockPos findSpreadTarget(ServerLevel level, BlockPos origin, RandomSource random, Block species, @Nullable SpreadProfileBlockEntity profile, Shape shape) {
+    private static SpreadTarget findSpreadTarget(ServerLevel level, BlockPos origin, RandomSource random, Block species, @Nullable SpreadProfileBlockEntity profile, Shape shape) {
+        // Only single-block species ever tilt onto a wall (see PlantSupport.FACING); climbing itself is
+        // still an explicit opt-in on the profile, even though canSurvive always structurally allows it
+        // (see PlantSupport - existing climbing plants must never lose canSurvive just because nothing
+        // configured them to seek out new climbing spots).
+        boolean climbing = shape == Shape.SINGLE && profile != null && profile.climbing();
+
         int maxDistance = profile != null && profile.spreadDistanceOverride() >= 0
                 ? profile.spreadDistanceOverride()
                 : Config.FLOWER_SPREAD_DISTANCE.getAsInt();
-        int verticalRange = Config.FLOWER_SPREAD_VERTICAL_RANGE.getAsInt();
-        BlockState newState = species.defaultBlockState();
+        // A trunk is taller than the default vertical search window, so climbing widens it to at least
+        // the horizontal spread distance - the Feather modifier ends up controlling "how high" too.
+        int verticalRange = climbing
+                ? Math.max(Config.FLOWER_SPREAD_VERTICAL_RANGE.getAsInt(), maxDistance)
+                : Config.FLOWER_SPREAD_VERTICAL_RANGE.getAsInt();
+        BlockState baseState = species.defaultBlockState();
 
         for (int attempt = 0; attempt < Config.FLOWER_SPREAD_ATTEMPTS.getAsInt(); attempt++) {
             int dx = random.nextInt(maxDistance * 2 + 1) - maxDistance;
@@ -245,7 +267,7 @@ final class DiseasedPlantLogic {
                 continue;
             }
 
-            BlockPos candidate = followTerrain(level, origin.offset(dx, 0, dz), newState, verticalRange, shape);
+            SpreadTarget candidate = followTerrain(level, origin.offset(dx, 0, dz), baseState, verticalRange, shape, climbing, random);
             if (candidate != null) {
                 return candidate;
             }
@@ -258,20 +280,52 @@ final class DiseasedPlantLogic {
     // heights too (closest to the parent's Y first) instead of only the exact same Y. A TALL shape also
     // needs the cell above free for the second half.
     @Nullable
-    private static BlockPos followTerrain(ServerLevel level, BlockPos column, BlockState newState, int verticalRange, Shape shape) {
-        if (isValidSpot(level, column, newState, shape)) {
-            return column;
+    private static SpreadTarget followTerrain(ServerLevel level, BlockPos column, BlockState baseState, int verticalRange, Shape shape, boolean climbing, RandomSource random) {
+        SpreadTarget direct = tryFacings(level, column, baseState, shape, climbing, random);
+        if (direct != null) {
+            return direct;
         }
 
         for (int dy = 1; dy <= verticalRange; dy++) {
-            BlockPos up = column.above(dy);
-            if (isValidSpot(level, up, newState, shape)) {
+            SpreadTarget up = tryFacings(level, column.above(dy), baseState, shape, climbing, random);
+            if (up != null) {
                 return up;
             }
 
-            BlockPos down = column.below(dy);
-            if (isValidSpot(level, down, newState, shape)) {
+            SpreadTarget down = tryFacings(level, column.below(dy), baseState, shape, climbing, random);
+            if (down != null) {
                 return down;
+            }
+        }
+
+        return null;
+    }
+
+    // TALL never tilts, so it's just the one (UP) check. SINGLE always tries standing upright first
+    // (ordinary ground - or, now, the top of a climbable block, since that's unconditionally allowed by
+    // canSurvive - see PlantSupport); only when this plant is actually configured to climb does it also
+    // try each horizontal direction, starting from a random one so a trunk with climbable wood on every
+    // side doesn't always end up tilting the same way.
+    @Nullable
+    private static SpreadTarget tryFacings(ServerLevel level, BlockPos pos, BlockState baseState, Shape shape, boolean climbing, RandomSource random) {
+        if (shape == Shape.TALL) {
+            return isValidSpot(level, pos, baseState, shape) ? new SpreadTarget(pos, Direction.UP) : null;
+        }
+
+        BlockState upState = baseState.setValue(PlantSupport.FACING, Direction.UP);
+        if (isValidSpot(level, pos, upState, shape)) {
+            return new SpreadTarget(pos, Direction.UP);
+        }
+        if (!climbing) {
+            return null;
+        }
+
+        int startIndex = random.nextInt(HORIZONTAL_FACINGS.length);
+        for (int i = 0; i < HORIZONTAL_FACINGS.length; i++) {
+            Direction facing = HORIZONTAL_FACINGS[(startIndex + i) % HORIZONTAL_FACINGS.length];
+            BlockState tiltedState = baseState.setValue(PlantSupport.FACING, facing);
+            if (isValidSpot(level, pos, tiltedState, shape)) {
+                return new SpreadTarget(pos, facing);
             }
         }
 

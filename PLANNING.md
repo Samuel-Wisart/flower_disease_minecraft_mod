@@ -68,9 +68,9 @@ implementada e testada, o conteúdo migra pra cá.
   (hoje, o comando de debug `/diseasedflower profile set` ou a Garden Bag), a flor passa a usar os valores
   dele em vez do config global para: gerações restantes (sem teto, `-1` = infinito), `spreadChance`,
   `spreadDistance`, densidade (como "flores desejadas por 16x16", convertida internamente via
-  `SettleTable.densityTargetToMaxNearby`), território, escalada e criação de flower blocks (Stage 2 —
-  esses dois últimos ainda sem efeito nenhum enquanto as Fases 1/3 não existem, ver
-  `PLANNING_STAGE2.md`), e uma lista de "espécies possíveis" pro filho (reaproveita o parser/sorteio do
+  `SettleTable.densityTargetToMaxNearby`), território, escalada (`climbing` — ver "Escalada em blocos
+  orgânicos" abaixo) e criação de flower blocks (`spawnsFlowerBlocks` — Stage 2 Fase 3, ainda sem efeito
+  nenhum, ver `PLANNING_STAGE2.md`), e uma lista de "espécies possíveis" pro filho (reaproveita o parser/sorteio do
   `SettleTable`) — sem nenhuma restrição de categoria, ver "Sem lógica de cadeia" logo abaixo. Todos esses
   campos moram juntos no `record GardenBagContents` (também é o que a bag lê dos itens jogados nela, ver
   seção da Garden Bag) — `configure(GardenBagContents)` é o único jeito de escrever no BE, então não existe
@@ -142,6 +142,24 @@ implementada e testada, o conteúdo migra pra cá.
   foi dar o BlockEntity pra TODAS, sempre "vazio" por padrão pra plantio na mão. O custo é pequeno (é só
   alguns números por flor, sem ticker, nada roda nele sozinho) e evita duplicar os ~90 arquivos de
   recurso que já existem.
+- **Escalada em blocos orgânicos** (Stage 2 Fase 1, `PlantSupport.FACING` — só as 5 espécies de 1 bloco;
+  espécies de 2 blocos nunca inclinam): `FACING` é um `DirectionProperty` de 5 valores (UP + as 4
+  horizontais, sem DOWN — pendurar no teto não foi pedido) apontando pra ONDE a planta cresce; o suporte
+  fica sempre em `pos.relative(facing.getOpposite())`. Regra que não pode ser quebrada por código futuro:
+  **`canSurvive` nunca lê o `SpreadProfileBlockEntity`** — ficar de pé em cima de um bloco `#flowerdisease:
+  climbable` (`PlantSupport.canStandOn`) ou colada na lateral de um com face firme voltada pra ela
+  (`canClingTo`) é SEMPRE estruturalmente permitido, senão uma planta já escalando sumiria sozinha ao
+  recarregar o chunk (canSurvive roda no carregamento, quando o BlockEntity pode ainda não existir). Quem
+  decide se a planta PROCURA esses lugares ao espalhar é só o profile
+  (`SpreadProfileBlockEntity#climbing`, ligado pelo item Twisting Vines na bag — ver seção da Garden Bag):
+  `DiseasedPlantLogic#findSpreadTarget` tenta UP primeiro (chão comum, ou agora também o topo de um bloco
+  escalável, já que isso é sempre permitido) e só tenta as 4 direções horizontais quando `climbing` está
+  ligado, numa ordem sorteada pra não enviesar sempre pro mesmo lado. O alcance vertical de busca vira
+  `max(spreadVerticalRange, spreadDistance)` quando escalando (senão nunca subiria um tronco de verdade).
+  Visualmente: **sem modelos novos** — os mesmos 28 blockstates reaproveitam o modelo de sempre (em pé) e
+  aplicam rotação `x`/`y` do próprio blockstate (mecanismo padrão, tipo o que toras/escadas já usam) pra
+  simular a inclinação; ângulo e sinal são um chute não verificado visualmente (ver
+  `PLANNING_STAGE2.md` "Desvio do plano" pro porquê e como corrigir se ficar errado).
 
 ### Espécies existentes
 
@@ -295,7 +313,7 @@ exigem `.get()` em blocos do próprio mod, que só é seguro depois que o regist
 | `SpreadProfileBlockEntity.java` | Overrides opcionais por-planta — gerações (única fonte de verdade agora, não tem mais blockstate), velocidade/distância/densidade/espécies/territorial/climbing/spawnsFlowerBlocks. `configure(GardenBagContents)` é o único método de escrita |
 | `GardenBagContents.java` | `record` com os 8 campos de um perfil completo — o que a bag lê dos itens jogados nela, E o formato que `SpreadProfileBlockEntity#configure`/`toContents` usa pra herdar perfil entre pai e filho |
 | `SettleTable.java` | Lógica compartilhada: parsing de outcomes, sorteio ponderado, flags de placement, `SETTLED` property (substituiu `GENERATION` na Stage 2), conversão de densidade, `isSameSpecies`/`isAnyPlant` (territorial) |
-| `PlantSupport.java` | Stage 2: tags de datapack (`climbable`/`convertible`/`conversion_immune`) e os predicados que leem elas — ver `PLANNING_STAGE2.md` |
+| `PlantSupport.java` | Stage 2: tags de datapack (`climbable`/`convertible`/`conversion_immune`), a property `FACING` e os predicados de `canSurvive`/forma pra escalada — ver `PLANNING_STAGE2.md` |
 | `GardenBagItem.java` | Item da bag: abre o menu, tooltip, lógica de plantio (`useOn`) |
 | `GardenBagMenu.java` | Container da bag: um inventário só de 27 slots ("caldeirão"), ligação com `ItemContainerContents` |
 | `GardenBagContents.java` | Lê os itens da bag (somados por identidade, não por posição) pros parâmetros reais — compartilhado por `GardenBagItem` (plantio) e `GardenBagScreen` (preview) |

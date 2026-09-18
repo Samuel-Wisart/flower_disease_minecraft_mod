@@ -20,7 +20,39 @@ no GitHub). A etapa 1 fica isolada em `main`.
     (Twisting Vines, Moss Block) já são aceitos na bag e aparecem no preview, mas **sem efeito nenhum
     ainda** — nada lê `profile.climbing()`/`profile.spawnsFlowerBlocks()` até a Fase 1/3 (0.4).
   - Comando de debug `/diseasedflower profile set` ganhou os 2 argumentos booleanos novos.
-- **Próximo passo: Fase 1 (escalada)**, ainda não iniciada.
+- **Fase 1 (escalada) — feita e commitada** nessa branch. `./gradlew build` passa; **nenhum teste visual em
+  jogo ainda** (ver "Desvio do plano" abaixo, o risco geométrico é real). Resumo do que mudou:
+  - `PlantSupport.FACING` (novo `DirectionProperty`, 5 valores — UP + as 4 horizontais, sem DOWN) nas 5
+    classes de bloco de 1 bloco. `PlantSupport.canStandOn`/`canClingTo` implementam a regra de
+    `canSurvive` (sempre permitida estruturalmente, nunca olha o BlockEntity — ver decisão nova abaixo);
+    `PlantSupport.tiltedShape` dá uma caixa de colisão aproximada pra cada direção horizontal.
+  - `getStateForPlacement` voltou nas 5 classes (tinha sumido na Fase 0.1 junto com `generation`): clicar
+    na lateral de um bloco escalável tenta inclinar, cai pra em-pé se não sobreviver.
+  - `DiseasedPlantLogic`: `findSpreadTarget`/`followTerrain` agora tentam, além de UP, as 4 direções
+    horizontais (só quando `profile.climbing()` E a espécie sorteada é de 1 bloco) — ordem sorteada pra
+    não enviesar sempre pro mesmo lado. Alcance vertical vira `max(spreadVerticalRange, spreadDistance)`
+    quando escalando. `SpreadTarget` (record `pos`+`facing`) substitui o `BlockPos` solto que os métodos
+    de busca retornavam.
+  - **Desvio do plano**: a seção 1.5 original previa 2 modelos-pai novos + 28 modelos de bloco inclinados
+    novos. Na hora de implementar, percebi que dava pra conseguir o efeito "inclinado tipo tocha" **sem
+    nenhum modelo novo**: os 28 blockstates agora são `multipart` condicionados em `facing`, reaproveitando
+    o MESMO modelo já existente (o de sempre, em pé) e aplicando rotação `"x"`/`"y"` do próprio blockstate
+    (mecanismo padrão do Minecraft, o mesmo usado por toras/escadas etc.) — `x: 25` pra inclinar, `y`
+    variando por direção (norte=0, leste=90, sul=180, oeste=270). Isso elimina 56 arquivos de recurso que
+    o plano original previa, E é mais confiável (reaproveita geometria já testada em vez de eu inventar
+    coordenadas de `elements` rotacionados às cegas). **Mas**: o ângulo (25°) e a direção do sinal da
+    rotação `x` são um CHUTE não verificado — só dá pra confirmar visualmente em jogo. Se a flor aparecer
+    tombada pro lado errado (entrando na parede em vez de saindo dela), é só inverter o sinal do `x` em
+    todos os 28 arquivos (`sed`/busca-substituição, não precisa mexer em Java).
+- **Próximo passo: Fase 2 (creeping)**, ainda não iniciada.
+
+## Decisão nova (durante a implementação, não estava no plano original)
+
+- **`canSurvive` NUNCA lê o perfil/BlockEntity, em nenhuma das 5 classes.** Ficou explícito ao implementar:
+  ficar em pé numa "ponta de bloco escalável" (`PlantSupport.canStandOn`) ou colado numa parede escalável
+  (`canClingTo`) é sempre estruturalmente permitido, independente de `profile.climbing()`. Só a BUSCA por
+  novos alvos de espalhamento (`DiseasedPlantLogic#findSpreadTarget`) checa o profile. Isso é o que a
+  seção 1.2 do plano original já previa ("regra crítica"), só reforçando que foi seguido à risca.
 
 ## Decisões travadas (perguntadas ao dono do projeto antes do plano)
 
@@ -154,15 +186,18 @@ Alvo: as 5 classes de bloco de 1 bloco (`DiseasedFlowerBlock`, `DiseasedWitherRo
   (uma planta de 2 blocos pendurada na parede precisaria de duas metades inclinadas e fica quebrada). Quem
   cobre "flor grande subindo parede" é a versão creeping da Fase 2.
 
-### 1.5 Recursos (gerados por script, como os 48 da etapa anterior)
+### 1.5 Recursos — **SUPERADA, ver "Status" no topo do documento pro que foi feito de verdade**
 
-- 2 modelos-pai novos: `flowerdisease:block/tilted_cross` e `.../tilted_tinted_cross` — o `cross` com os
+~~- 2 modelos-pai novos: `flowerdisease:block/tilted_cross` e `.../tilted_tinted_cross` — o `cross` com os
   elementos rotacionados ~45° e deslocados encostando no suporte (o "tipo tocha" pedido). Rotação de 45°
   precisa estar no MODELO; blockstate só rotaciona em múltiplos de 90°.
 - 28 modelos de bloco inclinado (3 linhas cada, `{"parent": "...tilted_cross", "textures": {...}}`).
 - 28 blockstates reescritos: `multipart` com `when: {facing: up}` → modelo normal, e uma entrada por
-  direção horizontal → modelo inclinado + rotação `y`.
-- 1 arquivo de tag (`#flowerdisease:climbable`).
+  direção horizontal → modelo inclinado + rotação `y`.~~ (premissa errada: blockstate ACEITA rotação `x`/`y`
+  em qualquer grau, não só múltiplos de 90 — só a ROTAÇÃO EM TORNO DE `y` pra encaixar em texturas
+  não-simétricas é que costuma ficar estranha fora de 90 em 90; pra um `cross` simétrico não tem esse
+  problema. Isso tornou os modelos novos desnecessários, ver "Status".
+- 1 arquivo de tag (`#flowerdisease:climbable`) — isso continua igual, feito na Fase 0.3.
 
 ## Fase 2 — Versão creeping (Sunflower, Lilac, Rose Bush, Peony)
 
