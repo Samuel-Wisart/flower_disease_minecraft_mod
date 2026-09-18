@@ -62,12 +62,14 @@ final class PlantSupport {
     }
 
     // Horizontal FACING structural permission: the block behind this plant (opposite the direction it
-    // points) needs to be climbable AND have a solid face pointing at this plant, the same requirement
-    // vanilla uses for things like ladders/vines - a half-slab or a fence post isn't enough to cling to.
+    // points) just needs to be climbable. Deliberately does NOT also require isFaceSturdy - vanilla
+    // leaves return false for that (it's why nothing can be nailed to a leaf block normally), which would
+    // silently exclude leaves from a tag whose own default list explicitly includes them. CLIMBABLE is
+    // already a curated, opt-in allowlist (see the tag's own json) - requiring extra geometric
+    // sturdiness on top of explicit tag membership is redundant, not an extra safety net.
     static boolean canClingTo(LevelReader level, BlockPos pos, Direction facing) {
         BlockPos supportPos = pos.relative(facing.getOpposite());
-        BlockState support = level.getBlockState(supportPos);
-        return isClimbable(support) && support.isFaceSturdy(level, supportPos, facing);
+        return isClimbable(level.getBlockState(supportPos));
     }
 
     // Deliberately reuses the SAME small box for every horizontal direction (just translated toward the

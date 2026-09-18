@@ -1,0 +1,6 @@
+{
+  "parent": "flowerdisease:block/tilted_tinted_cross",
+  "textures": {
+    "cross": "minecraft:block/large_fern_bottom"
+  }
+}

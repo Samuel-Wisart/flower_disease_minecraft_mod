@@ -6,19 +6,19 @@
     },
     {
       "when": { "facing": "north" },
-      "apply": { "model": "flowerdisease:block/diseased_short_grass", "x": 25, "y": 0 }
+      "apply": { "model": "flowerdisease:block/diseased_short_grass_tilted", "y": 0 }
     },
     {
       "when": { "facing": "east" },
-      "apply": { "model": "flowerdisease:block/diseased_short_grass", "x": 25, "y": 90 }
+      "apply": { "model": "flowerdisease:block/diseased_short_grass_tilted", "y": 90 }
     },
     {
       "when": { "facing": "south" },
-      "apply": { "model": "flowerdisease:block/diseased_short_grass", "x": 25, "y": 180 }
+      "apply": { "model": "flowerdisease:block/diseased_short_grass_tilted", "y": 180 }
     },
     {
       "when": { "facing": "west" },
-      "apply": { "model": "flowerdisease:block/diseased_short_grass", "x": 25, "y": 270 }
+      "apply": { "model": "flowerdisease:block/diseased_short_grass_tilted", "y": 270 }
     }
   ]
 }

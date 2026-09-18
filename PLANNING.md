@@ -147,19 +147,26 @@ implementada e testada, o conteúdo migra pra cá.
   horizontais, sem DOWN — pendurar no teto não foi pedido) apontando pra ONDE a planta cresce; o suporte
   fica sempre em `pos.relative(facing.getOpposite())`. Regra que não pode ser quebrada por código futuro:
   **`canSurvive` nunca lê o `SpreadProfileBlockEntity`** — ficar de pé em cima de um bloco `#flowerdisease:
-  climbable` (`PlantSupport.canStandOn`) ou colada na lateral de um com face firme voltada pra ela
-  (`canClingTo`) é SEMPRE estruturalmente permitido, senão uma planta já escalando sumiria sozinha ao
-  recarregar o chunk (canSurvive roda no carregamento, quando o BlockEntity pode ainda não existir). Quem
-  decide se a planta PROCURA esses lugares ao espalhar é só o profile
-  (`SpreadProfileBlockEntity#climbing`, ligado pelo item Twisting Vines na bag — ver seção da Garden Bag):
-  `DiseasedPlantLogic#findSpreadTarget` tenta UP primeiro (chão comum, ou agora também o topo de um bloco
-  escalável, já que isso é sempre permitido) e só tenta as 4 direções horizontais quando `climbing` está
-  ligado, numa ordem sorteada pra não enviesar sempre pro mesmo lado. O alcance vertical de busca vira
-  `max(spreadVerticalRange, spreadDistance)` quando escalando (senão nunca subiria um tronco de verdade).
-  Visualmente: **sem modelos novos** — os mesmos 28 blockstates reaproveitam o modelo de sempre (em pé) e
-  aplicam rotação `x`/`y` do próprio blockstate (mecanismo padrão, tipo o que toras/escadas já usam) pra
-  simular a inclinação; ângulo e sinal são um chute não verificado visualmente (ver
-  `PLANNING_STAGE2.md` "Desvio do plano" pro porquê e como corrigir se ficar errado).
+  climbable` (`PlantSupport.canStandOn`) ou colada na lateral de um (`canClingTo`, só checa a tag — **sem**
+  exigir `isFaceSturdy`, já que a vanilla retorna `false` pra folha nesse método e isso excluiria folha da
+  tag silenciosamente; a tag já é uma lista curada, não precisa de checagem geométrica em cima) é SEMPRE
+  estruturalmente permitido, senão uma planta já escalando sumiria sozinha ao recarregar o chunk
+  (canSurvive roda no carregamento, quando o BlockEntity pode ainda não existir). Quem decide se a planta
+  PROCURA esses lugares ao espalhar é só o profile (`SpreadProfileBlockEntity#climbing`, ligado pelo item
+  Twisting Vines na bag — ver seção da Garden Bag): `DiseasedPlantLogic#findSpreadTarget` tenta UP primeiro
+  (chão comum, ou agora também o topo de um bloco escalável, já que isso é sempre permitido) e só tenta as
+  4 direções horizontais quando `climbing` está ligado, numa ordem sorteada pra não enviesar sempre pro
+  mesmo lado. O alcance vertical de busca vira `max(spreadVerticalRange, spreadDistance)` quando escalando
+  (senão nunca subiria um tronco de verdade). Visualmente: 2 modelos-pai novos (`tilted_cross`/
+  `tilted_tinted_cross`, cópias fiéis do `block/cross`/`tinted_cross` da vanilla — extraídos do jar do
+  cliente pra garantir fidelidade — só com a `rotation` dos 2 elementos trocada de "45° em Y" pra "-22.5°
+  em X, pivô na base encostada na parede") + 1 modelo `<id>_tilted.json` por espécie (só troca a textura).
+  **Importante pra qualquer rotação nova**: blockstate (`"x"`/`"y"` num `apply`) só aceita múltiplos de 90;
+  ângulo livre só é válido DENTRO do modelo (`elements[].rotation`, e mesmo lá só -45/-22.5/0/22.5/45) — uma
+  primeira tentativa desta feature usou `"x": 25` direto no blockstate e isso quebrou o carregamento do
+  blockstate INTEIRO (toda diseased flower virava o cubo de textura faltando, não só as inclinadas), ver
+  `PLANNING_STAGE2.md` "Correções pós-teste" pro relato completo. Ângulo/sinal da inclinação (hoje -22.5°
+  em X) continuam um valor aproximado, pendente de confirmação visual.
 
 ### Espécies existentes
 

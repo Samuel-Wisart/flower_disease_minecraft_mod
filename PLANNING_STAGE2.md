@@ -20,8 +20,8 @@ no GitHub). A etapa 1 fica isolada em `main`.
     (Twisting Vines, Moss Block) já são aceitos na bag e aparecem no preview, mas **sem efeito nenhum
     ainda** — nada lê `profile.climbing()`/`profile.spawnsFlowerBlocks()` até a Fase 1/3 (0.4).
   - Comando de debug `/diseasedflower profile set` ganhou os 2 argumentos booleanos novos.
-- **Fase 1 (escalada) — feita e commitada** nessa branch. `./gradlew build` passa; **nenhum teste visual em
-  jogo ainda** (ver "Desvio do plano" abaixo, o risco geométrico é real). Resumo do que mudou:
+- **Fase 1 (escalada) — feita e commitada** nessa branch, **corrigida depois de um teste em jogo que achou
+  2 bugs reais** (ver "Correções pós-teste" abaixo). Resumo do que mudou:
   - `PlantSupport.FACING` (novo `DirectionProperty`, 5 valores — UP + as 4 horizontais, sem DOWN) nas 5
     classes de bloco de 1 bloco. `PlantSupport.canStandOn`/`canClingTo` implementam a regra de
     `canSurvive` (sempre permitida estruturalmente, nunca olha o BlockEntity — ver decisão nova abaixo);
@@ -33,18 +33,41 @@ no GitHub). A etapa 1 fica isolada em `main`.
     não enviesar sempre pro mesmo lado. Alcance vertical vira `max(spreadVerticalRange, spreadDistance)`
     quando escalando. `SpreadTarget` (record `pos`+`facing`) substitui o `BlockPos` solto que os métodos
     de busca retornavam.
-  - **Desvio do plano**: a seção 1.5 original previa 2 modelos-pai novos + 28 modelos de bloco inclinados
-    novos. Na hora de implementar, percebi que dava pra conseguir o efeito "inclinado tipo tocha" **sem
-    nenhum modelo novo**: os 28 blockstates agora são `multipart` condicionados em `facing`, reaproveitando
-    o MESMO modelo já existente (o de sempre, em pé) e aplicando rotação `"x"`/`"y"` do próprio blockstate
-    (mecanismo padrão do Minecraft, o mesmo usado por toras/escadas etc.) — `x: 25` pra inclinar, `y`
-    variando por direção (norte=0, leste=90, sul=180, oeste=270). Isso elimina 56 arquivos de recurso que
-    o plano original previa, E é mais confiável (reaproveita geometria já testada em vez de eu inventar
-    coordenadas de `elements` rotacionados às cegas). **Mas**: o ângulo (25°) e a direção do sinal da
-    rotação `x` são um CHUTE não verificado — só dá pra confirmar visualmente em jogo. Se a flor aparecer
-    tombada pro lado errado (entrando na parede em vez de saindo dela), é só inverter o sinal do `x` em
-    todos os 28 arquivos (`sed`/busca-substituição, não precisa mexer em Java).
+  - 2 modelos-pai novos (`tilted_cross`/`tilted_tinted_cross`) + 28 modelos de bloco inclinados — no fim
+    das contas, IGUAL ao previsto originalmente na seção 1.5 (ver "Correções pós-teste" pro motivo de eu
+    ter tentado um atalho primeiro e ele não ter funcionado).
 - **Próximo passo: Fase 2 (creeping)**, ainda não iniciada.
+
+### Correções pós-teste da Fase 1 (2026-09-18)
+
+Você testou e reportou 2 bugs:
+
+1. **Todas as diseased flowers (inclusive as paradas no chão, sem nada a ver com escalada) apareceram como
+   o cubo rosa/preto de textura faltando.** Causa raiz: o primeiro commit da Fase 1 usava rotação
+   `"x": 25` direto no blockstate (`multipart apply`), achando (errado) que blockstate aceitava qualquer
+   grau. **Não aceita** — `"x"`/`"y"` no blockstate só aceita múltiplos de 90 (0/90/180/270); ângulos livres
+   só são válidos DENTRO de um modelo, no `rotation` de um `element` (e mesmo lá, só -45/-22.5/0/22.5/45).
+   Um valor inválido no blockstate faz o Minecraft rejeitar o blockstate inteiro, daí o cubo de erro
+   aparecer pra QUALQUER estado do bloco, não só os inclinados. **Correção**: voltei pro desenho original
+   da seção 1.5 — `tilted_cross.json`/`tilted_tinted_cross.json` são cópias fiéis do `block/cross`/
+   `tinted_cross` da própria vanilla (extraídos do jar do cliente pra copiar exatamente), só trocando a
+   `rotation` dos 2 elementos de `{origin:[8,8,8], axis:"y", angle:45}` pra `{origin:[8,0,16], axis:"x",
+   angle:-22.5}` (pivô na base, encostado na parede de suporte). Cada uma das 28 espécies ganhou um
+   `<id>_tilted.json` (`{"parent": ".../tilted_cross", "textures": {"cross": "<mesma textura de sempre>"}}`)
+   e os blockstates voltaram a usar só `"y"` (0/90/180/270, valores legais) pra girar esse modelo já
+   inclinado nas 4 direções — a inclinação em si mora inteira no modelo, não no blockstate. Validei com um
+   `runClient` de verdade em background: o log mostrou o `ResourceManager` recarregando sem nenhum erro de
+   modelo/blockstate (esse tipo de erro apareceria alto e claro no log), então a causa raiz está corrigida
+   — mas o ÂNGULO/SINAL da inclinação continua um chute (agora dentro do modelo, não do blockstate),
+   ainda pendente de confirmação visual seguinte.
+2. **Escalava na lateral de troncos mas não de folhas.** Causa raiz: `PlantSupport.canClingTo` exigia
+   `support.isFaceSturdy(...)` além de `isClimbable`. A vanilla retorna `false` pra `isFaceSturdy` em
+   blocos de folha (é por isso que nada normalmente "gruda" numa folha) — isso excluía silenciosamente
+   folha da tag `climbable`, mesmo com folha estando explicitamente na lista da tag. **Correção**: removi
+   o `isFaceSturdy` de `canClingTo` — a tag `climbable` já é uma lista curada/opt-in (`PlantSupport.java`),
+   exigir sturdiness geométrico em cima disso é redundante, não uma proteção a mais. Ficar em cima
+   (`canStandOn`) nunca teve esse problema (só checa a tag, sempre checou), então não devia estar quebrado
+   pra folha — só o lado é que precisava do fix.
 
 ## Decisão nova (durante a implementação, não estava no plano original)
 

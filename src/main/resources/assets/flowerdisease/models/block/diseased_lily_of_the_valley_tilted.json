@@ -1,0 +1,6 @@
+{
+  "parent": "flowerdisease:block/tilted_cross",
+  "textures": {
+    "cross": "minecraft:block/lily_of_the_valley"
+  }
+}
