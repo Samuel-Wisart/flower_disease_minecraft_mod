@@ -7,6 +7,7 @@ import javax.annotation.Nullable;
 
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
+import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.util.RandomSource;
 import net.minecraft.world.level.LevelReader;
@@ -76,6 +77,15 @@ final class DiseasedPlantLogic {
             Block fallbackBlock,
             Shape selfShape
     ) {
+        // /diseasedflower debug true - a settled plant stops being randomly ticked at all (see
+        // SettleTable.SETTLED/isRandomlyTicking), so simply spawning a particle every time this method
+        // actually runs is already exactly "still reproducing" with no extra bookkeeping - it stops the
+        // moment a plant settles, on its own. Unconditional on spreadChance/generations on purpose: this
+        // should show ANY plant still eligible to spread, not just the ones about to succeed this tick.
+        if (FlowerDiseaseCommands.debugParticlesEnabled()) {
+            level.sendParticles(ParticleTypes.HAPPY_VILLAGER, pos.getX() + 0.5, pos.getY() + 0.7, pos.getZ() + 0.5, 1, 0.15, 0.15, 0.15, 0.0);
+        }
+
         SpreadProfileBlockEntity profile = profileAt(level, pos);
 
         double spreadChance = profile != null && profile.spreadChanceOverride() >= 0
@@ -184,7 +194,19 @@ final class DiseasedPlantLogic {
             return;
         }
 
-        level.setBlock(pos, inPlaceState.setValue(SettleTable.SETTLED, true), SettleTable.PLACEMENT_FLAGS);
+        BlockState settledState = inPlaceState.setValue(SettleTable.SETTLED, true);
+        if (atShape == Shape.TALL) {
+            // placeChild's "child born with 0 generations left" call reaches this branch with pos still
+            // completely empty (nothing placed yet at all) whenever the picked species can't survive as
+            // vanilla right where it landed (e.g. on top of a climbable block) - a plain setBlock(pos, ...)
+            // here only ever wrote the LOWER half, leaving the upper cell as air forever (bug reported
+            // after testing: a tall species "climbing" a tree showed only its lower half). placeAt always
+            // writes both halves, and for the OTHER call site (an existing active plant settling in place)
+            // it's an idempotent no-op on the upper half, which is already correctly there.
+            DoublePlantBlock.placeAt(level, settledState, pos, SettleTable.PLACEMENT_FLAGS);
+        } else {
+            level.setBlock(pos, settledState, SettleTable.PLACEMENT_FLAGS);
+        }
     }
 
     private static Shape shapeOf(Block block) {
@@ -303,19 +325,18 @@ final class DiseasedPlantLogic {
         return null;
     }
 
-    // TALL never tilts, so it's just the one (UP) check. SINGLE always tries standing upright first
-    // (ordinary ground - or, now, the top of a climbable block, since that's unconditionally allowed by
-    // canSurvive - see PlantSupport); only when this plant is actually configured to climb does it also
-    // try each horizontal direction, starting from a random one so a trunk with climbable wood on every
-    // side doesn't always end up tilting the same way.
+    // TALL never tilts, so it's just the one (UP) check. SINGLE always tries standing upright first;
+    // only when this plant is actually configured to climb does it also try each horizontal direction,
+    // starting from a random one so a trunk with climbable wood on every side doesn't always end up
+    // tilting the same way.
     @Nullable
     private static SpreadTarget tryFacings(ServerLevel level, BlockPos pos, BlockState baseState, Shape shape, boolean climbing, RandomSource random) {
         if (shape == Shape.TALL) {
-            return isValidSpot(level, pos, baseState, shape) ? new SpreadTarget(pos, Direction.UP) : null;
+            return isValidUpSpot(level, pos, baseState, shape, climbing) ? new SpreadTarget(pos, Direction.UP) : null;
         }
 
         BlockState upState = baseState.setValue(PlantSupport.FACING, Direction.UP);
-        if (isValidSpot(level, pos, upState, shape)) {
+        if (isValidUpSpot(level, pos, upState, shape, climbing)) {
             return new SpreadTarget(pos, Direction.UP);
         }
         if (!climbing) {
@@ -332,6 +353,21 @@ final class DiseasedPlantLogic {
         }
 
         return null;
+    }
+
+    // Standing upright is unconditionally allowed by canSurvive on top of a climbable block too (see
+    // PlantSupport), since an already-existing plant there must never lose canSurvive. But that same
+    // leniency would let a bag WITHOUT Twisting Vines incidentally start growing on trees just because the
+    // random search happened to land there - the player explicitly asked for "no Twisting Vines = ground
+    // only, with Twisting Vines = top AND side of organic blocks". So the SEARCH additionally requires
+    // climbing to be on before it'll accept a spot that's ONLY valid because of the climbable tag.
+    // Ordinary ground is never gated - only ground that needed the climbable exception is.
+    private static boolean isValidUpSpot(ServerLevel level, BlockPos pos, BlockState upState, Shape shape, boolean climbing) {
+        if (!isValidSpot(level, pos, upState, shape)) {
+            return false;
+        }
+        boolean viaClimbableOnly = PlantSupport.isClimbable(level.getBlockState(pos.below()));
+        return climbing || !viaClimbableOnly;
     }
 
     private static boolean isValidSpot(ServerLevel level, BlockPos pos, BlockState newState, Shape shape) {

@@ -154,26 +154,45 @@ implementada e testada, o conteúdo migra pra cá.
   retorna `false` pra folha nesse método e isso excluiria folha da tag silenciosamente; a tag já é uma
   lista curada, não precisa de checagem geométrica em cima) é SEMPRE estruturalmente permitido, senão uma
   planta já escalando sumiria sozinha ao recarregar o chunk (canSurvive roda no carregamento, quando o
-  BlockEntity pode ainda não existir). Quem decide se a planta PROCURA esses lugares ao espalhar é só o
-  profile (`SpreadProfileBlockEntity#climbing`, ligado pelo item Twisting Vines na bag — ver seção da
-  Garden Bag): `DiseasedPlantLogic#findSpreadTarget` tenta UP primeiro (chão comum, ou agora também o topo
-  de um bloco escalável, já que isso é sempre permitido) e só tenta as 4 direções horizontais quando
-  `climbing` está ligado E a espécie sorteada é de 1 bloco (`tryFacings` ignora esse flag inteiramente pro
-  ramo de 2 blocos — só testa `UP`), numa ordem sorteada pra não enviesar sempre pro mesmo lado. O alcance
-  vertical de busca vira `max(spreadVerticalRange, spreadDistance)` quando escalando, pras DUAS formas
-  (senão uma flor grande nunca alcançaria o topo de uma árvore alta mesmo com `canSurvive` permitindo).
+  BlockEntity pode ainda não existir).
+  **Mas a BUSCA por novos alvos é outra história** (pedido explícito: sem Twisting Vines, só chão comum;
+  com Twisting Vines, em cima E do lado de blocos orgânicos): `DiseasedPlantLogic#isValidUpSpot` checa,
+  além da validade estrutural, se o suporte (`pos.below()`) está na tag `climbable` — se estiver, só aceita
+  quando `profile.climbing()` também está ligado (chão comum nunca é bloqueado, só o que dependia da tag).
+  Usado tanto pelo caso `UP` do ramo de 1 bloco quanto pelo ramo inteiro de 2 blocos em `tryFacings`, então
+  as espécies grandes também respeitam o toggle pra ficar em cima. As 4 direções horizontais (só espécies
+  de 1 bloco) continuam atrás do `if (!climbing) return null` de sempre. Alcance vertical de busca vira
+  `max(spreadVerticalRange, spreadDistance)` quando escalando, pras DUAS formas (senão uma flor grande
+  nunca alcançaria o topo de uma árvore alta mesmo com `canSurvive` permitindo). A tag `climbable` teve
+  `minecraft:moss_block`/`minecraft:muddy_mangrove_roots` removidos: os dois já estão na tag vanilla
+  `#minecraft:dirt`, ou seja, plantas JÁ crescem neles por regra comum, sem escalada — deixá-los na tag
+  faria o gate acima bloquear incorretamente um chão que sempre foi válido.
+  **Bug real encontrado depois de testar** (não só visual): `DiseasedPlantLogic#settle`, no ramo "assenta
+  no lugar", usava um `setBlock` cru — só a metade de baixo — pra QUALQUER shape. Inofensivo pra uma planta
+  já ativa (a metade de cima já está lá), mas quando um FILHO nascia JÁ sem geração (`placeChild`,
+  `childGenerations == 0`) numa posição ainda vazia (ar nas duas células) onde o vanilla não sobrevive —
+  cenário que só passou a existir depois da escalada, já que antes vanilla e diseased tinham sempre as
+  mesmas regras de chão — a metade de cima nunca era colocada, ficando "flor grande em cima da árvore mas
+  só a parte de baixo aparece". Corrigido usando `DoublePlantBlock.placeAt` (coloca as duas metades) nesse
+  ramo também, não só no ramo "vira vanilla".
   Visualmente (só as 5 de 1 bloco, as de 2 blocos usam sempre o modelo normal): 2 modelos-pai novos
   (`tilted_cross`/`tilted_tinted_cross`, cópias fiéis do `block/cross`/`tinted_cross` da vanilla —
   extraídos do jar do cliente pra garantir fidelidade — com a `rotation` dos 2 elementos trocada de "45°
-  em Y" pra "-22.5° em X, pivô na base encostada na parede", e a geometria deslocada pra perto da parede
-  ANTES da rotação — senão a flor renderiza flutuando na frente do suporte em vez de encostada nele, bug
-  relatado e corrigido depois do primeiro teste visual) + 1 modelo `<id>_tilted.json` por espécie (só troca
-  a textura). **Importante pra qualquer rotação nova**: blockstate (`"x"`/`"y"` num `apply`) só aceita múltiplos de 90;
-  ângulo livre só é válido DENTRO do modelo (`elements[].rotation`, e mesmo lá só -45/-22.5/0/22.5/45) — uma
-  primeira tentativa desta feature usou `"x": 25` direto no blockstate e isso quebrou o carregamento do
-  blockstate INTEIRO (toda diseased flower virava o cubo de textura faltando, não só as inclinadas), ver
-  `PLANNING_STAGE2.md` "Correções pós-teste" pro relato completo. Ângulo/sinal da inclinação (hoje -22.5°
-  em X) continuam um valor aproximado, pendente de confirmação visual.
+  em Y" pra "-22.5° em X, pivô em `[8,0,16]` — base encostada na parede") + 1 modelo `<id>_tilted.json` por
+  espécie (só troca a textura). A geometria dos 2 elementos foi empurrada pra bem perto/na fronteira da
+  parede (`z=16`, e o elemento "profundidade" de `[11,16]`) — não só pra encostar visualmente, mas
+  principalmente pra ABSORVER o jitter de posição que a vanilla já aplica em toda planta
+  (`offsetType(XZ)`, até ±0.25 bloco/±4px, determinístico por posição — não existe mais um `getOffset`
+  sobrescrevível nessa versão pra desligar isso só quando inclinado, conferido no
+  `neoforge-*-sources.jar`; a única alavanca pública é o enum `OffsetType` inteiro, sem gancho por-estado),
+  que é o que fazia a mesma inclinação parecer encostada em algumas posições e flutuando em outras antes
+  desse ajuste. **Importante pra qualquer rotação nova**: blockstate (`"x"`/`"y"` num `apply`) só aceita
+  múltiplos de 90; ângulo livre só é válido DENTRO do modelo (`elements[].rotation`, e mesmo lá só
+  -45/-22.5/0/22.5/45) — uma primeira tentativa desta feature usou `"x": 25` direto no blockstate e isso
+  quebrou o carregamento do blockstate INTEIRO (toda diseased flower virava o cubo de textura faltando, não
+  só as inclinadas), ver `PLANNING_STAGE2.md` "Correções pós-teste" pro relato completo. Ângulo/sinal da
+  inclinação (hoje -22.5° em X) já foram confirmados visualmente como corretos; só a distância da parede
+  precisou de mais ajuste.
 
 ### Espécies existentes
 
@@ -307,6 +326,15 @@ exigem `.get()` em blocos do próprio mod, que só é seguro depois que o regist
   lista, ver "Sistema de settle" acima). Tanto ids vanilla (`minecraft:rose_bush`) quanto os 12 ids
   decorativos Top/Bottom (`flowerdisease:rose_bush_top`) funcionam igual, cada um sua própria espécie
   espalhável, ex.: `"minecraft:poppy 70,flowerdisease:rose_bush_top 30"`.
+- Comando `/diseasedflower debug <true|false>` (Stage 2 Fase 1, `FlowerDiseaseCommands#debugParticlesEnabled`
+  — flag estática, vale pro servidor inteiro, não persiste entre reinícios): liga/desliga uma partícula
+  `HAPPY_VILLAGER` que `DiseasedPlantLogic#randomTick` solta na posição toda vez que o método roda de
+  verdade pra aquela planta. Como uma planta assentada (`SettleTable.SETTLED = true`) para de receber
+  random tick (`isRandomlyTicking` retorna `false`), a partícula já para sozinha no instante em que a
+  planta assenta — nenhum estado extra pra rastrear, é literalmente "ainda está sendo sorteada = ainda
+  pisca". Útil pra achar visualmente uma planta que ficou presa num loop de reprodução sem nunca assentar.
+  Emitida ANTES do teste de `spreadChance`, então mostra QUALQUER planta ainda elegível, não só as que vão
+  ter sucesso de espalhar nesse tick específico.
 
 ## Arquivos principais
 
@@ -403,8 +431,10 @@ Modificadores (itens fixos, reconhecidos em `GardenBagContents`):
 | Slime Ball | sem override (usa `Config.FLOWER_MAX_NEARBY`/`densityCheckRadius`) | `N` flores desejadas por chunk (convertido internamente via `SettleTable.densityTargetToMaxNearby`) |
 | Feather | sem override (usa `Config.FLOWER_SPREAD_DISTANCE`) | `min(N, 32)` blocos por salto |
 | Fermented Spider Eye | **respeita outras flores (padrão)** — ver "Território: default invertido" abaixo | ignora outras flores (território desligado) |
+| Twisting Vines | só chão comum (Stage 2 Fase 1, `climbing = false`) | também em cima E na lateral de blocos `#flowerdisease:climbable` (tronco/folha/raiz de mangue) — ver "Escalada em blocos orgânicos" acima |
+| Moss Block | sem chance de criar flower block (Stage 2 Fase 3, `spawnsFlowerBlocks = false`) | **ainda sem efeito nenhum** — Fase 3 não foi implementada, ver `PLANNING_STAGE2.md` |
 
-Qualquer outro item da bag que não seja um desses 6 é tratado como espécie: cada stack contribui pro peso
+Qualquer outro item da bag que não seja um desses 8 é tratado como espécie: cada stack contribui pro peso
 daquela espécie (`GardenBagContents#speciesWeights`, somado por bloco do mesmo jeito que os
 modificadores — duas pilhas da mesma flor em slots diferentes somam). Sem nenhuma espécie plantável na
 bag, plantar falha (`error.no_species`). Settle nunca consulta esse pool, só o sorteio de filho ao
@@ -424,9 +454,10 @@ mais uma configuração explícita.
 
 ### Painel de preview ao vivo (`GardenBagScreen`)
 
-Acima da grade de 27 slots, a tela desenha 6 linhas de texto recalculadas TODO FRAME a partir do conteúdo
+Acima da grade de 27 slots, a tela desenha 8 linhas de texto recalculadas TODO FRAME a partir do conteúdo
 atual da bag (`GardenBagContents.read(...)` sobre os itens sincronizados em `menu.slots`) — Generations,
-Speed, Range, Density, "Respects other flowers" e uma estimativa de reprodução/dia. Não é um valor
+Speed, Range, Density, "Respects other flowers", "Climbs non-plantable ground", "Creates flower blocks" e
+uma estimativa de reprodução/dia. Não é um valor
 configurado, é a mesma conta que `GardenBagItem#plant` faria se você plantasse AGORA — jogar item na bag e
 ver o número mudar reforça a "vibe" de caldeirão em vez de formulário.
 

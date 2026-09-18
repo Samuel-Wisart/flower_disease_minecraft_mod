@@ -99,6 +99,62 @@ pediu 2 ajustes:
 Validado com `runClient` real em background de novo (log limpo, sem erro de modelo/blockstate) depois de
 cada rodada.
 
+### Terceira rodada de correções pós-teste (mesmo dia) — commitada em `<próximo commit>`
+
+Você reportou mais 4 coisas depois de testar de novo:
+
+5. **Flor inclinada ainda flutuava pra algumas posições e encostava certinho pra outras.** Causa: o
+   `offsetType(XZ)` herdado da vanilla (o mesmo jitter que faz flores no chão parecerem espalhadas
+   organicamente) desloca o modelo renderizado em até ±0.25 bloco (±4px) em X/Z, num valor determinístico
+   por posição (`Mth.getSeed(x,0,z)`) — mas SEMPRE em cima da geometria já ajustada, então dependendo da
+   posição, esse deslocamento empurrava a flor OU pra mais perto OU pra mais longe da parede. **Investiguei
+   desabilitar isso condicionalmente** (só quando `facing != UP`) via um `getOffset` sobrescrito — não
+   existe mais esse método na 1.21.1 (conferido no `neoforge-21.1.250-sources.jar`, que o Gradle já baixa
+   junto): o offset agora é uma `BlockBehaviour.OffsetFunction` guardada em `Properties`, só configurável
+   via `.offsetType(OffsetType)` (enum, sem overload que aceite uma função customizada) — sem reflection
+   (fora de cogitação), não tem gancho por-blockstate nem por-classe pra isso nessa versão. **Correção**:
+   fiz exatamente o que você sugeriu — "dar mais shift" — empurrei a geometria dos 2 elementos ainda mais
+   pra dentro da parede (elemento "largura" de z=13 pra z=16, bem na fronteira; elemento "profundidade" de
+   `[8,15.2]` pra `[11,16]`), grande o suficiente pra absorver o pior caso de ±4px do jitter puxando pra
+   longe. Não precisou mexer em nenhuma classe Java pra isso, só nos 2 modelos-pai.
+6. **Sem jeito de ver quais flores ainda estão se reproduzindo, pra achar uma travada num loop.** Novo
+   comando `/diseasedflower debug <true|false>` (campo estático `FlowerDiseaseCommands#debugParticlesEnabled`,
+   só nesse servidor, não persiste entre reinícios). Ligado, `DiseasedPlantLogic#randomTick` solta uma
+   partícula `HAPPY_VILLAGER` na posição TODA VEZ que o método roda de verdade — como uma planta assentada
+   (`SETTLED=true`) para de ser sorteada pro random tick (`isRandomlyTicking` retorna `false`), a partícula
+   já para de aparecer sozinha no instante em que a planta assenta, sem precisar guardar nenhum estado
+   extra. Emitida ANTES até do teste de `spreadChance`, de propósito — mostra QUALQUER planta ainda
+   elegível pra espalhar, não só as que vão ter sucesso nesse tick específico.
+7. **Tall flower "Full" subindo em cima de árvore às vezes só mostrava a metade de baixo, com ar em cima
+   mesmo tendo espaço.** Bug real, não só visual — achado ao investigar o código. Causa raiz:
+   `DiseasedPlantLogic#settle`, no ramo "assenta no lugar" (quando o vanilla não sobrevive ali), sempre
+   fazia só `level.setBlock(pos, ...)` — um `setBlock` SÓ na metade de baixo. Isso é inofensivo quando a
+   planta já existia ativa (a metade de cima já está lá, só precisa ligar `SETTLED`), mas quando um FILHO
+   nasce JÁ sem orçamento de gerações (`placeChild`, `childGenerations == 0`) numa posição que ainda não
+   tinha NADA (ar nas duas células), esse mesmo código só colocava a metade de baixo e nunca chegava a
+   colocar a de cima — antes da Fase 1, essa combinação (filho tall settando em lugar onde o vanilla não
+   sobrevive) nunca acontecia de verdade, porque vanilla e diseased tinham exatamente as mesmas regras de
+   chão; a escalada foi o que abriu essa divergência. **Correção**: o ramo "assenta no lugar" agora usa
+   `DoublePlantBlock.placeAt` pra formas `TALL` (coloca as duas metades) em vez de `setBlock` cru — pro
+   caso de planta já existente isso é um no-op idempotente na metade de cima (já está correta), pro caso de
+   filho novo agora coloca as duas metades de verdade.
+8. **Twisting Vines devia ligar tanto "em cima" quanto "do lado", não só "do lado".** Antes, como
+   `canSurvive` já permite estruturalmente ficar em cima de bloco escalável (pra planta já existente nunca
+   sumir), a BUSCA por novos alvos (`findSpreadTarget`) também aceitava incidentalmente um topo escalável
+   mesmo com a bag sem Twisting Vines — só a busca pelos LADOS já era condicionada. **Correção**: novo
+   `DiseasedPlantLogic#isValidUpSpot`, usado tanto pelo ramo `TALL` quanto pelo caso `UP` do ramo `SINGLE`
+   em `tryFacings` — depois de confirmar que a posição é válida (`isValidSpot`), checa se o suporte
+   (`pos.below()`) está na tag `climbable`; se estiver, só aceita quando `profile.climbing()` também está
+   ligado (chão comum nunca é bloqueado, só chão que dependia da tag). Pra essa checagem funcionar sem
+   ambiguidade, limpei a tag `climbable.json`: tirei `minecraft:moss_block` e `minecraft:muddy_mangrove_roots`
+   — ambos já estão na tag vanilla `#minecraft:dirt`, ou seja, plantas JÁ CRESCEM neles hoje por regra
+   comum, sem escalada nenhuma envolvida; deixá-los em `climbable` faria o novo gate bloquear
+   incorretamente um chão que sempre foi válido. `mangrove_roots` (sem lama) continua, já que não é chão
+   comum plantável.
+
+Os 4 ainda não testados em jogo nessa rodada — validados só com build + `runClient` em background (log
+limpo).
+
 ## Decisão nova (durante a implementação, não estava no plano original)
 
 - **`canSurvive` NUNCA lê o perfil/BlockEntity, em nenhuma das 5 classes.** Ficou explícito ao implementar:

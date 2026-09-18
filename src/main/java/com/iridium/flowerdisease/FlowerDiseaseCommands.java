@@ -33,7 +33,18 @@ final class FlowerDiseaseCommands {
     private static final int DEFAULT_VERTICAL_RANGE = 24;
     private static final double LOOK_DISTANCE = 6.0;
 
+    // Toggled by /diseasedflower debug - see DiseasedPlantLogic, which spawns a particle at a plant's
+    // position every time it's actually random-ticked (a settled plant never is, see SettleTable.SETTLED/
+    // isRandomlyTicking), so this doubles as a live "is this one still reproducing?" indicator without
+    // needing any bookkeeping of its own. Server-wide, not per-player, and not persisted across restarts -
+    // matches every other debug toggle in this class.
+    private static boolean debugParticlesEnabled = false;
+
     private FlowerDiseaseCommands() {
+    }
+
+    static boolean debugParticlesEnabled() {
+        return debugParticlesEnabled;
     }
 
     static void register(CommandDispatcher<CommandSourceStack> dispatcher) {
@@ -67,6 +78,9 @@ final class FlowerDiseaseCommands {
                                                                                                 .executes(context -> setProfile(context, ""))
                                                                                                 .then(Commands.argument("species", StringArgumentType.greedyString())
                                                                                                         .executes(context -> setProfile(context, StringArgumentType.getString(context, "species")))))))))))))
+                        .then(Commands.literal("debug")
+                                .then(Commands.argument("enabled", BoolArgumentType.bool())
+                                        .executes(FlowerDiseaseCommands::setDebugParticles)))
         );
     }
 
@@ -164,6 +178,15 @@ final class FlowerDiseaseCommands {
 
         profile.configure(new GardenBagContents(SpreadProfileBlockEntity.NO_GENERATIONS_OVERRIDE, -1, -1, -1, true, false, false, List.of()));
         context.getSource().sendSuccess(() -> Component.literal("Flower Disease: profile cleared, back to global config"), false);
+        return 1;
+    }
+
+    private static int setDebugParticles(CommandContext<CommandSourceStack> context) {
+        debugParticlesEnabled = BoolArgumentType.getBool(context, "enabled");
+        context.getSource().sendSuccess(() -> Component.literal(
+                "Flower Disease: debug particles " + (debugParticlesEnabled ? "ON" : "OFF")
+                        + " (sparkle = still reproducing; a settled plant never shows one again)"
+        ), false);
         return 1;
     }
 
