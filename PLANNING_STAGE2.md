@@ -105,7 +105,46 @@ no GitHub). A etapa 1 fica isolada em `main`.
     "todas as faces false", ignorando `SETTLED`), 4 modelos de item (`item/generated` + `layer0`, igual o
     item do glow lichen vanilla, não o modelo do bloco), 4 loot tables (dropam a si mesmas), 4 entradas de
     lang. Textura placeholder = `minecraft:block/<espécie>_bottom`, como decidido desde o início da etapa.
-- **Próximo passo: Fase 3 (flower block)**, ainda não iniciada.
+- **Fase 3 (flower block) — feita e commitada** nessa branch, ainda **não testada em jogo** (só
+  `compileJava` e `runClient` limpos até aqui). Resumo do que mudou:
+  - `FlowerMassBlock extends Block implements EntityBlock` (novo) — cubo cheio, visual de Moss Block
+    (placeholder), `SETTLED` + random tick igual ao resto do mod.
+  - `FlowerMassBlockEntity extends SpreadProfileBlockEntity` (novo) — só acrescenta o `BlockState`
+    substituído (`replacedState`), serializado via `NbtUtils.writeBlockState`/`readBlockState`. Reusa o
+    `BlockEntityType` já existente (`SPREAD_PROFILE_BLOCK_ENTITY`) em vez de criar um novo — a fábrica
+    interna do tipo nunca é chamada de verdade (todo bloco aqui constrói seu próprio BE via
+    `EntityBlock#newBlockEntity`), então uma subclasse satisfaz a checagem de compatibilidade bloco↔tipo do
+    mesmo jeito que a classe base já fazia.
+  - `FlowerBlockLogic.java` (novo) — dois pontos de entrada:
+    - `maybeSpawn(...)`, chamado de dentro do `DiseasedPlantLogic#randomTick` de QUALQUER flor (independente
+      da forma — SINGLE/TALL/CREEPING), logo depois de calcular `generationsLeft`: se
+      `profile.spawnsFlowerBlocks()` e ainda há geração sobrando, rola `Config.flowerBlockChance` (0.5%
+      default) pra converter `pos.below()` — independente do resultado do espalhamento normal da flor no
+      mesmo tick (os dois não competem).
+    - `randomTick(...)`, o tick do PRÓPRIO Flower Block: `spreadChance` herdado do pai ×
+      `Config.flowerBlockSpreadFactor` (25% default, então mais lento que a flor); só as 6 faces
+      adjacentes, sorteadas em ordem aleatória; sem checagem de lotação (não prevista no plano). Sem
+      alvo elegível ou sem geração → assenta (`SETTLED = true`), mesma regra do resto do mod.
+  - Conversão só passa em blocos que batem `PlantSupport.isConvertible` (tags `convertible`/
+    `conversion_immune`, já populadas desde a Fase 0.3, mais "sem BlockEntity" e "destrutível" — que
+    automaticamente impede um Flower Block de corromper OUTRO Flower Block, já que ele tem BlockEntity).
+  - **Kill-switch adiantado**: `Config.flowerBlockConversion` (default ligado) — desligar impede criação de
+    novos Flower Blocks E assenta (`SETTLED`) qualquer um já existente na próxima vez que ele tickar, em
+    vez de só ignorar silenciosamente pra sempre. O plano original listava isso só na Fase 4; entrou junto
+    porque é exatamente o tipo de coisa que não devia esperar — é uma feature destrutiva de terreno pensada
+    pra modpack.
+  - **Reversibilidade (proposta do plano, mantida)**: `/cleargarden` restaura o `BlockState` original salvo
+    no BE em vez de virar ar, quando encontra um `FlowerMassBlock` — adiantado da Fase 4 pelo mesmo motivo
+    do `/cleargarden` da Fase 2 (testar a feature sem deixar buraco/resíduo irreversível pra trás).
+  - `flowerdisease:flower_block` entra na tag vanilla `#minecraft:dirt` (chão válido pra flor continuar em
+    cima dele, igual o Moss Block real) e em `#minecraft:mineable/hoe`, ambas como extensão de datapack em
+    `data/minecraft/tags/block/`.
+  - Recursos: 1 blockstate simples (variant único), 1 modelo (`cube_all` + textura `minecraft:block/
+    moss_block` como placeholder), 1 modelo de item, 1 loot table (dropa a si mesmo), 1 entrada de lang.
+    Item aparece no criativo (ao lado do Moss Block) — ao contrário das flores, é um bloco standalone de
+    verdade, não só um seletor de espécie pra bag.
+- **Próximo passo: Fase 4 (compatibilidade, debug, documentação)** — já com boa parte adiantada (ver
+  `/cleargarden` acima nas Fases 2 e 3).
 
 ### Correções pós-teste da Fase 1 (2026-09-18)
 

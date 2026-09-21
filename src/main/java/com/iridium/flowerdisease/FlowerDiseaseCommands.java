@@ -126,10 +126,19 @@ final class FlowerDiseaseCommands {
                     // Covers vanilla and Diseased flowers/grass/ferns/dead bush alike, plus our
                     // decorative tops - all of them extend BushBlock. Creeping flowers (Stage 2 Fase 2)
                     // don't, so they're checked separately - added ahead of the rest of Fase 4 on purpose,
-                    // otherwise every test of the creeping feature leaves residue Ctrl+P can't touch. No
-                    // drops either way, straight to air.
+                    // otherwise every test of those features leaves residue Ctrl+P can't touch. No drops
+                    // either way, straight to air.
                     if (state.getBlock() instanceof BushBlock || state.getBlock() instanceof CreepingFlowerBlock) {
                         level.setBlock(cursor, Blocks.AIR.defaultBlockState(), SettleTable.PLACEMENT_FLAGS);
+                        cleared++;
+                    } else if (state.getBlock() instanceof FlowerMassBlock) {
+                        // Restores whatever terrain this corrupted instead of leaving a hole (see
+                        // PLANNING_STAGE2.md 3.4) - falls back to air only if the BlockEntity somehow
+                        // isn't there to ask.
+                        BlockState restored = level.getBlockEntity(cursor) instanceof FlowerMassBlockEntity flowerMass
+                                ? flowerMass.replacedState()
+                                : Blocks.AIR.defaultBlockState();
+                        level.setBlock(cursor, restored, SettleTable.PLACEMENT_FLAGS);
                         cleared++;
                     }
                 }

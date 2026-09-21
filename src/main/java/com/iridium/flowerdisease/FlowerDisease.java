@@ -115,6 +115,22 @@ public class FlowerDisease {
     public static final DeferredBlock<CreepingFlowerBlock> ROSE_BUSH_CREEPER = registerCreeping("rose_bush_creeper");
     public static final DeferredBlock<CreepingFlowerBlock> PEONY_CREEPER = registerCreeping("peony_creeper");
 
+    // The Flower Block (Stage 2 Fase 3, see PLANNING_STAGE2.md and FlowerBlockLogic) - a reproductive
+    // Diseased Flower with the bag's Moss Block modifier has a small chance of corrupting the ground below
+    // it into one of these, which then slowly corrupts its own neighbors on its own. Looks/acts like Moss
+    // Block for now (placeholder texture), including the properties below, mirroring Blocks.MOSS_BLOCK
+    // plus .randomTicks() (vanilla Moss Block never random-ticks; ours has to, to spread on its own).
+    public static final DeferredBlock<FlowerMassBlock> FLOWER_BLOCK = BLOCKS.registerBlock(
+            "flower_block",
+            FlowerMassBlock::new,
+            BlockBehaviour.Properties.of()
+                    .mapColor(MapColor.COLOR_GREEN)
+                    .strength(0.1F)
+                    .sound(SoundType.MOSS)
+                    .pushReaction(PushReaction.DESTROY)
+                    .randomTicks()
+    );
+
     // Short Grass and Fern both use vanilla's plain TallGrassBlock class, so one block class
     // (DiseasedGrassBlock) covers both - only the fallback differs per registration.
     public static final DeferredBlock<DiseasedGrassBlock> DISEASED_SHORT_GRASS = BLOCKS.registerBlock(
@@ -292,6 +308,7 @@ public class FlowerDisease {
                     DISEASED_WITHER_ROSE.get(),
                     DISEASED_SUNFLOWER.get(), DISEASED_LILAC.get(), DISEASED_ROSE_BUSH.get(), DISEASED_PEONY.get(),
                     SUNFLOWER_CREEPER.get(), LILAC_CREEPER.get(), ROSE_BUSH_CREEPER.get(), PEONY_CREEPER.get(),
+                    FLOWER_BLOCK.get(),
                     DISEASED_SHORT_GRASS.get(), DISEASED_FERN.get(), DISEASED_DEAD_BUSH.get(),
                     DISEASED_TALL_GRASS.get(), DISEASED_LARGE_FERN.get(),
                     DISEASED_SUNFLOWER_TOP.get(), DISEASED_SUNFLOWER_BOTTOM.get(),
@@ -331,6 +348,7 @@ public class FlowerDisease {
     public static final DeferredItem<BlockItem> LILAC_CREEPER_ITEM = ITEMS.registerSimpleBlockItem("lilac_creeper", LILAC_CREEPER);
     public static final DeferredItem<BlockItem> ROSE_BUSH_CREEPER_ITEM = ITEMS.registerSimpleBlockItem("rose_bush_creeper", ROSE_BUSH_CREEPER);
     public static final DeferredItem<BlockItem> PEONY_CREEPER_ITEM = ITEMS.registerSimpleBlockItem("peony_creeper", PEONY_CREEPER);
+    public static final DeferredItem<BlockItem> FLOWER_BLOCK_ITEM = ITEMS.registerSimpleBlockItem("flower_block", FLOWER_BLOCK);
 
     // What dropping a given item into one of the Garden Bag's species grid slots means - the stack count
     // in that slot becomes that outcome's relative weight (see GardenBagItem). Every item here maps to a
@@ -569,8 +587,10 @@ public class FlowerDisease {
     // places directly in the world, never as a creative-tab/JEI entry or a "diseased" holdable in any
     // form. Only the plain decorative Top/Bottom halves (legitimate standalone decoration, not diseased)
     // and the 4 creeper items (no vanilla item exists to select that species in the bag instead - see
-    // bagOutcomeItems()) get a creative-tab spot here, grouped right after their vanilla flower. The
-    // Garden Bag itself goes in Tools and Utilities (it's a utility item, not a flower).
+    // bagOutcomeItems()) get a creative-tab spot here, grouped right after their vanilla flower. The Flower
+    // Block is obtainable too (right after Moss Block, which it currently looks like) - it's a real
+    // standalone block players can inspect/build with, not a bag-only construct. The Garden Bag itself
+    // goes in Tools and Utilities (it's a utility item, not a flower).
     private void addCreative(BuildCreativeModeTabContentsEvent event) {
         if (event.getTabKey() == CreativeModeTabs.TOOLS_AND_UTILITIES) {
             event.accept(GARDEN_BAG);
@@ -597,6 +617,7 @@ public class FlowerDisease {
         insertAfter(event, TALL_GRASS_TOP_ITEM.get(), TALL_GRASS_BOTTOM_ITEM);
         insertAfter(event, TALL_GRASS_BOTTOM_ITEM.get(), LARGE_FERN_TOP_ITEM);
         insertAfter(event, LARGE_FERN_TOP_ITEM.get(), LARGE_FERN_BOTTOM_ITEM);
+        insertAfter(event, Items.MOSS_BLOCK, FLOWER_BLOCK_ITEM);
     }
 
     private static void insertAfter(BuildCreativeModeTabContentsEvent event, Item anchor, DeferredItem<BlockItem> item) {

@@ -60,6 +60,31 @@ public class Config {
             )
             .defineInRange("maxGenerations", 6, 0, 64);
 
+    public static final ModConfigSpec.BooleanValue FLOWER_BLOCK_CONVERSION = BUILDER
+            .comment(
+                    "Whether a reproductive Diseased Flower configured with the Garden Bag's Moss Block modifier is",
+                    "allowed to corrupt terrain into Flower Blocks at all. Off disables the whole mechanic instantly,",
+                    "even for plantings that have the modifier, and settles every existing Flower Block in place -",
+                    "a safety switch for modpacks that don't want any terrain corruption."
+            )
+            .define("flowerBlockConversion", true);
+
+    public static final ModConfigSpec.DoubleValue FLOWER_BLOCK_CHANCE = BUILDER
+            .comment(
+                    "Chance (0.0-1.0) that a reproductive Diseased Flower with the Moss Block modifier converts the",
+                    "block directly beneath it into a Flower Block on a given random tick. Deliberately much lower",
+                    "than spreadChance - this is meant to be rare."
+            )
+            .defineInRange("flowerBlockChance", 0.005, 0.0, 1.0);
+
+    public static final ModConfigSpec.DoubleValue FLOWER_BLOCK_SPREAD_FACTOR = BUILDER
+            .comment(
+                    "Multiplier applied to a Flower Block's own spreadChance (inherited from the flower that created",
+                    "it) when it spreads to one adjacent block on its own random tick. Below 1.0 so the corruption",
+                    "spreads slower than the flower that spawned it."
+            )
+            .defineInRange("flowerBlockSpreadFactor", 0.25, 0.0, 1.0);
+
     // There used to be a per-species "settleWeights" section here controlling what a Diseased Flower
     // turns into once it can no longer spread. That was only ever meant for testing the settle mechanic
     // itself - real configuration now happens exclusively through the Garden Bag's species grid (see

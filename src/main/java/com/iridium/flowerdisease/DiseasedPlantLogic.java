@@ -121,6 +121,14 @@ final class DiseasedPlantLogic {
                 ? profile.generationsRemaining()
                 : Config.FLOWER_MAX_GENERATIONS.getAsInt();
 
+        // Independent of everything below - a reproductive plant with the bag's Moss Block modifier has a
+        // small chance of also corrupting the block right below it this same tick, regardless of whether
+        // its own spread attempt succeeds (see PLANNING_STAGE2.md Fase 3.2). Runs for every shape,
+        // including CREEPING - nothing in the plan restricts it to plants standing on the ground.
+        if (generationsLeft != 0) {
+            FlowerBlockLogic.maybeSpawn(level, pos, random, generationsLeft, profile);
+        }
+
         // Climbing widens how far UP a spread target may land (see findSpreadTarget) - the crowding scan
         // below has to widen by the exact same amount, or a chain climbing a tall trunk quickly grows
         // taller than the density check can see, never counts its own siblings as crowding, and keeps
