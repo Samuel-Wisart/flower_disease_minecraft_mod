@@ -143,6 +143,48 @@ no GitHub). A etapa 1 fica isolada em `main`.
     moss_block` como placeholder), 1 modelo de item, 1 loot table (dropa a si mesmo), 1 entrada de lang.
     Item aparece no criativo (ao lado do Moss Block) — ao contrário das flores, é um bloco standalone de
     verdade, não só um seletor de espécie pra bag.
+- **Revisão de código completa (2026-09-21)**, pedida pelo dono do projeto — bugs, más práticas e
+  compatibilidade com outros mods, sobre TODO o código (não só o diff recente). Achados e correções:
+  1. **Bug real, reportado em teste**: `GardenBagItem#plant` (plantar direto pela bag, clicando no chão)
+     nunca tratava `Shape.CREEPING` — sempre construía `block.defaultBlockState()`, que pra um
+     `MultifaceBlock` vem com todas as 6 faces desligadas, e `canSurvive` de um `MultifaceBlock` sem
+     nenhuma face ligada é sempre `false`. Resultado: toda vez que o sorteio da bag caía numa creeping
+     flower como planta raiz, plantar falhava com "chão inválido" nesse E EM QUALQUER OUTRO lugar, mesmo
+     válido. Corrigido: `plant` agora usa `DiseasedPlantLogic.shapeOf` (exposto pro pacote) e, pra
+     `CREEPING`, liga a face oposta à face clicada pelo jogador (`clickedFace.getOpposite()`) — mesma
+     convenção do resto do motor (ver comment do `SpreadTarget`).
+  2. **Inconsistência de flags encontrada no mesmo método**: `GardenBagItem#plant` usava `Block.UPDATE_ALL`
+     pra colocar a planta raiz, em vez do `SettleTable.PLACEMENT_FLAGS` que o resto do mod usa em toda
+     colocação própria (a lição documentada desde antes desta etapa: `UPDATE_NEIGHBORS` pode fazer o motor
+     achar que a segunda metade de uma planta de 2 blocos ainda não colocada deixa a primeira "inválida" e
+     destruir com drop). Trocado por consistência e segurança, mesmo sem reprodução confirmada do bug aqui.
+  3. **Ineficiência**: `DiseasedPlantLogic#pickAttachableFace` chamava `Direction.values()` (que aloca um
+     array novo a cada chamada) até 3 vezes por iteração do laço. Cacheado numa constante `ALL_FACINGS`,
+     mesmo padrão já usado por `HORIZONTAL_FACINGS`.
+  4. **Feature pedida**: Flower Block agora só se espalha (Fase 3.3) pra vizinhos que tenham pelo menos um
+     dos 6 lados tocando ar ou um bloco não-cheio (flor, slab, escada...) — `FlowerBlockLogic#hasExposedFace`,
+     usando `Block.isShapeFullBlock` no `getCollisionShape` de cada vizinho. Sem isso a corrupção podia
+     tunelar por rocha sólida indefinidamente, enterrada e nunca visível. Não afeta `maybeSpawn` (a criação
+     do primeiro Flower Block debaixo da flor): essa posição já tem uma face exposta garantida — o próprio
+     topo, onde a flor está em pé — então o mesmo problema não existe ali.
+  5. **Feature pedida**: creeping flowers ganharam textura por categoria de face (topo/lado/base) em vez de
+     uma textura só pras 6 direções — 3 modelos por espécie (`<espécie>_creeper_top/side/bottom.json`)
+     apontando pro mesmo `creeping_flower.json`, blockstate atualizado pra escolher o modelo certo por
+     direção (mesma estrutura `multipart` de antes, só trocando qual modelo cada face usa). Placeholder
+     atual: topo usa a textura `_top` (cabeça da flor), lado E base usam `_bottom` (só existem 2 texturas
+     vanilla por espécie) — os 3 slots já existem independentes pra quando a arte real entrar.
+  - Achados que NÃO exigiram mudança de código (documentados aqui pra não perder o contexto da revisão):
+    - `SpreadProfileBlockEntity`/random tick nunca disparam `BlockEvent` do NeoForge - mods de proteção de
+      área (claims) não conseguem vetar o espalhamento ou a corrupção de terreno via seus hooks normais.
+      Isso já era verdade desde antes da Stage 2; só ficou mais relevante agora que existe uma feature que
+      literalmente destrói bloco de outro dono. Vale documentar pro README/instruções de modpack, não
+      resolver em código (adicionar os eventos certos é uma mudança maior, fora do escopo pedido aqui).
+    - As tags `#minecraft:dirt`/`#minecraft:mineable/hoe` (Fase 3) e as tags próprias (`climbable`/
+      `convertible`/`conversion_immune`) já usam `"replace": false` — múltiplos mods/datapacks reivindicando
+      a mesma tag fazem merge em vez de se sobrescreverem. Confirmado, não é um problema.
+    - O painel de preview da bag (`GardenBagScreen`) mostra "Creates flower blocks: yes" sempre que o Moss
+      Block está na bag, mesmo que `flowerBlockConversion` esteja desligado no config do servidor (o cliente
+      não tem como saber esse valor do config do lado do servidor). Cosmético, não corrigido.
 - **Próximo passo: Fase 4 (compatibilidade, debug, documentação)** — já com boa parte adiantada (ver
   `/cleargarden` acima nas Fases 2 e 3).
 

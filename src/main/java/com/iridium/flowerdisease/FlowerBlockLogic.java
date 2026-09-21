@@ -6,6 +6,8 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.util.RandomSource;
+import net.minecraft.world.level.LevelReader;
+import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.state.BlockState;
 
 // Creation and spread of the Flower Block (Stage 2 Fase 3, see PLANNING_STAGE2.md). Two entry points,
@@ -15,6 +17,8 @@ import net.minecraft.world.level.block.state.BlockState;
 // flower that made it and entirely on its own from then on - the flower above keeps living/reproducing
 // independently either way (see PLANNING_STAGE2.md "Decisões travadas" #1).
 final class FlowerBlockLogic {
+
+    private static final Direction[] DIRECTIONS = Direction.values();
 
     private FlowerBlockLogic() {
     }
@@ -61,13 +65,16 @@ final class FlowerBlockLogic {
                 : Config.FLOWER_MAX_GENERATIONS.getAsInt();
 
         if (generationsLeft != 0) {
-            Direction[] directions = Direction.values();
-            int startIndex = random.nextInt(directions.length);
-            for (int i = 0; i < directions.length; i++) {
-                Direction direction = directions[(startIndex + i) % directions.length];
+            int startIndex = random.nextInt(DIRECTIONS.length);
+            for (int i = 0; i < DIRECTIONS.length; i++) {
+                Direction direction = DIRECTIONS[(startIndex + i) % DIRECTIONS.length];
                 BlockPos neighborPos = pos.relative(direction);
                 BlockState neighborState = level.getBlockState(neighborPos);
-                if (PlantSupport.isConvertible(level, neighborPos, neighborState)) {
+                // isConvertible alone would happily tunnel the corruption straight through solid rock,
+                // fully buried and never visible - hasExposedFace requires the candidate to still be
+                // touching open air or a non-full block (flowers, slabs, stairs...) on at least one OTHER
+                // side, so it stays somewhere a player could actually find it instead of sinking.
+                if (PlantSupport.isConvertible(level, neighborPos, neighborState) && hasExposedFace(level, neighborPos)) {
                     long childGenerations = generationsLeft < 0 ? generationsLeft : generationsLeft - 1;
                     place(level, neighborPos, neighborState, childGenerations, profile);
                     return;
@@ -78,6 +85,20 @@ final class FlowerBlockLogic {
         // No generation budget left, or none of the 6 neighbors were eligible: this Flower Block stops
         // spreading for good, same "give up permanently" semantics as every other Diseased plant.
         settle(level, pos, state);
+    }
+
+    // "Exposed" means at least one of the 6 neighbors isn't a full cube - open air, or a non-full block
+    // like a flower, slab or stair. The parent Flower Block doing the spreading (a full cube itself) is one
+    // of these 6 neighbors and never counts toward it, so this genuinely requires a DIFFERENT opening.
+    private static boolean hasExposedFace(LevelReader level, BlockPos pos) {
+        for (Direction direction : DIRECTIONS) {
+            BlockPos neighborPos = pos.relative(direction);
+            BlockState neighborState = level.getBlockState(neighborPos);
+            if (!Block.isShapeFullBlock(neighborState.getCollisionShape(level, neighborPos))) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static void place(ServerLevel level, BlockPos pos, BlockState replaced, long generationsLeft, @Nullable SpreadProfileBlockEntity parentProfile) {

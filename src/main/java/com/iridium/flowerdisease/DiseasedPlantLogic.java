@@ -42,6 +42,9 @@ final class DiseasedPlantLogic {
     }
 
     private static final Direction[] HORIZONTAL_FACINGS = {Direction.NORTH, Direction.SOUTH, Direction.EAST, Direction.WEST};
+    // Cached once - Direction.values() allocates a fresh array on every call, and pickAttachableFace was
+    // calling it up to 3 times per loop iteration.
+    private static final Direction[] ALL_FACINGS = Direction.values();
 
     private DiseasedPlantLogic() {
     }
@@ -255,7 +258,10 @@ final class DiseasedPlantLogic {
         }
     }
 
-    private static Shape shapeOf(Block block) {
+    // Package-visible so GardenBagItem can figure out how to build a placement state for the root plant -
+    // same shape-detection rule spreading children already use, so the two can never disagree about what a
+    // given species' Block instance means.
+    static Shape shapeOf(Block block) {
         if (block instanceof DoublePlantBlock) {
             return Shape.TALL;
         }
@@ -371,9 +377,9 @@ final class DiseasedPlantLogic {
     // every side shouldn't always end up grabbing the same one.
     @Nullable
     private static Direction pickAttachableFace(ServerLevel level, BlockPos pos, RandomSource random) {
-        int startIndex = random.nextInt(Direction.values().length);
-        for (int i = 0; i < Direction.values().length; i++) {
-            Direction direction = Direction.values()[(startIndex + i) % Direction.values().length];
+        int startIndex = random.nextInt(ALL_FACINGS.length);
+        for (int i = 0; i < ALL_FACINGS.length; i++) {
+            Direction direction = ALL_FACINGS[(startIndex + i) % ALL_FACINGS.length];
             BlockPos neighborPos = pos.relative(direction);
             if (MultifaceBlock.canAttachTo(level, direction, neighborPos, level.getBlockState(neighborPos))) {
                 return direction;

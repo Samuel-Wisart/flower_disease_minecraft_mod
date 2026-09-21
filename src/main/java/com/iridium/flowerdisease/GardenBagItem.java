@@ -5,6 +5,7 @@ import java.util.List;
 import javax.annotation.Nullable;
 
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
 import net.minecraft.core.NonNullList;
 import net.minecraft.core.component.DataComponents;
 import net.minecraft.network.chat.Component;
@@ -22,6 +23,7 @@ import net.minecraft.world.item.component.ItemContainerContents;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.DoublePlantBlock;
+import net.minecraft.world.level.block.MultifaceBlock;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.properties.DoubleBlockHalf;
 
@@ -58,7 +60,7 @@ public class GardenBagItem extends Item {
         }
 
         BlockPos target = context.getClickedPos().relative(context.getClickedFace());
-        Component failureReason = plant(level, target, stack);
+        Component failureReason = plant(level, target, stack, context.getClickedFace());
         if (failureReason != null) {
             Player player = context.getPlayer();
             if (player != null) {
@@ -88,7 +90,7 @@ public class GardenBagItem extends Item {
     // to fail completely silently, which made it impossible to tell "no species configured" apart from
     // "bad spot" apart from "nothing actually got saved into the bag".
     @Nullable
-    private Component plant(ServerLevel level, BlockPos target, ItemStack bagStack) {
+    private Component plant(ServerLevel level, BlockPos target, ItemStack bagStack, Direction clickedFace) {
         GardenBagContents contents = GardenBagContents.read(readSlots(bagStack));
 
         // The root must be an actual growing plant, so only entries with a spreadable Diseased
@@ -102,20 +104,37 @@ public class GardenBagItem extends Item {
         }
 
         Block block = FlowerDisease.diseasedByFallback().get(chosen.block()).get();
-        boolean tall = block instanceof DoublePlantBlock;
-        BlockState lowerState = tall ? block.defaultBlockState().setValue(DoublePlantBlock.HALF, DoubleBlockHalf.LOWER) : block.defaultBlockState();
+        DiseasedPlantLogic.Shape shape = DiseasedPlantLogic.shapeOf(block);
 
-        if (!level.isEmptyBlock(target) || (tall && !level.isEmptyBlock(target.above()))) {
+        // What actually gets placed/checked at `target`, one per shape - a creeping species has no
+        // upright/default form at all (its defaultBlockState() has every face off, which never
+        // canSurvive()s - see MultifaceBlock#canSurvive), so it needs the face it's clinging to set just
+        // like a spreading child does (DiseasedPlantLogic#placeChild). That face is simply the opposite of
+        // whatever face the player clicked: clicking the TOP of a block and placing in the air cell above
+        // it means the new block grabs onto the block BELOW itself, i.e. Direction.DOWN.
+        BlockState placementState = switch (shape) {
+            case TALL -> block.defaultBlockState().setValue(DoublePlantBlock.HALF, DoubleBlockHalf.LOWER);
+            case CREEPING -> block.defaultBlockState().setValue(MultifaceBlock.getFaceProperty(clickedFace.getOpposite()), true);
+            case SINGLE -> block.defaultBlockState();
+        };
+
+        if (!level.isEmptyBlock(target) || (shape == DiseasedPlantLogic.Shape.TALL && !level.isEmptyBlock(target.above()))) {
             return Component.translatable("item.flowerdisease.garden_bag.error.occupied");
         }
-        if (!lowerState.canSurvive(level, target)) {
+        if (!placementState.canSurvive(level, target)) {
             return Component.translatable("item.flowerdisease.garden_bag.error.bad_ground");
         }
 
-        if (tall) {
-            DoublePlantBlock.placeAt(level, block.defaultBlockState(), target, Block.UPDATE_ALL);
+        // Same placement flags every other piece of this mod's own world-editing uses (DiseasedPlantLogic/
+        // FlowerBlockLogic) - UPDATE_ALL also fires UPDATE_NEIGHBORS, which the rest of the mod deliberately
+        // avoids (see SettleTable.PLACEMENT_FLAGS) since an immediate neighbor update while placing a
+        // two-part plant can make the engine think a half-built pair looks invalid and destroy it, drop and
+        // all. This is a fresh placement rather than a settle/spread rewrite, so that exact failure mode is
+        // unlikely here, but there's no reason to be the one place in the mod that risks it.
+        if (shape == DiseasedPlantLogic.Shape.TALL) {
+            DoublePlantBlock.placeAt(level, block.defaultBlockState(), target, SettleTable.PLACEMENT_FLAGS);
         } else {
-            level.setBlock(target, block.defaultBlockState(), Block.UPDATE_ALL);
+            level.setBlock(target, placementState, SettleTable.PLACEMENT_FLAGS);
         }
 
         if (level.getBlockEntity(target) instanceof SpreadProfileBlockEntity profile) {
