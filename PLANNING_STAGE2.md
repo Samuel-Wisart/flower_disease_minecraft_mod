@@ -36,6 +36,37 @@ no GitHub). A etapa 1 fica isolada em `main`.
   - 2 modelos-pai novos (`tilted_cross`/`tilted_tinted_cross`) + 28 modelos de bloco inclinados — no fim
     das contas, IGUAL ao previsto originalmente na seção 1.5 (ver "Correções pós-teste" pro motivo de eu
     ter tentado um atalho primeiro e ele não ter funcionado).
+- **Correção pós-teste #4 (2026-09-18): crowding não acompanhava o alcance vertical da escalada.** Reportado
+  como "com Fermented Spider Eye, a bag parece ignorar as próprias flores e nunca para de espalhar". Causa
+  raiz: `DiseasedPlantLogic#countNearbyFieldFlowers` sempre usava `Config.FLOWER_SPREAD_VERTICAL_RANGE` fixo
+  pra escanear vizinhos, enquanto `findSpreadTarget` já alargava esse alcance pra
+  `max(spreadVerticalRange, spreadDistance)` quando `profile.climbing()` está ligado (pra subir um tronco
+  alto). Resultado: uma flor escalando conseguia se afastar verticalmente da própria fila mais rápido do que
+  a checagem de lotação enxergava, então nunca contava as próprias irmãs como vizinhas e nunca assentava.
+  Corrigido calculando `climbing`/`maxSpreadDistance`/`verticalRange` uma única vez em `randomTick` e
+  passando pros dois lados (`countNearbyFieldFlowers` ganhou parâmetro `verticalRange`; `findSpreadTarget`
+  parou de recalcular e recebe os 3 valores prontos) — os dois agora são fisicamente incapazes de divergir
+  de novo. Validado só com `compileJava` limpo; ainda não testado em jogo.
+- **Limpeza (2026-09-18): Diseased Flower deixou de existir como item.** Pedido do dono do projeto: agora
+  que a bag é o único jeito de criar uma, os 34 `BlockItem` "Diseased X" (22 espécies + 12 Top/Bottom
+  diseased) não fazem mais sentido no inventário criativo/JEI — o bloco é só um conceito temporário, nunca
+  algo que o jogador coleta. Removidos os 34 registros de item, as entradas correspondentes em
+  `addCreative`, e os 34 modelos de item órfãos; as 34 loot tables desses blocos foram redirecionadas pra
+  dropar a espécie vanilla real (ex: `diseased_poppy` → `minecraft:poppy`) ou, pros 12 Top/Bottom, pro
+  decorativo simples equivalente que continua existindo (`flowerdisease:sunflower_top`, etc.). Os blocos em
+  si continuam registrados normalmente (só nunca aparecem como item).
+- **Integração opcional com Jade (2026-09-18): `JadeCompat.java`.** Como a flor nunca mais tem item/nome
+  próprio visível, o único lugar em que o jogador vê algum nome ao olhar pra ela é o overlay do Jade — então
+  esse plugin (só carregado pelo próprio Jade, dependência `compileOnly`/`localRuntime` opcional no
+  `build.gradle`, ver `neoforge.mods.toml`) troca a linha do nome: enquanto `SETTLED=false` mostra
+  "Diseased Flower" genérico; assim que assenta (`SETTLED=true`) mostra o nome real da espécie vanilla (ou
+  do decorativo Top/Bottom equivalente), via `FlowerDisease.fallbackByDiseased()` (novo, inverso de
+  `diseasedByFallback()`). Usa `ITooltip#replace(JadeIds.CORE_OBJECT_NAME, ...)`, o mecanismo padrão de
+  addon do Jade pra sobrescrever só a linha de nome sem mexer no resto do tooltip. Testado com
+  `runClient` real (Jade 15.10.6+neoforge baixado via Modrinth maven): carrega sem erro depois de eu
+  descobrir que Jade exige uma chave de lang `config.jade.plugin_<modid>.<uid>` pra CADA provider
+  registrado (usada no menu de config dele) — sem ela o cliente lança `AssertionError` ao abrir a tela
+  inicial. Ainda não visto em jogo (preciso que você olhe pra uma flor de verdade pra confirmar o texto).
 - **Próximo passo: Fase 2 (creeping)**, ainda não iniciada.
 
 ### Correções pós-teste da Fase 1 (2026-09-18)

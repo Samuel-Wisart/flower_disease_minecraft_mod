@@ -11,7 +11,7 @@
       "entries": [
         {
           "type": "minecraft:item",
-          "name": "flowerdisease:diseased_rose_bush_top"
+          "name": "flowerdisease:rose_bush_top"
         }
       ],
       "rolls": 1.0

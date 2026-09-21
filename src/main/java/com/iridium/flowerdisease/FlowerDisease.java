@@ -1,5 +1,6 @@
 package com.iridium.flowerdisease;
 
+import java.util.HashMap;
 import java.util.Map;
 
 import org.slf4j.Logger;
@@ -241,6 +242,25 @@ public class FlowerDisease {
         return diseasedByFallback;
     }
 
+    // The other direction of diseasedByFallback() - what a given Diseased block's own vanilla-ish
+    // counterpart is (for the 22 normal species, the real vanilla block; for the 12 Top/Bottom entries,
+    // our own plain decorative block, since there's no vanilla equivalent for those). Used by JadeCompat
+    // to show that name once a plant has settled, instead of the "Diseased X" name the block itself is
+    // never meant to display anywhere (see PLANNING_STAGE2.md - Diseased Flower is a concept, not a thing
+    // players collect or see labeled as such).
+    private static Map<Block, Block> fallbackByDiseased;
+
+    public static Map<Block, Block> fallbackByDiseased() {
+        if (fallbackByDiseased == null) {
+            Map<Block, Block> reversed = new HashMap<>();
+            for (Map.Entry<Block, DeferredBlock<? extends Block>> entry : diseasedByFallback().entrySet()) {
+                reversed.put(entry.getValue().get(), entry.getKey());
+            }
+            fallbackByDiseased = Map.copyOf(reversed);
+        }
+        return fallbackByDiseased;
+    }
+
     // Optional per-planting spread overrides (see SpreadProfileBlockEntity) - every spreading Diseased
     // Flower block has one, hand-placed included, but it only ever does anything once something (the
     // debug command for now, the Garden Bag later) actually configures it.
@@ -276,23 +296,6 @@ public class FlowerDisease {
             () -> new GardenBagItem(new Item.Properties().stacksTo(1))
     );
 
-    public static final DeferredItem<BlockItem> DISEASED_DANDELION_ITEM = ITEMS.registerSimpleBlockItem("diseased_dandelion", DISEASED_DANDELION);
-    public static final DeferredItem<BlockItem> DISEASED_POPPY_ITEM = ITEMS.registerSimpleBlockItem("diseased_poppy", DISEASED_POPPY);
-    public static final DeferredItem<BlockItem> DISEASED_BLUE_ORCHID_ITEM = ITEMS.registerSimpleBlockItem("diseased_blue_orchid", DISEASED_BLUE_ORCHID);
-    public static final DeferredItem<BlockItem> DISEASED_ALLIUM_ITEM = ITEMS.registerSimpleBlockItem("diseased_allium", DISEASED_ALLIUM);
-    public static final DeferredItem<BlockItem> DISEASED_AZURE_BLUET_ITEM = ITEMS.registerSimpleBlockItem("diseased_azure_bluet", DISEASED_AZURE_BLUET);
-    public static final DeferredItem<BlockItem> DISEASED_RED_TULIP_ITEM = ITEMS.registerSimpleBlockItem("diseased_red_tulip", DISEASED_RED_TULIP);
-    public static final DeferredItem<BlockItem> DISEASED_ORANGE_TULIP_ITEM = ITEMS.registerSimpleBlockItem("diseased_orange_tulip", DISEASED_ORANGE_TULIP);
-    public static final DeferredItem<BlockItem> DISEASED_WHITE_TULIP_ITEM = ITEMS.registerSimpleBlockItem("diseased_white_tulip", DISEASED_WHITE_TULIP);
-    public static final DeferredItem<BlockItem> DISEASED_PINK_TULIP_ITEM = ITEMS.registerSimpleBlockItem("diseased_pink_tulip", DISEASED_PINK_TULIP);
-    public static final DeferredItem<BlockItem> DISEASED_OXEYE_DAISY_ITEM = ITEMS.registerSimpleBlockItem("diseased_oxeye_daisy", DISEASED_OXEYE_DAISY);
-    public static final DeferredItem<BlockItem> DISEASED_CORNFLOWER_ITEM = ITEMS.registerSimpleBlockItem("diseased_cornflower", DISEASED_CORNFLOWER);
-    public static final DeferredItem<BlockItem> DISEASED_LILY_OF_THE_VALLEY_ITEM = ITEMS.registerSimpleBlockItem("diseased_lily_of_the_valley", DISEASED_LILY_OF_THE_VALLEY);
-    public static final DeferredItem<BlockItem> DISEASED_WITHER_ROSE_ITEM = ITEMS.registerSimpleBlockItem("diseased_wither_rose", DISEASED_WITHER_ROSE);
-    public static final DeferredItem<BlockItem> DISEASED_SUNFLOWER_ITEM = ITEMS.registerSimpleBlockItem("diseased_sunflower", DISEASED_SUNFLOWER);
-    public static final DeferredItem<BlockItem> DISEASED_LILAC_ITEM = ITEMS.registerSimpleBlockItem("diseased_lilac", DISEASED_LILAC);
-    public static final DeferredItem<BlockItem> DISEASED_ROSE_BUSH_ITEM = ITEMS.registerSimpleBlockItem("diseased_rose_bush", DISEASED_ROSE_BUSH);
-    public static final DeferredItem<BlockItem> DISEASED_PEONY_ITEM = ITEMS.registerSimpleBlockItem("diseased_peony", DISEASED_PEONY);
     public static final DeferredItem<BlockItem> SUNFLOWER_TOP_ITEM = ITEMS.registerSimpleBlockItem("sunflower_top", SUNFLOWER_TOP);
     public static final DeferredItem<BlockItem> SUNFLOWER_BOTTOM_ITEM = ITEMS.registerSimpleBlockItem("sunflower_bottom", SUNFLOWER_BOTTOM);
     public static final DeferredItem<BlockItem> LILAC_TOP_ITEM = ITEMS.registerSimpleBlockItem("lilac_top", LILAC_TOP);
@@ -305,23 +308,6 @@ public class FlowerDisease {
     public static final DeferredItem<BlockItem> TALL_GRASS_BOTTOM_ITEM = ITEMS.registerSimpleBlockItem("tall_grass_bottom", TALL_GRASS_BOTTOM);
     public static final DeferredItem<BlockItem> LARGE_FERN_TOP_ITEM = ITEMS.registerSimpleBlockItem("large_fern_top", LARGE_FERN_TOP);
     public static final DeferredItem<BlockItem> LARGE_FERN_BOTTOM_ITEM = ITEMS.registerSimpleBlockItem("large_fern_bottom", LARGE_FERN_BOTTOM);
-    public static final DeferredItem<BlockItem> DISEASED_SHORT_GRASS_ITEM = ITEMS.registerSimpleBlockItem("diseased_short_grass", DISEASED_SHORT_GRASS);
-    public static final DeferredItem<BlockItem> DISEASED_FERN_ITEM = ITEMS.registerSimpleBlockItem("diseased_fern", DISEASED_FERN);
-    public static final DeferredItem<BlockItem> DISEASED_DEAD_BUSH_ITEM = ITEMS.registerSimpleBlockItem("diseased_dead_bush", DISEASED_DEAD_BUSH);
-    public static final DeferredItem<BlockItem> DISEASED_TALL_GRASS_ITEM = ITEMS.registerSimpleBlockItem("diseased_tall_grass", DISEASED_TALL_GRASS);
-    public static final DeferredItem<BlockItem> DISEASED_LARGE_FERN_ITEM = ITEMS.registerSimpleBlockItem("diseased_large_fern", DISEASED_LARGE_FERN);
-    public static final DeferredItem<BlockItem> DISEASED_SUNFLOWER_TOP_ITEM = ITEMS.registerSimpleBlockItem("diseased_sunflower_top", DISEASED_SUNFLOWER_TOP);
-    public static final DeferredItem<BlockItem> DISEASED_SUNFLOWER_BOTTOM_ITEM = ITEMS.registerSimpleBlockItem("diseased_sunflower_bottom", DISEASED_SUNFLOWER_BOTTOM);
-    public static final DeferredItem<BlockItem> DISEASED_LILAC_TOP_ITEM = ITEMS.registerSimpleBlockItem("diseased_lilac_top", DISEASED_LILAC_TOP);
-    public static final DeferredItem<BlockItem> DISEASED_LILAC_BOTTOM_ITEM = ITEMS.registerSimpleBlockItem("diseased_lilac_bottom", DISEASED_LILAC_BOTTOM);
-    public static final DeferredItem<BlockItem> DISEASED_ROSE_BUSH_TOP_ITEM = ITEMS.registerSimpleBlockItem("diseased_rose_bush_top", DISEASED_ROSE_BUSH_TOP);
-    public static final DeferredItem<BlockItem> DISEASED_ROSE_BUSH_BOTTOM_ITEM = ITEMS.registerSimpleBlockItem("diseased_rose_bush_bottom", DISEASED_ROSE_BUSH_BOTTOM);
-    public static final DeferredItem<BlockItem> DISEASED_PEONY_TOP_ITEM = ITEMS.registerSimpleBlockItem("diseased_peony_top", DISEASED_PEONY_TOP);
-    public static final DeferredItem<BlockItem> DISEASED_PEONY_BOTTOM_ITEM = ITEMS.registerSimpleBlockItem("diseased_peony_bottom", DISEASED_PEONY_BOTTOM);
-    public static final DeferredItem<BlockItem> DISEASED_TALL_GRASS_TOP_ITEM = ITEMS.registerSimpleBlockItem("diseased_tall_grass_top", DISEASED_TALL_GRASS_TOP);
-    public static final DeferredItem<BlockItem> DISEASED_TALL_GRASS_BOTTOM_ITEM = ITEMS.registerSimpleBlockItem("diseased_tall_grass_bottom", DISEASED_TALL_GRASS_BOTTOM);
-    public static final DeferredItem<BlockItem> DISEASED_LARGE_FERN_TOP_ITEM = ITEMS.registerSimpleBlockItem("diseased_large_fern_top", DISEASED_LARGE_FERN_TOP);
-    public static final DeferredItem<BlockItem> DISEASED_LARGE_FERN_BOTTOM_ITEM = ITEMS.registerSimpleBlockItem("diseased_large_fern_bottom", DISEASED_LARGE_FERN_BOTTOM);
 
     // What dropping a given item into one of the Garden Bag's species grid slots means - the stack count
     // in that slot becomes that outcome's relative weight (see GardenBagItem). Every item here maps to a
@@ -529,8 +515,12 @@ public class FlowerDisease {
         LOGGER.info("Flower Disease loaded");
     }
 
-    // Place each Diseased Flower right after its vanilla counterpart in the Natural Blocks tab, and the
-    // Garden Bag in Tools and Utilities (it's a utility item, not a flower).
+    // Diseased Flowers are never obtainable as an item (no BlockItem registered for them at all - see the
+    // block registrations above) - they only ever exist as something the Garden Bag or a spreading plant
+    // places directly in the world, never as a creative-tab/JEI entry or a "diseased" holdable in any
+    // form. Only the plain decorative Top/Bottom halves (legitimate standalone decoration, not diseased)
+    // get a creative-tab spot here, grouped right after their vanilla flower. The Garden Bag itself goes
+    // in Tools and Utilities (it's a utility item, not a flower).
     private void addCreative(BuildCreativeModeTabContentsEvent event) {
         if (event.getTabKey() == CreativeModeTabs.TOOLS_AND_UTILITIES) {
             event.accept(GARDEN_BAG);
@@ -541,56 +531,22 @@ public class FlowerDisease {
             return;
         }
 
-        insertDiseasedAfter(event, Items.DANDELION, DISEASED_DANDELION_ITEM);
-        insertDiseasedAfter(event, Items.POPPY, DISEASED_POPPY_ITEM);
-        insertDiseasedAfter(event, Items.BLUE_ORCHID, DISEASED_BLUE_ORCHID_ITEM);
-        insertDiseasedAfter(event, Items.ALLIUM, DISEASED_ALLIUM_ITEM);
-        insertDiseasedAfter(event, Items.AZURE_BLUET, DISEASED_AZURE_BLUET_ITEM);
-        insertDiseasedAfter(event, Items.RED_TULIP, DISEASED_RED_TULIP_ITEM);
-        insertDiseasedAfter(event, Items.ORANGE_TULIP, DISEASED_ORANGE_TULIP_ITEM);
-        insertDiseasedAfter(event, Items.WHITE_TULIP, DISEASED_WHITE_TULIP_ITEM);
-        insertDiseasedAfter(event, Items.PINK_TULIP, DISEASED_PINK_TULIP_ITEM);
-        insertDiseasedAfter(event, Items.OXEYE_DAISY, DISEASED_OXEYE_DAISY_ITEM);
-        insertDiseasedAfter(event, Items.CORNFLOWER, DISEASED_CORNFLOWER_ITEM);
-        insertDiseasedAfter(event, Items.LILY_OF_THE_VALLEY, DISEASED_LILY_OF_THE_VALLEY_ITEM);
-        insertDiseasedAfter(event, Items.WITHER_ROSE, DISEASED_WITHER_ROSE_ITEM);
-        insertDiseasedAfter(event, Items.SUNFLOWER, DISEASED_SUNFLOWER_ITEM);
-        insertDiseasedAfter(event, Items.LILAC, DISEASED_LILAC_ITEM);
-        insertDiseasedAfter(event, Items.ROSE_BUSH, DISEASED_ROSE_BUSH_ITEM);
-        insertDiseasedAfter(event, Items.PEONY, DISEASED_PEONY_ITEM);
-        insertDiseasedAfter(event, Items.SHORT_GRASS, DISEASED_SHORT_GRASS_ITEM);
-        insertDiseasedAfter(event, Items.FERN, DISEASED_FERN_ITEM);
-        insertDiseasedAfter(event, Items.DEAD_BUSH, DISEASED_DEAD_BUSH_ITEM);
-        insertDiseasedAfter(event, Items.TALL_GRASS, DISEASED_TALL_GRASS_ITEM);
-        insertDiseasedAfter(event, Items.LARGE_FERN, DISEASED_LARGE_FERN_ITEM);
-        insertDiseasedAfter(event, DISEASED_SUNFLOWER_ITEM.get(), SUNFLOWER_TOP_ITEM);
-        insertDiseasedAfter(event, SUNFLOWER_TOP_ITEM.get(), DISEASED_SUNFLOWER_TOP_ITEM);
-        insertDiseasedAfter(event, DISEASED_SUNFLOWER_TOP_ITEM.get(), SUNFLOWER_BOTTOM_ITEM);
-        insertDiseasedAfter(event, SUNFLOWER_BOTTOM_ITEM.get(), DISEASED_SUNFLOWER_BOTTOM_ITEM);
-        insertDiseasedAfter(event, DISEASED_SUNFLOWER_BOTTOM_ITEM.get(), LILAC_TOP_ITEM);
-        insertDiseasedAfter(event, LILAC_TOP_ITEM.get(), DISEASED_LILAC_TOP_ITEM);
-        insertDiseasedAfter(event, DISEASED_LILAC_TOP_ITEM.get(), LILAC_BOTTOM_ITEM);
-        insertDiseasedAfter(event, LILAC_BOTTOM_ITEM.get(), DISEASED_LILAC_BOTTOM_ITEM);
-        insertDiseasedAfter(event, DISEASED_LILAC_BOTTOM_ITEM.get(), ROSE_BUSH_TOP_ITEM);
-        insertDiseasedAfter(event, ROSE_BUSH_TOP_ITEM.get(), DISEASED_ROSE_BUSH_TOP_ITEM);
-        insertDiseasedAfter(event, DISEASED_ROSE_BUSH_TOP_ITEM.get(), ROSE_BUSH_BOTTOM_ITEM);
-        insertDiseasedAfter(event, ROSE_BUSH_BOTTOM_ITEM.get(), DISEASED_ROSE_BUSH_BOTTOM_ITEM);
-        insertDiseasedAfter(event, DISEASED_ROSE_BUSH_BOTTOM_ITEM.get(), PEONY_TOP_ITEM);
-        insertDiseasedAfter(event, PEONY_TOP_ITEM.get(), DISEASED_PEONY_TOP_ITEM);
-        insertDiseasedAfter(event, DISEASED_PEONY_TOP_ITEM.get(), PEONY_BOTTOM_ITEM);
-        insertDiseasedAfter(event, PEONY_BOTTOM_ITEM.get(), DISEASED_PEONY_BOTTOM_ITEM);
-        insertDiseasedAfter(event, DISEASED_PEONY_BOTTOM_ITEM.get(), TALL_GRASS_TOP_ITEM);
-        insertDiseasedAfter(event, TALL_GRASS_TOP_ITEM.get(), DISEASED_TALL_GRASS_TOP_ITEM);
-        insertDiseasedAfter(event, DISEASED_TALL_GRASS_TOP_ITEM.get(), TALL_GRASS_BOTTOM_ITEM);
-        insertDiseasedAfter(event, TALL_GRASS_BOTTOM_ITEM.get(), DISEASED_TALL_GRASS_BOTTOM_ITEM);
-        insertDiseasedAfter(event, DISEASED_TALL_GRASS_BOTTOM_ITEM.get(), LARGE_FERN_TOP_ITEM);
-        insertDiseasedAfter(event, LARGE_FERN_TOP_ITEM.get(), DISEASED_LARGE_FERN_TOP_ITEM);
-        insertDiseasedAfter(event, DISEASED_LARGE_FERN_TOP_ITEM.get(), LARGE_FERN_BOTTOM_ITEM);
-        insertDiseasedAfter(event, LARGE_FERN_BOTTOM_ITEM.get(), DISEASED_LARGE_FERN_BOTTOM_ITEM);
+        insertAfter(event, Items.SUNFLOWER, SUNFLOWER_TOP_ITEM);
+        insertAfter(event, SUNFLOWER_TOP_ITEM.get(), SUNFLOWER_BOTTOM_ITEM);
+        insertAfter(event, SUNFLOWER_BOTTOM_ITEM.get(), LILAC_TOP_ITEM);
+        insertAfter(event, LILAC_TOP_ITEM.get(), LILAC_BOTTOM_ITEM);
+        insertAfter(event, LILAC_BOTTOM_ITEM.get(), ROSE_BUSH_TOP_ITEM);
+        insertAfter(event, ROSE_BUSH_TOP_ITEM.get(), ROSE_BUSH_BOTTOM_ITEM);
+        insertAfter(event, ROSE_BUSH_BOTTOM_ITEM.get(), PEONY_TOP_ITEM);
+        insertAfter(event, PEONY_TOP_ITEM.get(), PEONY_BOTTOM_ITEM);
+        insertAfter(event, PEONY_BOTTOM_ITEM.get(), TALL_GRASS_TOP_ITEM);
+        insertAfter(event, TALL_GRASS_TOP_ITEM.get(), TALL_GRASS_BOTTOM_ITEM);
+        insertAfter(event, TALL_GRASS_BOTTOM_ITEM.get(), LARGE_FERN_TOP_ITEM);
+        insertAfter(event, LARGE_FERN_TOP_ITEM.get(), LARGE_FERN_BOTTOM_ITEM);
     }
 
-    private static void insertDiseasedAfter(BuildCreativeModeTabContentsEvent event, Item anchor, DeferredItem<BlockItem> diseased) {
-        event.insertAfter(new ItemStack(anchor), new ItemStack(diseased.get()), CreativeModeTab.TabVisibility.PARENT_AND_SEARCH_TABS);
+    private static void insertAfter(BuildCreativeModeTabContentsEvent event, Item anchor, DeferredItem<BlockItem> item) {
+        event.insertAfter(new ItemStack(anchor), new ItemStack(item.get()), CreativeModeTab.TabVisibility.PARENT_AND_SEARCH_TABS);
     }
 
     // Debug-only "/cleargarden [radius]" command, bound to Ctrl+P client-side (see FlowerDiseaseClient).

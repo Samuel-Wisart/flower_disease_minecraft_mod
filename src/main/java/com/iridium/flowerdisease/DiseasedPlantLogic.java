@@ -104,13 +104,27 @@ final class DiseasedPlantLogic {
                 ? profile.generationsRemaining()
                 : Config.FLOWER_MAX_GENERATIONS.getAsInt();
 
+        // Climbing widens how far UP a spread target may land (see findSpreadTarget) - the crowding scan
+        // below has to widen by the exact same amount, or a chain climbing a tall trunk quickly grows
+        // taller than the density check can see, never counts its own siblings as crowding, and keeps
+        // climbing indefinitely (reported after testing: with "ignore other species" on, a climbing
+        // planting never seemed to settle at all). Computed once here and threaded into both the crowding
+        // scan and findSpreadTarget so the two can never drift apart like this again.
+        boolean climbing = profile != null && profile.climbing();
+        int maxSpreadDistance = profile != null && profile.spreadDistanceOverride() >= 0
+                ? profile.spreadDistanceOverride()
+                : Config.FLOWER_SPREAD_DISTANCE.getAsInt();
+        int verticalRange = climbing
+                ? Math.max(Config.FLOWER_SPREAD_VERTICAL_RANGE.getAsInt(), maxSpreadDistance)
+                : Config.FLOWER_SPREAD_VERTICAL_RANGE.getAsInt();
+
         int densityRadius = Config.FLOWER_DENSITY_RADIUS.getAsInt();
         int maxNearby = profile != null && profile.densityTargetPer16x16() >= 0
                 ? SettleTable.densityTargetToMaxNearby(profile.densityTargetPer16x16(), densityRadius)
                 : Config.FLOWER_MAX_NEARBY.getAsInt();
 
         boolean territorial = profile != null && profile.respectAllSpecies();
-        boolean tooCrowded = countNearbyFieldFlowers(level, pos, densityRadius, maxNearby, self, fallbackBlock, outcomePool, territorial) >= maxNearby;
+        boolean tooCrowded = countNearbyFieldFlowers(level, pos, densityRadius, verticalRange, maxNearby, self, fallbackBlock, outcomePool, territorial) >= maxNearby;
 
         if (!tooCrowded && generationsLeft != 0) {
             // Independent draw over the whole pool every time - may be a different shape than this plant.
@@ -121,7 +135,7 @@ final class DiseasedPlantLogic {
             Block vanillaSpecies = pickedSpecies != null ? pickedSpecies.block() : fallbackBlock;
             Block diseasedSpecies = pickedSpecies != null ? diseasedOf(pickedSpecies.block(), self) : self;
 
-            SpreadTarget target = findSpreadTarget(level, pos, random, diseasedSpecies, profile, childShape);
+            SpreadTarget target = findSpreadTarget(level, pos, random, diseasedSpecies, maxSpreadDistance, verticalRange, climbing, childShape);
             if (target != null) {
                 placeChild(level, target, diseasedSpecies, vanillaSpecies, childShape, generationsLeft, profile);
                 return;
@@ -238,9 +252,8 @@ final class DiseasedPlantLogic {
         return diseased != null ? diseased.get() : self;
     }
 
-    private static int countNearbyFieldFlowers(LevelReader level, BlockPos center, int radius, int max, Block self, Block fallbackBlock, List<SettleTable.Option> outcomePool, boolean territorial) {
+    private static int countNearbyFieldFlowers(LevelReader level, BlockPos center, int radius, int verticalRange, int max, Block self, Block fallbackBlock, List<SettleTable.Option> outcomePool, boolean territorial) {
         int count = 0;
-        int verticalRange = Config.FLOWER_SPREAD_VERTICAL_RANGE.getAsInt();
         BlockPos.MutableBlockPos cursor = new BlockPos.MutableBlockPos();
         for (int dx = -radius; dx <= radius; dx++) {
             for (int dz = -radius; dz <= radius; dz++) {
@@ -264,24 +277,11 @@ final class DiseasedPlantLogic {
         return count;
     }
 
+    // maxDistance/verticalRange/climbing are computed once in randomTick (shared with the crowding scan -
+    // see the comment there) rather than re-derived here, so the two can never disagree about how far a
+    // climbing planting is allowed to reach.
     @Nullable
-    private static SpreadTarget findSpreadTarget(ServerLevel level, BlockPos origin, RandomSource random, Block species, @Nullable SpreadProfileBlockEntity profile, Shape shape) {
-        // Climbing itself is an explicit opt-in on the profile, even though canSurvive always
-        // structurally allows standing on/clinging to a climbable block (see PlantSupport - existing
-        // climbing plants must never lose canSurvive just because nothing configured them to seek out new
-        // climbing spots). Widening the vertical search applies to BOTH shapes - a two-block species can
-        // land on TOP of a tall trunk same as a single-block one, it just never tilts onto the side (see
-        // tryFacings below, whose TALL branch never looks at this flag at all).
-        boolean climbing = profile != null && profile.climbing();
-
-        int maxDistance = profile != null && profile.spreadDistanceOverride() >= 0
-                ? profile.spreadDistanceOverride()
-                : Config.FLOWER_SPREAD_DISTANCE.getAsInt();
-        // A trunk is taller than the default vertical search window, so climbing widens it to at least
-        // the horizontal spread distance - the Feather modifier ends up controlling "how high" too.
-        int verticalRange = climbing
-                ? Math.max(Config.FLOWER_SPREAD_VERTICAL_RANGE.getAsInt(), maxDistance)
-                : Config.FLOWER_SPREAD_VERTICAL_RANGE.getAsInt();
+    private static SpreadTarget findSpreadTarget(ServerLevel level, BlockPos origin, RandomSource random, Block species, int maxDistance, int verticalRange, boolean climbing, Shape shape) {
         BlockState baseState = species.defaultBlockState();
 
         for (int attempt = 0; attempt < Config.FLOWER_SPREAD_ATTEMPTS.getAsInt(); attempt++) {

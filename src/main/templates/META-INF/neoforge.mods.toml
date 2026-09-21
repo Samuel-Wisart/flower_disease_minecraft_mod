@@ -87,6 +87,15 @@ into a normal Cornflower once its neighborhood gets crowded.
     ordering="NONE"
     side="BOTH"
 
+# Jade (look-at-block tooltip) - purely optional, see com.iridium.flowerdisease.compat.JadeCompat. This
+# entry only affects load ordering/version-range warnings when Jade happens to be present; it does not
+# require Jade to be installed.
+[[dependencies.${mod_id}]]
+    modId="jade"
+    type="optional"
+    ordering="AFTER"
+    side="CLIENT"
+
 # Features are specific properties of the game environment, that you may want to declare you require. This example declares
 # that your mod requires GL version 3.2 or higher. Other features will be added. They are side aware so declaring this won't
 # stop your mod loading on the server for example.

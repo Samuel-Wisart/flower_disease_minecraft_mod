@@ -11,7 +11,7 @@
       "entries": [
         {
           "type": "minecraft:item",
-          "name": "flowerdisease:diseased_oxeye_daisy"
+          "name": "minecraft:oxeye_daisy"
         }
       ],
       "rolls": 1.0

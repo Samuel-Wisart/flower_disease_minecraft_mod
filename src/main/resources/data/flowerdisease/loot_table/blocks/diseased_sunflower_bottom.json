@@ -11,7 +11,7 @@
       "entries": [
         {
           "type": "minecraft:item",
-          "name": "flowerdisease:diseased_sunflower_bottom"
+          "name": "flowerdisease:sunflower_bottom"
         }
       ],
       "rolls": 1.0

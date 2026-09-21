@@ -11,7 +11,7 @@
       "entries": [
         {
           "type": "minecraft:item",
-          "name": "flowerdisease:diseased_red_tulip"
+          "name": "minecraft:red_tulip"
         }
       ],
       "rolls": 1.0

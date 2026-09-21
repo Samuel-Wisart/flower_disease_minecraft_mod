@@ -11,7 +11,7 @@
       "entries": [
         {
           "type": "minecraft:item",
-          "name": "flowerdisease:diseased_large_fern_bottom"
+          "name": "flowerdisease:large_fern_bottom"
         }
       ],
       "rolls": 1.0

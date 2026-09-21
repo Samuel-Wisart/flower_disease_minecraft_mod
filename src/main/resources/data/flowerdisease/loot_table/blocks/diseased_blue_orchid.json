@@ -11,7 +11,7 @@
       "entries": [
         {
           "type": "minecraft:item",
-          "name": "flowerdisease:diseased_blue_orchid"
+          "name": "minecraft:blue_orchid"
         }
       ],
       "rolls": 1.0

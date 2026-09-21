@@ -27,7 +27,20 @@ sourceSets.main.resources {
 }
 
 repositories {
-    // Add here additional repositories if required by some of the dependencies below.
+    // Jade is only published on Modrinth's own Maven - scoped with exclusiveContent so this repository is
+    // never consulted for anything but the "maven.modrinth" group (avoids it shadowing/slowing down
+    // lookups for our other, unrelated dependencies).
+    exclusiveContent {
+        forRepository {
+            maven {
+                name = "Modrinth"
+                url = "https://api.modrinth.com/maven"
+            }
+        }
+        filter {
+            includeGroup "maven.modrinth"
+        }
+    }
 }
 
 base {
@@ -116,6 +129,14 @@ configurations {
 }
 
 dependencies {
+    // Optional Jade integration - see com.iridium.flowerdisease.compat.JadeCompat. compileOnly makes
+    // Jade's API visible while building this mod; localRuntime pulls the full jar only for our own
+    // runClient/runServer testing. Neither publishes a hard dependency on Jade to players of this mod -
+    // Jade's own plugin scanner is what actually loads JadeCompat, and only when Jade is genuinely
+    // installed, so the mod behaves identically with or without it.
+    compileOnly "maven.modrinth:jade:${jade_version}"
+    localRuntime "maven.modrinth:jade:${jade_version}"
+
     // Example optional mod dependency with JEI
     // The JEI API is declared for compile time use, while the full JEI artifact is used at runtime
     // compileOnly "mezz.jei:jei-${mc_version}-common-api:${jei_version}"

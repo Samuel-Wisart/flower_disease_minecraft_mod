@@ -11,7 +11,7 @@
       "entries": [
         {
           "type": "minecraft:item",
-          "name": "flowerdisease:diseased_tall_grass_top"
+          "name": "flowerdisease:tall_grass_top"
         }
       ],
       "rolls": 1.0

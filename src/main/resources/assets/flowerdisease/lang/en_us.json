@@ -1,4 +1,6 @@
 {
+  "flowerdisease.jade.spreading": "Diseased Flower",
+  "config.jade.plugin_flowerdisease.species_name": "Diseased Flower Species Name",
   "key.categories.flowerdisease": "Flower Disease",
   "key.flowerdisease.clear_garden": "Clear Nearby Plants (Debug)",
 

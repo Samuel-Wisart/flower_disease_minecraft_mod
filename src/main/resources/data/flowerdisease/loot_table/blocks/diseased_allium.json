@@ -11,7 +11,7 @@
       "entries": [
         {
           "type": "minecraft:item",
-          "name": "flowerdisease:diseased_allium"
+          "name": "minecraft:allium"
         }
       ],
       "rolls": 1.0

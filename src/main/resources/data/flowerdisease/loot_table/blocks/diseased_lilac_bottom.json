@@ -11,7 +11,7 @@
       "entries": [
         {
           "type": "minecraft:item",
-          "name": "flowerdisease:diseased_lilac_bottom"
+          "name": "flowerdisease:lilac_bottom"
         }
       ],
       "rolls": 1.0
