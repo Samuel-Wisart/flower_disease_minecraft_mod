@@ -14,6 +14,7 @@ import net.minecraft.world.level.LevelReader;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.DoublePlantBlock;
+import net.minecraft.world.level.block.MultifaceBlock;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.properties.DoubleBlockHalf;
 import net.neoforged.neoforge.registries.DeferredBlock;
@@ -30,10 +31,13 @@ import net.neoforged.neoforge.registries.DeferredBlock;
 // version of this mod (wrongly) turned settling into another pool draw entirely.
 final class DiseasedPlantLogic {
 
-    enum Shape { SINGLE, TALL }
+    enum Shape { SINGLE, TALL, CREEPING }
 
-    // Facing is only meaningful for Shape.SINGLE (two-block species never tilt - see
-    // PLANNING_STAGE2.md Fase 1); UP always accompanies TALL targets and is otherwise ignored.
+    // Meaning depends on shape: for SINGLE it's the PlantSupport.FACING value to place (tilt direction, or
+    // UP for standing upright - see PLANNING_STAGE2.md Fase 1); TALL ignores it (always UP, two-block
+    // species never tilt); for CREEPING it's the MultifaceBlock face to activate - the direction FROM the
+    // new block TOWARD the solid neighbor it's grabbing onto (MultifaceBlock's own convention, the
+    // opposite of PlantSupport.FACING's "away from the support" convention - see findCreepingTarget).
     private record SpreadTarget(BlockPos pos, Direction facing) {
     }
 
@@ -66,6 +70,19 @@ final class DiseasedPlantLogic {
             return;
         }
         randomTick(state, level, pos, random, self, fallbackBlock, Shape.TALL);
+    }
+
+    // Creeping species have no distinct vanilla form to settle into at all (see PLANNING_STAGE2.md Fase
+    // 2.1) - self doubles as its own fallback, same as passing yourself, so settle() always falls through
+    // to "settle in place" for these (vanillaSpecies == diseasedSpecies is exactly the check it makes).
+    static void randomTickCreeping(
+            BlockState state,
+            ServerLevel level,
+            BlockPos pos,
+            RandomSource random,
+            Block self
+    ) {
+        randomTick(state, level, pos, random, self, self, Shape.CREEPING);
     }
 
     private static void randomTick(
@@ -109,14 +126,19 @@ final class DiseasedPlantLogic {
         // taller than the density check can see, never counts its own siblings as crowding, and keeps
         // climbing indefinitely (reported after testing: with "ignore other species" on, a climbing
         // planting never seemed to settle at all). Computed once here and threaded into both the crowding
-        // scan and findSpreadTarget so the two can never drift apart like this again.
+        // scan and findSpreadTarget so the two can never drift apart like this again. A CREEPING plant's
+        // own search (findCreepingTarget) always uses the full spreadDistance on every axis regardless of
+        // the climbing toggle - see Fase 2.2 - so its crowding scan widens the exact same way, unconditionally,
+        // to avoid the identical bug class for a creeping species instead of just a climbing one.
         boolean climbing = profile != null && profile.climbing();
         int maxSpreadDistance = profile != null && profile.spreadDistanceOverride() >= 0
                 ? profile.spreadDistanceOverride()
                 : Config.FLOWER_SPREAD_DISTANCE.getAsInt();
-        int verticalRange = climbing
-                ? Math.max(Config.FLOWER_SPREAD_VERTICAL_RANGE.getAsInt(), maxSpreadDistance)
-                : Config.FLOWER_SPREAD_VERTICAL_RANGE.getAsInt();
+        int verticalRange = selfShape == Shape.CREEPING
+                ? maxSpreadDistance
+                : climbing
+                        ? Math.max(Config.FLOWER_SPREAD_VERTICAL_RANGE.getAsInt(), maxSpreadDistance)
+                        : Config.FLOWER_SPREAD_VERTICAL_RANGE.getAsInt();
 
         int densityRadius = Config.FLOWER_DENSITY_RADIUS.getAsInt();
         int maxNearby = profile != null && profile.densityTargetPer16x16() >= 0
@@ -157,10 +179,12 @@ final class DiseasedPlantLogic {
             @Nullable SpreadProfileBlockEntity profile
     ) {
         long childGenerations = generationsLeft < 0 ? generationsLeft : generationsLeft - 1;
-        // Facing only applies to Shape.SINGLE - see PlantSupport.FACING and the SpreadTarget comment.
-        BlockState childState = childShape == Shape.SINGLE
-                ? diseasedSpecies.defaultBlockState().setValue(PlantSupport.FACING, target.facing())
-                : diseasedSpecies.defaultBlockState();
+        // See the SpreadTarget comment for what target.facing() means per shape.
+        BlockState childState = switch (childShape) {
+            case SINGLE -> diseasedSpecies.defaultBlockState().setValue(PlantSupport.FACING, target.facing());
+            case CREEPING -> diseasedSpecies.defaultBlockState().setValue(MultifaceBlock.getFaceProperty(target.facing()), true);
+            case TALL -> diseasedSpecies.defaultBlockState();
+        };
 
         if (childGenerations == 0) {
             // No budget left for the child to spread itself, so it settles the instant it's created
@@ -224,7 +248,10 @@ final class DiseasedPlantLogic {
     }
 
     private static Shape shapeOf(Block block) {
-        return block instanceof DoublePlantBlock ? Shape.TALL : Shape.SINGLE;
+        if (block instanceof DoublePlantBlock) {
+            return Shape.TALL;
+        }
+        return block instanceof MultifaceBlock ? Shape.CREEPING : Shape.SINGLE;
     }
 
     @Nullable
@@ -282,6 +309,10 @@ final class DiseasedPlantLogic {
     // climbing planting is allowed to reach.
     @Nullable
     private static SpreadTarget findSpreadTarget(ServerLevel level, BlockPos origin, RandomSource random, Block species, int maxDistance, int verticalRange, boolean climbing, Shape shape) {
+        if (shape == Shape.CREEPING) {
+            return findCreepingTarget(level, origin, random, maxDistance);
+        }
+
         BlockState baseState = species.defaultBlockState();
 
         for (int attempt = 0; attempt < Config.FLOWER_SPREAD_ATTEMPTS.getAsInt(); attempt++) {
@@ -297,6 +328,49 @@ final class DiseasedPlantLogic {
             }
         }
 
+        return null;
+    }
+
+    // Deliberately not vanilla's face-to-face MultifaceSpreader: jumps to a random empty cell anywhere in
+    // the maxDistance cube (all 3 axes - "the graça is going up", per PLANNING_STAGE2.md 2.2, so vertical
+    // reach matches horizontal exactly, unconditional on the climbing toggle, which only ever applies to
+    // the tilt/climb feature) and grabs onto whichever of its 6 faces finds a solid neighbor.
+    @Nullable
+    private static SpreadTarget findCreepingTarget(ServerLevel level, BlockPos origin, RandomSource random, int maxDistance) {
+        for (int attempt = 0; attempt < Config.FLOWER_SPREAD_ATTEMPTS.getAsInt(); attempt++) {
+            int dx = random.nextInt(maxDistance * 2 + 1) - maxDistance;
+            int dy = random.nextInt(maxDistance * 2 + 1) - maxDistance;
+            int dz = random.nextInt(maxDistance * 2 + 1) - maxDistance;
+            if (dx == 0 && dy == 0 && dz == 0) {
+                continue;
+            }
+
+            BlockPos candidate = origin.offset(dx, dy, dz);
+            if (!level.isEmptyBlock(candidate)) {
+                continue;
+            }
+
+            Direction face = pickAttachableFace(level, candidate, random);
+            if (face != null) {
+                return new SpreadTarget(candidate, face);
+            }
+        }
+
+        return null;
+    }
+
+    // Random start index, same reasoning as tryFacings below - a block surrounded by solid neighbors on
+    // every side shouldn't always end up grabbing the same one.
+    @Nullable
+    private static Direction pickAttachableFace(ServerLevel level, BlockPos pos, RandomSource random) {
+        int startIndex = random.nextInt(Direction.values().length);
+        for (int i = 0; i < Direction.values().length; i++) {
+            Direction direction = Direction.values()[(startIndex + i) % Direction.values().length];
+            BlockPos neighborPos = pos.relative(direction);
+            if (MultifaceBlock.canAttachTo(level, direction, neighborPos, level.getBlockState(neighborPos))) {
+                return direction;
+            }
+        }
         return null;
     }
 

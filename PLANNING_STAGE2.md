@@ -67,7 +67,45 @@ no GitHub). A etapa 1 fica isolada em `main`.
   descobrir que Jade exige uma chave de lang `config.jade.plugin_<modid>.<uid>` pra CADA provider
   registrado (usada no menu de config dele) — sem ela o cliente lança `AssertionError` ao abrir a tela
   inicial. Ainda não visto em jogo (preciso que você olhe pra uma flor de verdade pra confirmar o texto).
-- **Próximo passo: Fase 2 (creeping)**, ainda não iniciada.
+- **Fase 2 (creeping) — feita e commitada** nessa branch, ainda **não testada em jogo** (só `compileJava` e
+  `runClient` limpos até aqui). Resumo do que mudou:
+  - `CreepingFlowerBlock extends MultifaceBlock implements EntityBlock` (novo) — mesma base do Glow
+    Lichen/Sculk Vein do vanilla. 4 instâncias registradas: `sunflower_creeper`, `lilac_creeper`,
+    `rose_bush_creeper`, `peony_creeper`. Um bloco só por espécie (não bloco terminal + bloco Diseased) —
+    `diseasedByFallback()` mapeia cada creeper pra ele mesmo, então `DiseasedPlantLogic#settle` sempre cai
+    no "assenta no lugar" (nunca vira outra coisa).
+  - **Único caso em que o item da espécie É pra aparecer no criativo/JEI**: como não existe item vanilla
+    equivalente pra selecionar "creeping" na bag (diferente das 22 espécies normais, que reusam o item
+    vanilla), os 4 itens `*_creeper` ficam visíveis — mesmo raciocínio que já valia pros 12 decorativos
+    Top/Bottom antes da limpeza do início desta sessão.
+  - `DiseasedPlantLogic`: `Shape` ganhou `CREEPING`; `shapeOf` reconhece `MultifaceBlock`;
+    `findSpreadTarget` bifurca pra `findCreepingTarget` nesse caso — sorteia uma posição vazia dentro de um
+    cubo `±spreadDistance` (as 3 eixos, alcance vertical sempre igual ao horizontal, independente do toggle
+    de escalada) e tenta grudar numa das 6 faces via `MultifaceBlock.canAttachTo`, em ordem aleatória. Sem
+    `MultifaceSpreader`/bonemeal do vanilla — motor próprio, igual ao resto do mod, como decidido no plano.
+  - `placeChild` ganhou um terceiro ramo no switch por `childShape`: pra `CREEPING`,
+    `MultifaceBlock.getFaceProperty(target.facing())` é setada `true` — `facing` aqui significa "direção do
+    NOVO bloco até o vizinho sólido" (convenção do `MultifaceBlock`, o OPOSTO da convenção de
+    `PlantSupport.FACING` usada pelas espécies de 1 bloco inclinadas — documentado no comment do
+    `SpreadTarget`).
+  - Checagem de lotação: o alcance vertical do scan (`countNearbyFieldFlowers`) passou a levar em conta a
+    forma da PRÓPRIA planta (`selfShape`), não só o toggle de escalada — uma planta `CREEPING` sempre usa
+    `maxSpreadDistance` no scan vertical, senão ela cairia exatamente no mesmo bug corrigido acima pra
+    escalada (nunca enxergar as próprias irmãs por causa do alcance vertical divergente).
+  - `SettleTable.isAnyPlant` (modo territorial) passou a reconhecer `CreepingFlowerBlock` especificamente
+    (não `MultifaceBlock` genérico — Glow Lichen/Sculk Vein do vanilla não contam como "planta" pra essa
+    mecânica).
+  - `/cleargarden`: adiantado (fora de ordem, a Fase 4 original previa isso junto com o flower block) pra
+    também remover `CreepingFlowerBlock` — senão todo teste desta fase deixaria resíduo que o Ctrl+P não
+    tocaria.
+  - Recursos: 1 modelo-pai `flowerdisease:block/creeping_flower` (quad único, `render_type: minecraft:cutout`
+    explícito no JSON — o vanilla define isso em Java pro Glow Lichen, nós não temos esse hook, então
+    precisa ir no modelo) espelhando `minecraft:block/glow_lichen`; 4 modelos de bloco (só trocam a
+    textura), 4 blockstates `multipart` (as 12 entradas do glow lichen vanilla, uma por face + o fallback
+    "todas as faces false", ignorando `SETTLED`), 4 modelos de item (`item/generated` + `layer0`, igual o
+    item do glow lichen vanilla, não o modelo do bloco), 4 loot tables (dropam a si mesmas), 4 entradas de
+    lang. Textura placeholder = `minecraft:block/<espécie>_bottom`, como decidido desde o início da etapa.
+- **Próximo passo: Fase 3 (flower block)**, ainda não iniciada.
 
 ### Correções pós-teste da Fase 1 (2026-09-18)
 

@@ -124,8 +124,11 @@ final class FlowerDiseaseCommands {
                     cursor.set(x, y, z);
                     BlockState state = level.getBlockState(cursor);
                     // Covers vanilla and Diseased flowers/grass/ferns/dead bush alike, plus our
-                    // decorative tops - all of them extend BushBlock. No drops, straight to air.
-                    if (state.getBlock() instanceof BushBlock) {
+                    // decorative tops - all of them extend BushBlock. Creeping flowers (Stage 2 Fase 2)
+                    // don't, so they're checked separately - added ahead of the rest of Fase 4 on purpose,
+                    // otherwise every test of the creeping feature leaves residue Ctrl+P can't touch. No
+                    // drops either way, straight to air.
+                    if (state.getBlock() instanceof BushBlock || state.getBlock() instanceof CreepingFlowerBlock) {
                         level.setBlock(cursor, Blocks.AIR.defaultBlockState(), SettleTable.PLACEMENT_FLAGS);
                         cleared++;
                     }

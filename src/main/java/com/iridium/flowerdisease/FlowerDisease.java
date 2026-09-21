@@ -104,6 +104,17 @@ public class FlowerDisease {
     public static final DeferredBlock<DiseasedTallFlowerBlock> DISEASED_ROSE_BUSH = registerDiseasedTall("diseased_rose_bush", Blocks.ROSE_BUSH);
     public static final DeferredBlock<DiseasedTallFlowerBlock> DISEASED_PEONY = registerDiseasedTall("diseased_peony", Blocks.PEONY);
 
+    // Creeping variant of the same 4 tall flowers (Stage 2 Fase 2, see PLANNING_STAGE2.md and
+    // CreepingFlowerBlock) - spreads across any solid face like Glow Lichen/Sculk Vein instead of standing
+    // in the ground. No "vanilla" counterpart at all (diseasedByFallback() maps each to itself below), and
+    // - unlike every other species here - the item form IS meant to be obtainable: it's the only way to
+    // pick this species in the Garden Bag, there being no plain vanilla item to reuse for it (see
+    // bagOutcomeItems() and addCreative()).
+    public static final DeferredBlock<CreepingFlowerBlock> SUNFLOWER_CREEPER = registerCreeping("sunflower_creeper");
+    public static final DeferredBlock<CreepingFlowerBlock> LILAC_CREEPER = registerCreeping("lilac_creeper");
+    public static final DeferredBlock<CreepingFlowerBlock> ROSE_BUSH_CREEPER = registerCreeping("rose_bush_creeper");
+    public static final DeferredBlock<CreepingFlowerBlock> PEONY_CREEPER = registerCreeping("peony_creeper");
+
     // Short Grass and Fern both use vanilla's plain TallGrassBlock class, so one block class
     // (DiseasedGrassBlock) covers both - only the fallback differs per registration.
     public static final DeferredBlock<DiseasedGrassBlock> DISEASED_SHORT_GRASS = BLOCKS.registerBlock(
@@ -236,7 +247,14 @@ public class FlowerDisease {
                     Map.entry(TALL_GRASS_TOP.get(), DISEASED_TALL_GRASS_TOP),
                     Map.entry(TALL_GRASS_BOTTOM.get(), DISEASED_TALL_GRASS_BOTTOM),
                     Map.entry(LARGE_FERN_TOP.get(), DISEASED_LARGE_FERN_TOP),
-                    Map.entry(LARGE_FERN_BOTTOM.get(), DISEASED_LARGE_FERN_BOTTOM)
+                    Map.entry(LARGE_FERN_BOTTOM.get(), DISEASED_LARGE_FERN_BOTTOM),
+                    // Creeping species map to themselves - there's no separate vanilla-ish fallback block
+                    // for them at all (see the field comment above DISEASED_PEONY/SUNFLOWER_CREEPER), so
+                    // this is what makes DiseasedPlantLogic#settle always settle these in place.
+                    Map.entry(SUNFLOWER_CREEPER.get(), SUNFLOWER_CREEPER),
+                    Map.entry(LILAC_CREEPER.get(), LILAC_CREEPER),
+                    Map.entry(ROSE_BUSH_CREEPER.get(), ROSE_BUSH_CREEPER),
+                    Map.entry(PEONY_CREEPER.get(), PEONY_CREEPER)
             );
         }
         return diseasedByFallback;
@@ -273,6 +291,7 @@ public class FlowerDisease {
                     DISEASED_PINK_TULIP.get(), DISEASED_OXEYE_DAISY.get(), DISEASED_CORNFLOWER.get(), DISEASED_LILY_OF_THE_VALLEY.get(),
                     DISEASED_WITHER_ROSE.get(),
                     DISEASED_SUNFLOWER.get(), DISEASED_LILAC.get(), DISEASED_ROSE_BUSH.get(), DISEASED_PEONY.get(),
+                    SUNFLOWER_CREEPER.get(), LILAC_CREEPER.get(), ROSE_BUSH_CREEPER.get(), PEONY_CREEPER.get(),
                     DISEASED_SHORT_GRASS.get(), DISEASED_FERN.get(), DISEASED_DEAD_BUSH.get(),
                     DISEASED_TALL_GRASS.get(), DISEASED_LARGE_FERN.get(),
                     DISEASED_SUNFLOWER_TOP.get(), DISEASED_SUNFLOWER_BOTTOM.get(),
@@ -308,6 +327,10 @@ public class FlowerDisease {
     public static final DeferredItem<BlockItem> TALL_GRASS_BOTTOM_ITEM = ITEMS.registerSimpleBlockItem("tall_grass_bottom", TALL_GRASS_BOTTOM);
     public static final DeferredItem<BlockItem> LARGE_FERN_TOP_ITEM = ITEMS.registerSimpleBlockItem("large_fern_top", LARGE_FERN_TOP);
     public static final DeferredItem<BlockItem> LARGE_FERN_BOTTOM_ITEM = ITEMS.registerSimpleBlockItem("large_fern_bottom", LARGE_FERN_BOTTOM);
+    public static final DeferredItem<BlockItem> SUNFLOWER_CREEPER_ITEM = ITEMS.registerSimpleBlockItem("sunflower_creeper", SUNFLOWER_CREEPER);
+    public static final DeferredItem<BlockItem> LILAC_CREEPER_ITEM = ITEMS.registerSimpleBlockItem("lilac_creeper", LILAC_CREEPER);
+    public static final DeferredItem<BlockItem> ROSE_BUSH_CREEPER_ITEM = ITEMS.registerSimpleBlockItem("rose_bush_creeper", ROSE_BUSH_CREEPER);
+    public static final DeferredItem<BlockItem> PEONY_CREEPER_ITEM = ITEMS.registerSimpleBlockItem("peony_creeper", PEONY_CREEPER);
 
     // What dropping a given item into one of the Garden Bag's species grid slots means - the stack count
     // in that slot becomes that outcome's relative weight (see GardenBagItem). Every item here maps to a
@@ -354,7 +377,14 @@ public class FlowerDisease {
                     Map.entry(TALL_GRASS_BOTTOM_ITEM.get(), TALL_GRASS_BOTTOM.get()),
                     Map.entry(Items.LARGE_FERN, Blocks.LARGE_FERN),
                     Map.entry(LARGE_FERN_TOP_ITEM.get(), LARGE_FERN_TOP.get()),
-                    Map.entry(LARGE_FERN_BOTTOM_ITEM.get(), LARGE_FERN_BOTTOM.get())
+                    Map.entry(LARGE_FERN_BOTTOM_ITEM.get(), LARGE_FERN_BOTTOM.get()),
+                    // No vanilla item to reuse here (see diseasedByFallback() above), so the creeper's own
+                    // item is the only way to pick this species in the bag - outcome block is the creeper
+                    // itself, same self-mapping as diseasedByFallback().
+                    Map.entry(SUNFLOWER_CREEPER_ITEM.get(), SUNFLOWER_CREEPER.get()),
+                    Map.entry(LILAC_CREEPER_ITEM.get(), LILAC_CREEPER.get()),
+                    Map.entry(ROSE_BUSH_CREEPER_ITEM.get(), ROSE_BUSH_CREEPER.get()),
+                    Map.entry(PEONY_CREEPER_ITEM.get(), PEONY_CREEPER.get())
             );
         }
         return bagOutcomeItems;
@@ -403,6 +433,25 @@ public class FlowerDisease {
                 .sound(SoundType.GRASS)
                 .offsetType(BlockBehaviour.OffsetType.XZ)
                 .ignitedByLava()
+                .pushReaction(PushReaction.DESTROY)
+                .randomTicks();
+    }
+
+    private static DeferredBlock<CreepingFlowerBlock> registerCreeping(String name) {
+        return BLOCKS.registerBlock(name, CreepingFlowerBlock::new, creepingFlowerProperties());
+    }
+
+    // Mirrors vanilla Glow Lichen's own properties (see Blocks.GLOW_LICHEN) rather than the flower
+    // properties above - it's a thin face-hugging overlay, not a ground plant, so noCollission/replaceable/
+    // no offsetType (offsets only make sense for something standing freely on a single spot) all carry
+    // over; light/ignitedByLava don't apply to us and are left out.
+    private static BlockBehaviour.Properties creepingFlowerProperties() {
+        return BlockBehaviour.Properties.of()
+                .mapColor(MapColor.PLANT)
+                .replaceable()
+                .noCollission()
+                .strength(0.2F)
+                .sound(SoundType.GRASS)
                 .pushReaction(PushReaction.DESTROY)
                 .randomTicks();
     }
@@ -519,8 +568,9 @@ public class FlowerDisease {
     // block registrations above) - they only ever exist as something the Garden Bag or a spreading plant
     // places directly in the world, never as a creative-tab/JEI entry or a "diseased" holdable in any
     // form. Only the plain decorative Top/Bottom halves (legitimate standalone decoration, not diseased)
-    // get a creative-tab spot here, grouped right after their vanilla flower. The Garden Bag itself goes
-    // in Tools and Utilities (it's a utility item, not a flower).
+    // and the 4 creeper items (no vanilla item exists to select that species in the bag instead - see
+    // bagOutcomeItems()) get a creative-tab spot here, grouped right after their vanilla flower. The
+    // Garden Bag itself goes in Tools and Utilities (it's a utility item, not a flower).
     private void addCreative(BuildCreativeModeTabContentsEvent event) {
         if (event.getTabKey() == CreativeModeTabs.TOOLS_AND_UTILITIES) {
             event.accept(GARDEN_BAG);
@@ -533,13 +583,17 @@ public class FlowerDisease {
 
         insertAfter(event, Items.SUNFLOWER, SUNFLOWER_TOP_ITEM);
         insertAfter(event, SUNFLOWER_TOP_ITEM.get(), SUNFLOWER_BOTTOM_ITEM);
-        insertAfter(event, SUNFLOWER_BOTTOM_ITEM.get(), LILAC_TOP_ITEM);
+        insertAfter(event, SUNFLOWER_BOTTOM_ITEM.get(), SUNFLOWER_CREEPER_ITEM);
+        insertAfter(event, SUNFLOWER_CREEPER_ITEM.get(), LILAC_TOP_ITEM);
         insertAfter(event, LILAC_TOP_ITEM.get(), LILAC_BOTTOM_ITEM);
-        insertAfter(event, LILAC_BOTTOM_ITEM.get(), ROSE_BUSH_TOP_ITEM);
+        insertAfter(event, LILAC_BOTTOM_ITEM.get(), LILAC_CREEPER_ITEM);
+        insertAfter(event, LILAC_CREEPER_ITEM.get(), ROSE_BUSH_TOP_ITEM);
         insertAfter(event, ROSE_BUSH_TOP_ITEM.get(), ROSE_BUSH_BOTTOM_ITEM);
-        insertAfter(event, ROSE_BUSH_BOTTOM_ITEM.get(), PEONY_TOP_ITEM);
+        insertAfter(event, ROSE_BUSH_BOTTOM_ITEM.get(), ROSE_BUSH_CREEPER_ITEM);
+        insertAfter(event, ROSE_BUSH_CREEPER_ITEM.get(), PEONY_TOP_ITEM);
         insertAfter(event, PEONY_TOP_ITEM.get(), PEONY_BOTTOM_ITEM);
-        insertAfter(event, PEONY_BOTTOM_ITEM.get(), TALL_GRASS_TOP_ITEM);
+        insertAfter(event, PEONY_BOTTOM_ITEM.get(), PEONY_CREEPER_ITEM);
+        insertAfter(event, PEONY_CREEPER_ITEM.get(), TALL_GRASS_TOP_ITEM);
         insertAfter(event, TALL_GRASS_TOP_ITEM.get(), TALL_GRASS_BOTTOM_ITEM);
         insertAfter(event, TALL_GRASS_BOTTOM_ITEM.get(), LARGE_FERN_TOP_ITEM);
         insertAfter(event, LARGE_FERN_TOP_ITEM.get(), LARGE_FERN_BOTTOM_ITEM);
