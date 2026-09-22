@@ -185,6 +185,29 @@ no GitHub). A etapa 1 fica isolada em `main`.
     - O painel de preview da bag (`GardenBagScreen`) mostra "Creates flower blocks: yes" sempre que o Moss
       Block está na bag, mesmo que `flowerBlockConversion` esteja desligado no config do servidor (o cliente
       não tem como saber esse valor do config do lado do servidor). Cosmético, não corrigido.
+
+### Correção pós-revisão: face `up`/`down` trocada nos blockstates de creeper (2026-09-22)
+
+Você criou a arte de verdade pra `rose_bush_creeper_top` e reportou que ela não aparecia em jogo, mesmo
+plantando a creeping flower crescendo em cima do chão (o caso comum). Causa: os 4 blockstates gerados na
+revisão anterior mapeavam a face `up=true` pro modelo `_top` e `down=true` pro `_bottom` — mas a convenção
+do `MultifaceBlock` (a mesma do Glow Lichen vanilla) é "a direção É pra onde está o suporte", o oposto da
+posição visual da planta. Uma flor **em pé no chão** (suporte embaixo dela) ativa a face `down`, não `up` -
+`up=true` só acontece quando ela está **pendurada no teto** (suporte em cima dela). Ou seja: o mapeamento
+estava exatamente invertido - a textura `_top` só aparecia no caso raro (pendurada), e o caso comum (em pé)
+sempre mostrava `_bottom`, então a arte nova parecia "não aparecer".
+
+Corrigido nos 4 `blockstates/*_creeper.json`: `down=true` → modelo `_top` (em pé no chão = visualmente em
+cima de um bloco); `up=true` → modelo `_bottom` (pendurada = visualmente embaixo de um bloco). `side`
+continua igual (as 4 direções horizontais). Validado com `runClient` - carrega sem erro nenhum ligado aos
+creepers.
+
+**Achado à parte, não relacionado ao bug acima**: o log do `runClient` mostrou 4 arquivos soltos em
+`textures/block/` com nomes inválidos pro Minecraft (`Gemini_Generated_Image_....jpeg/.jpg/.png`) - letra
+maiúscula não é permitida em caminho de resource pack, e `.jpeg`/`.jpg` não são formato de textura válido
+pro jogo (só `.png` funciona). Provavelmente arquivos de arte gerada que ainda não foram renomeados/
+convertidos - não estão quebrando nada agora porque nenhum model ainda referencia esses nomes, mas não vão
+funcionar do jeito que estão se algo passar a apontar pra eles.
 - **Próximo passo: Fase 4 (compatibilidade, debug, documentação)** — já com boa parte adiantada (ver
   `/cleargarden` acima nas Fases 2 e 3).
 

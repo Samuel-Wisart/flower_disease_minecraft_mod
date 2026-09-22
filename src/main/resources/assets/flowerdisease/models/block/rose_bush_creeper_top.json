@@ -1,6 +1,6 @@
 {
   "parent": "flowerdisease:block/creeping_flower",
   "textures": {
-    "creeper": "minecraft:block/rose_bush_top"
+    "creeper": "flowerdisease:block/rose_bush_creeper_top"
   }
 }
