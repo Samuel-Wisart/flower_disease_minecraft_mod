@@ -208,6 +208,23 @@ maiúscula não é permitida em caminho de resource pack, e `.jpeg`/`.jpg` não 
 pro jogo (só `.png` funciona). Provavelmente arquivos de arte gerada que ainda não foram renomeados/
 convertidos - não estão quebrando nada agora porque nenhum model ainda referencia esses nomes, mas não vão
 funcionar do jeito que estão se algo passar a apontar pra eles.
+
+### Correção pós-teste: sprite da flor inclinada distorcida (2026-09-23)
+
+Você reportou que, ao nascer inclinada, a sprite não parecia só rotacionar - parecia esticada/distorcida.
+Causa raiz, confirmada comparando com o `cross.json` real do vanilla: o `tilted_cross.json`/
+`tilted_tinted_cross.json` (Fase 1, modelo compartilhado por todas as 28 espécies de 1 bloco inclinadas)
+tem 2 elementos - o plano "de frente" (`north`/`south`) e o plano perpendicular (`west`/`east`). No vanilla,
+os dois têm exatamente o mesmo tamanho (14.4 unidades, de 0.8 a 15.2). Nas rodadas de ajuste de posição da
+Fase 1 (evitar a flor flutuando longe do suporte), o elemento perpendicular foi encolhido de 14.4 unidades
+pra só 5 (`"from":[8,0,11]` até `"to":[8,16,16]`) enquanto o UV continuou mapeando a textura inteira
+(`[0,0,16,16]`) nele - ou seja, a arte inteira sendo espremida numa fatia 3x menor que o normal. Isso sim é
+distorção de verdade, não só a rotação em si (a rotação nunca deforma, só reorienta).
+
+Corrigido: elemento perpendicular voltou a ter as mesmas 14.4 unidades do vanilla (`"from":[8,0,1.6]`, igual
+proporção do elemento frontal, só que encostado na parede em vez de centralizado) - mesma lógica de
+"encostar na parede" que já valia pro elemento frontal, sem encolher a textura. Validado com `runClient`
+(sem erro), ainda não visto em jogo.
 - **Próximo passo: Fase 4 (compatibilidade, debug, documentação)** — já com boa parte adiantada (ver
   `/cleargarden` acima nas Fases 2 e 3).
 
