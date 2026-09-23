@@ -221,10 +221,27 @@ pra só 5 (`"from":[8,0,11]` até `"to":[8,16,16]`) enquanto o UV continuou mape
 (`[0,0,16,16]`) nele - ou seja, a arte inteira sendo espremida numa fatia 3x menor que o normal. Isso sim é
 distorção de verdade, não só a rotação em si (a rotação nunca deforma, só reorienta).
 
-Corrigido: elemento perpendicular voltou a ter as mesmas 14.4 unidades do vanilla (`"from":[8,0,1.6]`, igual
-proporção do elemento frontal, só que encostado na parede em vez de centralizado) - mesma lógica de
-"encostar na parede" que já valia pro elemento frontal, sem encolher a textura. Validado com `runClient`
-(sem erro), ainda não visto em jogo.
+**Primeira tentativa (errada)**: só devolvi as 14.4 unidades ao elemento perpendicular mantendo a ponta
+encostada na parede (`"from":[8,0,1.6]` até `"to":[8,16,16]`) - a textura ficou certa, mas você reportou que
+aí o plano perpendicular saía do plano frontal, desalinhado, pior que antes. Causa: eu só corrigi o TAMANHO
+do elemento, sem entender por que o desalinhamento existia. Comparei com o próprio `template_torch_wall.json`
+do vanilla (a tocha de parede - a referência real de "sprite inclinado encostado numa parede") pra entender a
+técnica certa: TODOS os elementos de um objeto que vai inclinar precisam sofrer exatamente a MESMA translação
+e a MESMA rotação, preservando entre eles a MESMA posição relativa que tinham no objeto parado - nunca um
+elemento reposicionado/redimensionado com uma lógica diferente do outro. Foi exatamente isso que a primeira
+tentativa (e a implementação original da Fase 1) violava: o elemento frontal recebeu um deslocamento
+consistente (+8 no Z, de "centralizado" pra "encostado"), mas o elemento perpendicular recebia um valor
+arbitrário e diferente daquele mesmo deslocamento - por isso os dois paravam de se cruzar corretamente depois
+da rotação (só ficam alinhados quando a MESMA transformação rígida é aplicada aos dois).
+
+**Correção de verdade**: apliquei o mesmíssimo deslocamento (+8 no Z) que o elemento frontal já tinha também
+no elemento perpendicular, sem cortar nem redimensionar - `"from":[8,0,8.8]` até `"to":[8,16,23.2]` (note que
+23.2 passa de 16 - "fora dos limites" do bloco é normal e esperado nesse tipo de modelo antes da rotação
+entrar em ação; a própria tocha de parede do vanilla faz o mesmo, com elementos chegando a x=-8 antes da
+rotação). Matematicamente isso garante que os dois planos continuam se cruzando na mesma linha compartilhada
+(x=8, z=16) depois da rotação, exatamente como se cruzavam em x=8,z=8 no cross original do vanilla -
+alinhados por construção, não por tentativa e erro. Validado com `runClient` (sem erro), ainda não visto em
+jogo - essa é a versão que preciso que você confirme.
 - **Próximo passo: Fase 4 (compatibilidade, debug, documentação)** — já com boa parte adiantada (ver
   `/cleargarden` acima nas Fases 2 e 3).
 
