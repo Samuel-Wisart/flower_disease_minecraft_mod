@@ -6,7 +6,6 @@ import java.util.List;
 import javax.annotation.Nullable;
 
 import net.minecraft.core.BlockPos;
-import net.minecraft.core.Direction;
 import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.util.RandomSource;
@@ -19,32 +18,23 @@ import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.properties.DoubleBlockHalf;
 import net.neoforged.neoforge.registries.DeferredBlock;
 
-// Shared spread/settle logic for every Diseased plant, both single-block (Poppy, Dandelion, Wither Rose,
-// Short Grass, Fern, Dead Bush) and two-block (Sunflower, Lilac, Rose Bush, Peony, Tall Grass, Large
-// Fern). One engine handles both shapes on purpose: the bag's species pool (SpreadProfileBlockEntity#
-// speciesWeights) is never split or restricted by shape when a NEW plant is born - every spreading child
-// is an independent weighted draw over the WHOLE pool (see spreadableOptions below), which may be a
-// completely different species/shape than its parent. No "family" is tracked to constrain that. Settling
-// is different, though: a plant that gives up spreading isn't being "born" again, it's just stabilizing -
-// it becomes its own vanilla species (fallbackBlock) where that can actually survive, or otherwise just
-// stops ticking in place (SettleTable.SETTLED) - see settle() below and PLANNING.md for why an earlier
-// version of this mod (wrongly) turned settling into another pool draw entirely.
+// Shared life cycle of every Diseased plant - single-block (Poppy, Dandelion, Wither Rose, Short Grass, Fern,
+// Dead Bush), two-block (Sunflower, Lilac, Rose Bush, Peony, Tall Grass, Large Fern) and creeping. One engine
+// handles all shapes on purpose: the bag's species pool (GardenBagContents#speciesWeights) is never split or
+// restricted by shape when a NEW plant is born - a child may be a completely different species/shape than its
+// parent, and no "family" is tracked to constrain that.
+//
+// What one random tick does (see PLANNING_STAGE2.md, "Ciclo de vida"):
+//   1. Roll the reproduction chance, which decays with how deep in the lineage the plant is. Failing it just
+//      ignores the tick - nothing else happens, and in particular no settle test.
+//   2. Roll the lifetime test (Rabbit's Foot): each attempt lets the plant keep going with probability N/(N+1),
+//      so it reproduces N times on average before settling. Failing it settles the plant.
+//   3. Look for a place to put a child (SpreadSearch) and place it. If there's none, the plant settles.
+// "Settling" always keeps the plant's own species - it becomes its vanilla self where that can survive, or just
+// stops ticking in place - never another pool draw.
 final class DiseasedPlantLogic {
 
     enum Shape { SINGLE, TALL, CREEPING }
-
-    // Meaning depends on shape: for SINGLE it's the PlantSupport.FACING value to place (tilt direction, or
-    // UP for standing upright - see PLANNING_STAGE2.md Fase 1); TALL ignores it (always UP, two-block
-    // species never tilt); for CREEPING it's the MultifaceBlock face to activate - the direction FROM the
-    // new block TOWARD the solid neighbor it's grabbing onto (MultifaceBlock's own convention, the
-    // opposite of PlantSupport.FACING's "away from the support" convention - see findCreepingTarget).
-    private record SpreadTarget(BlockPos pos, Direction facing) {
-    }
-
-    private static final Direction[] HORIZONTAL_FACINGS = {Direction.NORTH, Direction.SOUTH, Direction.EAST, Direction.WEST};
-    // Cached once - Direction.values() allocates a fresh array on every call, and pickAttachableFace was
-    // calling it up to 3 times per loop iteration.
-    private static final Direction[] ALL_FACINGS = Direction.values();
 
     private DiseasedPlantLogic() {
     }
@@ -75,9 +65,9 @@ final class DiseasedPlantLogic {
         randomTick(state, level, pos, random, self, fallbackBlock, Shape.TALL);
     }
 
-    // Creeping species have no distinct vanilla form to settle into at all (see PLANNING_STAGE2.md Fase
-    // 2.1) - self doubles as its own fallback, same as passing yourself, so settle() always falls through
-    // to "settle in place" for these (vanillaSpecies == diseasedSpecies is exactly the check it makes).
+    // Creeping species have no distinct vanilla form to settle into at all (see PLANNING_STAGE2.md Fase 2.1) -
+    // self doubles as its own fallback, so settle() always falls through to "settle in place" for these
+    // (vanillaSpecies == diseasedSpecies is exactly the check it makes).
     static void randomTickCreeping(
             BlockState state,
             ServerLevel level,
@@ -98,111 +88,161 @@ final class DiseasedPlantLogic {
             Shape selfShape
     ) {
         // /diseasedflower debug true - a settled plant stops being randomly ticked at all (see
-        // SettleTable.SETTLED/isRandomlyTicking), so simply spawning a particle every time this method
-        // actually runs is already exactly "still reproducing" with no extra bookkeeping - it stops the
-        // moment a plant settles, on its own. Unconditional on spreadChance/generations on purpose: this
-        // should show ANY plant still eligible to spread, not just the ones about to succeed this tick.
+        // SettleTable.SETTLED/isRandomlyTicking), so simply spawning a particle every time this method actually
+        // runs is already exactly "still reproducing" with no extra bookkeeping - it stops the moment a plant
+        // settles, on its own. Unconditional on the rolls below on purpose: this should show ANY plant still
+        // eligible to spread, not just the ones about to succeed this tick.
         if (FlowerDiseaseCommands.debugParticlesEnabled()) {
             level.sendParticles(ParticleTypes.HAPPY_VILLAGER, pos.getX() + 0.5, pos.getY() + 0.7, pos.getZ() + 0.5, 1, 0.15, 0.15, 0.15, 0.0);
         }
 
-        SpreadProfileBlockEntity profile = profileAt(level, pos);
+        SpreadProfileBlockEntity plant = profileAt(level, pos);
+        GardenBagContents profile = plant != null ? plant.profile() : GardenBagContents.DEFAULT;
+        long depth = plant != null ? plant.depth() : 0;
 
-        double spreadChance = profile != null && profile.spreadChanceOverride() >= 0
-                ? profile.spreadChanceOverride()
-                : Config.FLOWER_SPREAD_CHANCE.getAsDouble();
-        if (random.nextFloat() >= (float) spreadChance) {
+        int maxDepth = Config.FLOWER_MAX_DEPTH.getAsInt();
+        if (maxDepth > 0 && depth >= maxDepth) {
+            settle(level, pos, self, fallbackBlock, selfShape, state, profile, random);
             return;
         }
 
-        // The bag's species grid (or the debug command) is the ONLY source of outcomes - a plant with no
-        // profile/pool configured just always settles back into its own plain vanilla self. This single
-        // pool mixes single- and two-block species together on purpose.
-        List<SettleTable.Option> outcomePool = profile != null ? SettleTable.parse(profile.speciesWeights()) : List.of();
-
-        long generationsLeft = profile != null && profile.generationsRemaining() != SpreadProfileBlockEntity.NO_GENERATIONS_OVERRIDE
-                ? profile.generationsRemaining()
-                : Config.FLOWER_MAX_GENERATIONS.getAsInt();
-
-        // Independent of everything below - a reproductive plant with the bag's Moss Block modifier has a
-        // small chance of also corrupting the block right below it this same tick, regardless of whether
-        // its own spread attempt succeeds (see PLANNING_STAGE2.md Fase 3.2). Runs for every shape,
-        // including CREEPING - nothing in the plan restricts it to plants standing on the ground.
-        if (generationsLeft != 0) {
-            FlowerBlockLogic.maybeSpawn(level, pos, random, generationsLeft, profile);
+        double baseChance = profile.spreadChance() >= 0 ? profile.spreadChance() : Config.FLOWER_SPREAD_CHANCE.getAsDouble();
+        double chance = SpreadMath.reproductionChance(baseChance, depth, SpreadMath.halfGenerations(profile.decayStrength()), profile.noDecay());
+        if (random.nextDouble() >= chance) {
+            return;
         }
 
-        // Climbing widens how far UP a spread target may land (see findSpreadTarget) - the crowding scan
-        // below has to widen by the exact same amount, or a chain climbing a tall trunk quickly grows
-        // taller than the density check can see, never counts its own siblings as crowding, and keeps
-        // climbing indefinitely (reported after testing: with "ignore other species" on, a climbing
-        // planting never seemed to settle at all). Computed once here and threaded into both the crowding
-        // scan and findSpreadTarget so the two can never drift apart like this again. A CREEPING plant's
-        // own search (findCreepingTarget) always uses the full spreadDistance on every axis regardless of
-        // the climbing toggle - see Fase 2.2 - so its crowding scan widens the exact same way, unconditionally,
-        // to avoid the identical bug class for a creeping species instead of just a climbing one.
-        boolean climbing = profile != null && profile.climbing();
-        int maxSpreadDistance = profile != null && profile.spreadDistanceOverride() >= 0
-                ? profile.spreadDistanceOverride()
-                : Config.FLOWER_SPREAD_DISTANCE.getAsInt();
-        int verticalRange = selfShape == Shape.CREEPING
-                ? maxSpreadDistance
-                : climbing
-                        ? Math.max(Config.FLOWER_SPREAD_VERTICAL_RANGE.getAsInt(), maxSpreadDistance)
-                        : Config.FLOWER_SPREAD_VERTICAL_RANGE.getAsInt();
-
-        int densityRadius = Config.FLOWER_DENSITY_RADIUS.getAsInt();
-        int maxNearby = profile != null && profile.densityTargetPer16x16() >= 0
-                ? SettleTable.densityTargetToMaxNearby(profile.densityTargetPer16x16(), densityRadius)
-                : Config.FLOWER_MAX_NEARBY.getAsInt();
-
-        boolean territorial = profile != null && profile.respectAllSpecies();
-        boolean tooCrowded = countNearbyFieldFlowers(level, pos, densityRadius, verticalRange, maxNearby, self, fallbackBlock, outcomePool, territorial) >= maxNearby;
-
-        if (!tooCrowded && generationsLeft != 0) {
-            // Independent draw over the whole pool every time - may be a different shape than this plant.
-            // Falls back to "spread as itself" (species = self) when nothing was picked, which is what
-            // keeps a hand-planted flower with no bag profile spreading as its own species like before.
-            SettleTable.Option pickedSpecies = SettleTable.pickWeighted(spreadableOptions(outcomePool), random);
-            Shape childShape = pickedSpecies != null ? shapeOf(pickedSpecies.block()) : selfShape;
-            Block vanillaSpecies = pickedSpecies != null ? pickedSpecies.block() : fallbackBlock;
-            Block diseasedSpecies = pickedSpecies != null ? diseasedOf(pickedSpecies.block(), self) : self;
-
-            SpreadTarget target = findSpreadTarget(level, pos, random, diseasedSpecies, maxSpreadDistance, verticalRange, climbing, childShape);
-            if (target != null) {
-                placeChild(level, target, diseasedSpecies, vanillaSpecies, childShape, generationsLeft, profile);
-                return;
-            }
+        int attempts = SpreadMath.resolveLifetimeAttempts(profile.lifetimeAttempts());
+        if (random.nextDouble() >= SpreadMath.continueProbability(attempts)) {
+            settle(level, pos, self, fallbackBlock, selfShape, state, profile, random);
+            return;
         }
 
-        // Couldn't produce a spreading child this tick (crowded, out of generation budget, or no valid
-        // target found anywhere): this plant settles for good, right where it stands, as its own species.
-        settle(level, pos, self, fallbackBlock, selfShape, state);
+        if (generationsLeft(profile, depth) == 0
+                || tryReproduce(level, pos, random, self, fallbackBlock, selfShape, profile, depth) == null) {
+            // Out of generation budget, or no valid target found anywhere: this plant settles for good, right
+            // where it stands, as its own species.
+            settle(level, pos, self, fallbackBlock, selfShape, state, profile, random);
+        }
     }
 
-    private static void placeChild(
+    // Unlimited (-1) unless the bag's Bone Meal, or the server default, caps it; the budget is the cap minus how
+    // deep in the lineage this plant already is.
+    static long generationsLeft(GardenBagContents profile, long depth) {
+        long cap = profile.generations() == SpreadProfileBlockEntity.NO_GENERATIONS_OVERRIDE
+                ? Config.FLOWER_MAX_GENERATIONS.getAsInt()
+                : profile.generations();
+        return SpreadMath.generationsLeft(cap, depth);
+    }
+
+    // Tries to give this plant one child; returns where it went, or null when there was nowhere (or nothing
+    // suitable) to put one. Shared by the random tick and the burst that follows a planting.
+    @Nullable
+    static BlockPos tryReproduce(
             ServerLevel level,
-            SpreadTarget target,
+            BlockPos pos,
+            RandomSource random,
+            Block self,
+            Block fallbackBlock,
+            Shape selfShape,
+            GardenBagContents profile,
+            long depth
+    ) {
+        List<SettleTable.Option> pool = SettleTable.parse(profile.speciesWeights());
+        List<SettleTable.Option> candidates = new ArrayList<>(spreadableOptions(pool));
+
+        boolean climbing = profile.climbing();
+        int density = SpreadMath.resolveDensity(profile.densityPer16x16());
+        int radius = SpreadMath.windowRadius(density);
+        int limit = SpreadMath.crowdLimit(density, radius);
+        int maxDistance = SpreadMath.resolveMaxDistance(profile.spreadDistance(), density);
+        int verticalConfig = Config.FLOWER_SPREAD_VERTICAL_RANGE.getAsInt();
+
+        // A climbing chain grows up a trunk one block at a time and a creeping colony grows across walls, so both
+        // need the crowding window to be as tall as it is wide to see their own neighbors.
+        int scanVertical = climbing || selfShape == Shape.CREEPING ? radius : verticalConfig;
+        SpreadSearch.Crowd crowd = new SpreadSearch.Crowd(radius, scanVertical, limit, self, fallbackBlock, pool, profile.respectAllSpecies());
+
+        // A child placed next to this plant would count it, and everything around it, as its own neighbors: if that
+        // alone reaches the limit, nothing within the window is acceptable and the search starts beyond it - which
+        // is the only way a plant standing in a crowd can still leave it (and impossible when the reach is shorter
+        // than the window).
+        int startRing = 1;
+        if (crowd.count(level, pos) + 1 >= limit) {
+            if (maxDistance <= radius) {
+                return null;
+            }
+            startRing = radius + 1;
+        }
+
+        int verticalRange = climbing ? Math.max(verticalConfig, maxDistance) : verticalConfig;
+
+        // One draw per shape at most: when the search finds no room for the drawn species' shape (a creeper with no
+        // wall in reach, say), the other shapes of the pool still get their chance before the plant gives up.
+        while (true) {
+            SettleTable.Option picked = pickSpecies(candidates, fallbackBlock, random);
+            Shape childShape = picked != null ? shapeOf(picked.block()) : selfShape;
+            Block vanillaSpecies = picked != null ? picked.block() : fallbackBlock;
+            Block diseasedSpecies = picked != null ? diseasedOf(picked.block(), self) : self;
+
+            SpreadSearch.Target target = SpreadSearch.find(level, pos, random, diseasedSpecies, childShape, startRing, maxDistance, verticalRange, climbing, crowd);
+            if (target != null) {
+                return placeChild(level, target, diseasedSpecies, vanillaSpecies, childShape, profile, depth, random);
+            }
+
+            if (picked == null) {
+                return null;
+            }
+            candidates.removeIf(option -> shapeOf(option.block()) == childShape);
+            if (candidates.isEmpty()) {
+                return null;
+            }
+        }
+    }
+
+    // Either copies the parent's species (with the configured probability, when it's still in the pool) or draws
+    // from the pool by weight. Copying is what gives gardens organic same-species patches instead of a uniform mix;
+    // the pool weights remain the long-run average composition.
+    @Nullable
+    private static SettleTable.Option pickSpecies(List<SettleTable.Option> candidates, Block parentSpecies, RandomSource random) {
+        if (candidates.isEmpty()) {
+            return null;
+        }
+
+        if (random.nextDouble() < Config.FLOWER_SPECIES_INHERITANCE.getAsDouble()) {
+            for (SettleTable.Option option : candidates) {
+                if (option.block() == parentSpecies) {
+                    return option;
+                }
+            }
+        }
+        return SettleTable.pickWeighted(candidates, random);
+    }
+
+    private static BlockPos placeChild(
+            ServerLevel level,
+            SpreadSearch.Target target,
             Block diseasedSpecies,
             Block vanillaSpecies,
             Shape childShape,
-            long generationsLeft,
-            @Nullable SpreadProfileBlockEntity profile
+            GardenBagContents profile,
+            long parentDepth,
+            RandomSource random
     ) {
-        long childGenerations = generationsLeft < 0 ? generationsLeft : generationsLeft - 1;
-        // See the SpreadTarget comment for what target.facing() means per shape.
+        long childDepth = parentDepth + 1;
+        // See SpreadSearch.Target for what target.facing() means per shape.
         BlockState childState = switch (childShape) {
             case SINGLE -> diseasedSpecies.defaultBlockState().setValue(PlantSupport.FACING, target.facing());
             case CREEPING -> diseasedSpecies.defaultBlockState().setValue(MultifaceBlock.getFaceProperty(target.facing()), true);
             case TALL -> diseasedSpecies.defaultBlockState();
         };
 
-        if (childGenerations == 0) {
-            // No budget left for the child to spread itself, so it settles the instant it's created
-            // instead of existing as an active Diseased Flower even briefly - as its own (just-picked)
-            // species, same as any other settle decision.
-            settle(level, target.pos(), diseasedSpecies, vanillaSpecies, childShape, childState);
-            return;
+        if (generationsLeft(profile, childDepth) == 0) {
+            // No budget left for the child to spread itself, so it settles the instant it's created instead of
+            // existing as an active Diseased Flower even briefly - as its own (just-picked) species, same as any
+            // other settle decision.
+            settle(level, target.pos(), diseasedSpecies, vanillaSpecies, childShape, childState, profile, random);
+            return target.pos();
         }
 
         if (childShape == Shape.TALL) {
@@ -211,56 +251,109 @@ final class DiseasedPlantLogic {
             level.setBlock(target.pos(), childState, SettleTable.PLACEMENT_FLAGS);
         }
 
-        if (level.getBlockEntity(target.pos()) instanceof SpreadProfileBlockEntity childProfile) {
-            // Always persists the generation countdown, bag or not - it's the only field that's tracked
-            // regardless of whether a bag profile is active (see SpreadProfileBlockEntity). The rest of
-            // the profile only gets copied down when there actually is one to copy.
-            if (profile != null) {
-                childProfile.configure(profile.toContents(childGenerations));
-            } else {
-                childProfile.setGenerationsRemaining(childGenerations);
-            }
+        if (level.getBlockEntity(target.pos()) instanceof SpreadProfileBlockEntity child) {
+            child.inherit(profile, childDepth);
         }
+        return target.pos();
     }
 
-    // A plant that can't spread anymore isn't being "born" again - it just stabilizes. If its own vanilla
-    // species can actually survive right here, it becomes that (unchanged from before - the common case:
-    // a flower settling on ordinary ground). Otherwise it keeps its EXACT current block/shape/facing and
-    // just gets marked SETTLED, instead of trying to become something that can't exist at this position -
-    // this covers a species with no distinct vanilla form at all (vanillaSpecies == diseasedSpecies, the
-    // creeping species from Stage 2) and a species whose vanilla form can't survive exactly here (e.g. a
-    // flower climbing a tree trunk, also Stage 2). No pool draw either way - see class comment.
-    private static void settle(ServerLevel level, BlockPos pos, Block diseasedSpecies, Block vanillaSpecies, Shape atShape, BlockState inPlaceState) {
+    // A plant that can't spread anymore isn't being "born" again - it just stabilizes. If its own vanilla species
+    // can actually survive right here, it becomes that (the common case: a flower settling on ordinary ground).
+    // Otherwise it keeps its EXACT current block/shape/facing and just gets marked SETTLED, instead of trying to
+    // become something that can't exist at this position - this covers a species with no distinct vanilla form at
+    // all (vanillaSpecies == diseasedSpecies, the creeping species) and a species whose vanilla form can't survive
+    // exactly here (a flower climbing a tree trunk). No pool draw either way. Every plant gets exactly one shot at
+    // corrupting the block it grows on when it settles (see FlowerBlockLogic#onPlantSettled).
+    private static void settle(
+            ServerLevel level,
+            BlockPos pos,
+            Block diseasedSpecies,
+            Block vanillaSpecies,
+            Shape atShape,
+            BlockState inPlaceState,
+            GardenBagContents profile,
+            RandomSource random
+    ) {
         if (vanillaSpecies != diseasedSpecies && vanillaSpecies.defaultBlockState().canSurvive(level, pos)) {
             if (atShape == Shape.TALL) {
-                // The old upper half won't be overwritten unless the target is a real two-block plant, so
-                // clear it first - otherwise it'd be left floating with nothing below it.
+                // The old upper half won't be overwritten unless the target is a real two-block plant, so clear it
+                // first - otherwise it'd be left floating with nothing below it.
                 level.setBlock(pos.above(), Blocks.AIR.defaultBlockState(), SettleTable.PLACEMENT_FLAGS);
                 DoublePlantBlock.placeAt(level, vanillaSpecies.defaultBlockState(), pos, SettleTable.PLACEMENT_FLAGS);
             } else {
                 level.setBlock(pos, vanillaSpecies.defaultBlockState(), SettleTable.PLACEMENT_FLAGS);
             }
-            return;
+        } else {
+            BlockState settledState = inPlaceState.setValue(SettleTable.SETTLED, true);
+            if (atShape == Shape.TALL) {
+                // A brand-new tall child born already out of generations reaches this branch with pos still
+                // completely empty, so a plain setBlock would only ever write the LOWER half and leave the upper
+                // cell as air forever. placeAt always writes both halves, and for an existing plant settling in
+                // place it's an idempotent no-op on the upper half, which is already correctly there.
+                DoublePlantBlock.placeAt(level, settledState, pos, SettleTable.PLACEMENT_FLAGS);
+            } else {
+                level.setBlock(pos, settledState, SettleTable.PLACEMENT_FLAGS);
+            }
         }
 
-        BlockState settledState = inPlaceState.setValue(SettleTable.SETTLED, true);
-        if (atShape == Shape.TALL) {
-            // placeChild's "child born with 0 generations left" call reaches this branch with pos still
-            // completely empty (nothing placed yet at all) whenever the picked species can't survive as
-            // vanilla right where it landed (e.g. on top of a climbable block) - a plain setBlock(pos, ...)
-            // here only ever wrote the LOWER half, leaving the upper cell as air forever (bug reported
-            // after testing: a tall species "climbing" a tree showed only its lower half). placeAt always
-            // writes both halves, and for the OTHER call site (an existing active plant settling in place)
-            // it's an idempotent no-op on the upper half, which is already correctly there.
-            DoublePlantBlock.placeAt(level, settledState, pos, SettleTable.PLACEMENT_FLAGS);
-        } else {
-            level.setBlock(pos, settledState, SettleTable.PLACEMENT_FLAGS);
+        FlowerBlockLogic.onPlantSettled(level, pos, inPlaceState, atShape, profile, random);
+    }
+
+    // ---- Planting burst ------------------------------------------------------------------------------
+
+    // Right after the bag plants a root, forces a couple of generations of children straight away - ignoring the
+    // reproduction chance and the lifetime test, but not the generation budget, density or terrain - so the player
+    // gets a taste of the garden instead of one lonely flower.
+    static void burst(ServerLevel level, BlockPos rootPos, RandomSource random) {
+        int generations = Config.FLOWER_BURST_GENERATIONS.getAsInt();
+        int maxPlants = Config.FLOWER_BURST_MAX_PLANTS.getAsInt();
+        if (generations > 0 && maxPlants > 0) {
+            burstFrom(level, rootPos, random, 1, generations, new int[]{maxPlants});
         }
     }
 
-    // Package-visible so GardenBagItem can figure out how to build a placement state for the root plant -
-    // same shape-detection rule spreading children already use, so the two can never disagree about what a
-    // given species' Block instance means.
+    private static void burstFrom(ServerLevel level, BlockPos pos, RandomSource random, int generation, int maxGenerations, int[] budget) {
+        if (generation > maxGenerations) {
+            return;
+        }
+
+        BlockState state = level.getBlockState(pos);
+        Block fallback = FlowerDisease.fallbackByDiseased().get(state.getBlock());
+        if (fallback == null || isSettled(state)) {
+            // Not one of our plants (a child that settled straight into its vanilla self, say), or one that's done.
+            return;
+        }
+
+        SpreadProfileBlockEntity plant = profileAt(level, pos);
+        if (plant == null) {
+            return;
+        }
+
+        int children = generation == 1 ? 2 + random.nextInt(3) : generation == 2 ? 1 + random.nextInt(3) : 1 + random.nextInt(2);
+        for (int i = 0; i < children && budget[0] > 0; i++) {
+            if (generationsLeft(plant.profile(), plant.depth()) == 0) {
+                return;
+            }
+
+            BlockPos child = tryReproduce(level, pos, random, state.getBlock(), fallback, shapeOf(state.getBlock()), plant.profile(), plant.depth());
+            if (child == null) {
+                return;
+            }
+
+            budget[0]--;
+            burstFrom(level, child, random, generation + 1, maxGenerations, budget);
+        }
+    }
+
+    // ---- Helpers -------------------------------------------------------------------------------------
+
+    static boolean isSettled(BlockState state) {
+        return state.hasProperty(SettleTable.SETTLED) && state.getValue(SettleTable.SETTLED);
+    }
+
+    // Package-visible so GardenBagItem can figure out how to build a placement state for the root plant - same
+    // shape-detection rule spreading children already use, so the two can never disagree about what a given
+    // species' Block instance means.
     static Shape shapeOf(Block block) {
         if (block instanceof DoublePlantBlock) {
             return Shape.TALL;
@@ -269,12 +362,12 @@ final class DiseasedPlantLogic {
     }
 
     @Nullable
-    private static SpreadProfileBlockEntity profileAt(LevelReader level, BlockPos pos) {
+    static SpreadProfileBlockEntity profileAt(LevelReader level, BlockPos pos) {
         return level.getBlockEntity(pos) instanceof SpreadProfileBlockEntity profile ? profile : null;
     }
 
-    // Only entries that actually have a Diseased counterpart to spread as are valid here - a decorative
-    // top/bottom outcome has none, it's settle-only.
+    // Only entries that actually have a Diseased counterpart to spread as are valid here - a decorative top/bottom
+    // outcome has none, it's settle-only.
     static List<SettleTable.Option> spreadableOptions(List<SettleTable.Option> outcomePool) {
         List<SettleTable.Option> spreadable = new ArrayList<>();
         for (SettleTable.Option option : outcomePool) {
@@ -285,183 +378,11 @@ final class DiseasedPlantLogic {
         return spreadable;
     }
 
-    // Translates an already-picked pool entry into the Diseased block a new child should actually be
-    // placed as; falls back to "same species as the parent" when nothing was picked (empty pool - a
-    // hand-planted flower with no bag, or a debug profile with no species configured).
+    // Translates an already-picked pool entry into the Diseased block a new child should actually be placed as;
+    // falls back to "same species as the parent" when nothing was picked (empty pool - a hand-planted flower with
+    // no bag, or a debug profile with no species configured).
     private static Block diseasedOf(Block vanillaSpecies, Block self) {
         DeferredBlock<? extends Block> diseased = FlowerDisease.diseasedByFallback().get(vanillaSpecies);
         return diseased != null ? diseased.get() : self;
-    }
-
-    private static int countNearbyFieldFlowers(LevelReader level, BlockPos center, int radius, int verticalRange, int max, Block self, Block fallbackBlock, List<SettleTable.Option> outcomePool, boolean territorial) {
-        int count = 0;
-        BlockPos.MutableBlockPos cursor = new BlockPos.MutableBlockPos();
-        for (int dx = -radius; dx <= radius; dx++) {
-            for (int dz = -radius; dz <= radius; dz++) {
-                for (int dy = -verticalRange; dy <= verticalRange; dy++) {
-                    if (dx == 0 && dy == 0 && dz == 0) {
-                        continue;
-                    }
-
-                    cursor.setWithOffset(center, dx, dy, dz);
-                    BlockState state = level.getBlockState(cursor);
-                    boolean crowding = territorial ? SettleTable.isAnyPlant(state) : SettleTable.isSameSpecies(state, self, fallbackBlock, outcomePool);
-                    if (crowding) {
-                        count++;
-                        if (count >= max) {
-                            return count;
-                        }
-                    }
-                }
-            }
-        }
-        return count;
-    }
-
-    // maxDistance/verticalRange/climbing are computed once in randomTick (shared with the crowding scan -
-    // see the comment there) rather than re-derived here, so the two can never disagree about how far a
-    // climbing planting is allowed to reach.
-    @Nullable
-    private static SpreadTarget findSpreadTarget(ServerLevel level, BlockPos origin, RandomSource random, Block species, int maxDistance, int verticalRange, boolean climbing, Shape shape) {
-        if (shape == Shape.CREEPING) {
-            return findCreepingTarget(level, origin, random, maxDistance);
-        }
-
-        BlockState baseState = species.defaultBlockState();
-
-        for (int attempt = 0; attempt < Config.FLOWER_SPREAD_ATTEMPTS.getAsInt(); attempt++) {
-            int dx = random.nextInt(maxDistance * 2 + 1) - maxDistance;
-            int dz = random.nextInt(maxDistance * 2 + 1) - maxDistance;
-            if (dx == 0 && dz == 0) {
-                continue;
-            }
-
-            SpreadTarget candidate = followTerrain(level, origin.offset(dx, 0, dz), baseState, verticalRange, shape, climbing, random);
-            if (candidate != null) {
-                return candidate;
-            }
-        }
-
-        return null;
-    }
-
-    // Deliberately not vanilla's face-to-face MultifaceSpreader: jumps to a random empty cell anywhere in
-    // the maxDistance cube (all 3 axes - "the graça is going up", per PLANNING_STAGE2.md 2.2, so vertical
-    // reach matches horizontal exactly, unconditional on the climbing toggle, which only ever applies to
-    // the tilt/climb feature) and grabs onto whichever of its 6 faces finds a solid neighbor.
-    @Nullable
-    private static SpreadTarget findCreepingTarget(ServerLevel level, BlockPos origin, RandomSource random, int maxDistance) {
-        for (int attempt = 0; attempt < Config.FLOWER_SPREAD_ATTEMPTS.getAsInt(); attempt++) {
-            int dx = random.nextInt(maxDistance * 2 + 1) - maxDistance;
-            int dy = random.nextInt(maxDistance * 2 + 1) - maxDistance;
-            int dz = random.nextInt(maxDistance * 2 + 1) - maxDistance;
-            if (dx == 0 && dy == 0 && dz == 0) {
-                continue;
-            }
-
-            BlockPos candidate = origin.offset(dx, dy, dz);
-            if (!level.isEmptyBlock(candidate)) {
-                continue;
-            }
-
-            Direction face = pickAttachableFace(level, candidate, random);
-            if (face != null) {
-                return new SpreadTarget(candidate, face);
-            }
-        }
-
-        return null;
-    }
-
-    // Random start index, same reasoning as tryFacings below - a block surrounded by solid neighbors on
-    // every side shouldn't always end up grabbing the same one.
-    @Nullable
-    private static Direction pickAttachableFace(ServerLevel level, BlockPos pos, RandomSource random) {
-        int startIndex = random.nextInt(ALL_FACINGS.length);
-        for (int i = 0; i < ALL_FACINGS.length; i++) {
-            Direction direction = ALL_FACINGS[(startIndex + i) % ALL_FACINGS.length];
-            BlockPos neighborPos = pos.relative(direction);
-            if (MultifaceBlock.canAttachTo(level, direction, neighborPos, level.getBlockState(neighborPos))) {
-                return direction;
-            }
-        }
-        return null;
-    }
-
-    // Slopes/steps mean the target column often isn't level with the parent flower, so this checks nearby
-    // heights too (closest to the parent's Y first) instead of only the exact same Y. A TALL shape also
-    // needs the cell above free for the second half.
-    @Nullable
-    private static SpreadTarget followTerrain(ServerLevel level, BlockPos column, BlockState baseState, int verticalRange, Shape shape, boolean climbing, RandomSource random) {
-        SpreadTarget direct = tryFacings(level, column, baseState, shape, climbing, random);
-        if (direct != null) {
-            return direct;
-        }
-
-        for (int dy = 1; dy <= verticalRange; dy++) {
-            SpreadTarget up = tryFacings(level, column.above(dy), baseState, shape, climbing, random);
-            if (up != null) {
-                return up;
-            }
-
-            SpreadTarget down = tryFacings(level, column.below(dy), baseState, shape, climbing, random);
-            if (down != null) {
-                return down;
-            }
-        }
-
-        return null;
-    }
-
-    // TALL never tilts, so it's just the one (UP) check. SINGLE always tries standing upright first;
-    // only when this plant is actually configured to climb does it also try each horizontal direction,
-    // starting from a random one so a trunk with climbable wood on every side doesn't always end up
-    // tilting the same way.
-    @Nullable
-    private static SpreadTarget tryFacings(ServerLevel level, BlockPos pos, BlockState baseState, Shape shape, boolean climbing, RandomSource random) {
-        if (shape == Shape.TALL) {
-            return isValidUpSpot(level, pos, baseState, shape, climbing) ? new SpreadTarget(pos, Direction.UP) : null;
-        }
-
-        BlockState upState = baseState.setValue(PlantSupport.FACING, Direction.UP);
-        if (isValidUpSpot(level, pos, upState, shape, climbing)) {
-            return new SpreadTarget(pos, Direction.UP);
-        }
-        if (!climbing) {
-            return null;
-        }
-
-        int startIndex = random.nextInt(HORIZONTAL_FACINGS.length);
-        for (int i = 0; i < HORIZONTAL_FACINGS.length; i++) {
-            Direction facing = HORIZONTAL_FACINGS[(startIndex + i) % HORIZONTAL_FACINGS.length];
-            BlockState tiltedState = baseState.setValue(PlantSupport.FACING, facing);
-            if (isValidSpot(level, pos, tiltedState, shape)) {
-                return new SpreadTarget(pos, facing);
-            }
-        }
-
-        return null;
-    }
-
-    // Standing upright is unconditionally allowed by canSurvive on top of a climbable block too (see
-    // PlantSupport), since an already-existing plant there must never lose canSurvive. But that same
-    // leniency would let a bag WITHOUT Twisting Vines incidentally start growing on trees just because the
-    // random search happened to land there - the player explicitly asked for "no Twisting Vines = ground
-    // only, with Twisting Vines = top AND side of organic blocks". So the SEARCH additionally requires
-    // climbing to be on before it'll accept a spot that's ONLY valid because of the climbable tag.
-    // Ordinary ground is never gated - only ground that needed the climbable exception is.
-    private static boolean isValidUpSpot(ServerLevel level, BlockPos pos, BlockState upState, Shape shape, boolean climbing) {
-        if (!isValidSpot(level, pos, upState, shape)) {
-            return false;
-        }
-        boolean viaClimbableOnly = PlantSupport.isClimbable(level.getBlockState(pos.below()));
-        return climbing || !viaClimbableOnly;
-    }
-
-    private static boolean isValidSpot(ServerLevel level, BlockPos pos, BlockState newState, Shape shape) {
-        if (!level.isEmptyBlock(pos) || !newState.canSurvive(level, pos)) {
-            return false;
-        }
-        return shape == Shape.SINGLE || level.isEmptyBlock(pos.above());
     }
 }

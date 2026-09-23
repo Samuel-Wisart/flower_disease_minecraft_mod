@@ -1,5 +1,8 @@
 package com.iridium.flowerdisease;
 
+import java.util.ArrayList;
+import java.util.List;
+
 import javax.annotation.Nullable;
 
 import net.minecraft.core.BlockPos;
@@ -8,14 +11,14 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.util.RandomSource;
 import net.minecraft.world.level.LevelReader;
 import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.MultifaceBlock;
 import net.minecraft.world.level.block.state.BlockState;
 
-// Creation and spread of the Flower Block (Stage 2 Fase 3, see PLANNING_STAGE2.md). Two entry points,
-// called from two different blocks' random ticks: maybeSpawn runs from a reproductive Diseased Flower's OWN
-// tick (DiseasedPlantLogic) and has a small shot at corrupting the ground right below it; randomTick is the
-// Flower Block's own tick (FlowerMassBlock), spreading to one adjacent face at a time, slower than the
-// flower that made it and entirely on its own from then on - the flower above keeps living/reproducing
-// independently either way (see PLANNING_STAGE2.md "Decisões travadas" #1).
+// Creation and spread of the Flower Block (see PLANNING_STAGE2.md, Fase 3). Two entry points, called from two
+// different places: onPlantSettled runs once for every Diseased plant at the moment it settles and has a single
+// shot (its odds set by the number of Moss Blocks in the bag) at corrupting the block it grows on; randomTick is
+// the Flower Block's own tick, spreading to one adjacent face at a time, slower than the plants that made it and
+// entirely on its own from then on - the plant on top keeps standing on it either way.
 final class FlowerBlockLogic {
 
     private static final Direction[] DIRECTIONS = Direction.values();
@@ -23,26 +26,51 @@ final class FlowerBlockLogic {
     private FlowerBlockLogic() {
     }
 
-    // Called once per flower random tick, independent of whether that tick's own spread roll succeeds - a
-    // flower can both spread AND corrupt the ground below it on the same tick, they don't compete.
-    static void maybeSpawn(ServerLevel level, BlockPos flowerPos, RandomSource random, long generationsLeft, @Nullable SpreadProfileBlockEntity profile) {
-        if (!Config.FLOWER_BLOCK_CONVERSION.getAsBoolean() || profile == null || !profile.spawnsFlowerBlocks()) {
+    // Every plant rolls exactly once, when it settles - whether that's the lifetime test failing, the search
+    // finding no room, or being born already out of generations. What gets converted is the block the plant is
+    // actually leaning on: below for a standing one, behind for a tilted one, the block of an active face for a
+    // creeper. The Flower Block draws its own small generation budget instead of inheriting the plant's.
+    static void onPlantSettled(
+            ServerLevel level,
+            BlockPos plantPos,
+            BlockState plantState,
+            DiseasedPlantLogic.Shape shape,
+            GardenBagContents profile,
+            RandomSource random
+    ) {
+        if (profile.mossBlocks() <= 0 || !Config.FLOWER_BLOCK_CONVERSION.getAsBoolean()) {
             return;
         }
-        if (random.nextFloat() >= (float) Config.FLOWER_BLOCK_CHANCE.getAsDouble()) {
+        if (random.nextDouble() >= SpreadMath.flowerBlockChance(profile.mossBlocks())) {
             return;
         }
 
-        BlockPos below = flowerPos.below();
-        BlockState belowState = level.getBlockState(below);
-        if (!PlantSupport.isConvertible(level, below, belowState)) {
+        BlockPos support = supportOf(plantPos, plantState, shape, random);
+        if (support == null) {
             return;
         }
 
-        long childGenerations = generationsLeft < 0 ? generationsLeft : generationsLeft - 1;
-        place(level, below, belowState, childGenerations, profile);
+        BlockState supportState = level.getBlockState(support);
+        if (!PlantSupport.isConvertible(level, support, supportState)) {
+            return;
+        }
+
+        place(level, support, supportState, profile.forFlowerBlock(SpreadMath.rollFlowerBlockGenerations(random)), 0);
     }
 
+    @Nullable
+    private static BlockPos supportOf(BlockPos plantPos, BlockState plantState, DiseasedPlantLogic.Shape shape, RandomSource random) {
+        if (shape == DiseasedPlantLogic.Shape.CREEPING) {
+            List<Direction> faces = new ArrayList<>(MultifaceBlock.availableFaces(plantState));
+            return faces.isEmpty() ? null : plantPos.relative(faces.get(random.nextInt(faces.size())));
+        }
+
+        Direction facing = plantState.hasProperty(PlantSupport.FACING) ? plantState.getValue(PlantSupport.FACING) : Direction.UP;
+        return facing == Direction.UP ? plantPos.below() : plantPos.relative(facing.getOpposite());
+    }
+
+    // The Flower Block's own random tick: the same three steps as any Diseased plant, minus the decay and the
+    // species (it only ever spreads as more of itself).
     static void randomTick(BlockState state, ServerLevel level, BlockPos pos, RandomSource random) {
         if (!Config.FLOWER_BLOCK_CONVERSION.getAsBoolean()) {
             // The mechanic was turned off after this block already existed - settle it in place instead of
@@ -51,45 +79,54 @@ final class FlowerBlockLogic {
             return;
         }
 
-        SpreadProfileBlockEntity profile = level.getBlockEntity(pos) instanceof SpreadProfileBlockEntity p ? p : null;
+        SpreadProfileBlockEntity block = DiseasedPlantLogic.profileAt(level, pos);
+        GardenBagContents profile = block != null ? block.profile() : GardenBagContents.DEFAULT;
+        long depth = block != null ? block.depth() : 0;
 
-        double spreadChance = (profile != null && profile.spreadChanceOverride() >= 0
-                ? profile.spreadChanceOverride()
-                : Config.FLOWER_SPREAD_CHANCE.getAsDouble()) * Config.FLOWER_BLOCK_SPREAD_FACTOR.getAsDouble();
-        if (random.nextFloat() >= (float) spreadChance) {
+        double baseChance = profile.spreadChance() >= 0 ? profile.spreadChance() : Config.FLOWER_SPREAD_CHANCE.getAsDouble();
+        if (random.nextDouble() >= baseChance * Config.FLOWER_BLOCK_SPREAD_FACTOR.getAsDouble()) {
             return;
         }
 
-        long generationsLeft = profile != null && profile.generationsRemaining() != SpreadProfileBlockEntity.NO_GENERATIONS_OVERRIDE
-                ? profile.generationsRemaining()
-                : Config.FLOWER_MAX_GENERATIONS.getAsInt();
+        int attempts = SpreadMath.resolveLifetimeAttempts(profile.lifetimeAttempts());
+        if (random.nextDouble() >= SpreadMath.continueProbability(attempts)) {
+            settle(level, pos, state);
+            return;
+        }
 
-        if (generationsLeft != 0) {
+        if (generationsLeft(profile, depth) != 0) {
             int startIndex = random.nextInt(DIRECTIONS.length);
             for (int i = 0; i < DIRECTIONS.length; i++) {
-                Direction direction = DIRECTIONS[(startIndex + i) % DIRECTIONS.length];
-                BlockPos neighborPos = pos.relative(direction);
+                BlockPos neighborPos = pos.relative(DIRECTIONS[(startIndex + i) % DIRECTIONS.length]);
                 BlockState neighborState = level.getBlockState(neighborPos);
-                // isConvertible alone would happily tunnel the corruption straight through solid rock,
-                // fully buried and never visible - hasExposedFace requires the candidate to still be
-                // touching open air or a non-full block (flowers, slabs, stairs...) on at least one OTHER
-                // side, so it stays somewhere a player could actually find it instead of sinking.
+                // isConvertible alone would happily tunnel the corruption straight through solid rock, fully buried
+                // and never visible - hasExposedFace requires the candidate to still be touching open air or a
+                // non-full block (flowers, slabs, stairs...) on at least one OTHER side, so it stays somewhere a
+                // player could actually find it instead of sinking.
                 if (PlantSupport.isConvertible(level, neighborPos, neighborState) && hasExposedFace(level, neighborPos)) {
-                    long childGenerations = generationsLeft < 0 ? generationsLeft : generationsLeft - 1;
-                    place(level, neighborPos, neighborState, childGenerations, profile);
+                    place(level, neighborPos, neighborState, profile, depth + 1);
                     return;
                 }
             }
         }
 
-        // No generation budget left, or none of the 6 neighbors were eligible: this Flower Block stops
-        // spreading for good, same "give up permanently" semantics as every other Diseased plant.
+        // No generation budget left, or none of the 6 neighbors were eligible: this Flower Block stops spreading
+        // for good, same "give up permanently" semantics as every other Diseased plant.
         settle(level, pos, state);
     }
 
-    // "Exposed" means at least one of the 6 neighbors isn't a full cube - open air, or a non-full block
-    // like a flower, slab or stair. The parent Flower Block doing the spreading (a full cube itself) is one
-    // of these 6 neighbors and never counts toward it, so this genuinely requires a DIFFERENT opening.
+    // A Flower Block's budget is the one its plant drew (0-4 by default), never unlimited; one placed by hand, with
+    // no profile, gets the server default for it.
+    private static long generationsLeft(GardenBagContents profile, long depth) {
+        long cap = profile.generations() == SpreadProfileBlockEntity.NO_GENERATIONS_OVERRIDE
+                ? Config.FLOWER_BLOCK_MAX_GENERATIONS.getAsInt()
+                : profile.generations();
+        return SpreadMath.generationsLeft(cap, depth);
+    }
+
+    // "Exposed" means at least one of the 6 neighbors isn't a full cube - open air, or a non-full block like a
+    // flower, slab or stair. The parent Flower Block doing the spreading (a full cube itself) is one of these 6
+    // neighbors and never counts toward it, so this genuinely requires a DIFFERENT opening.
     private static boolean hasExposedFace(LevelReader level, BlockPos pos) {
         for (Direction direction : DIRECTIONS) {
             BlockPos neighborPos = pos.relative(direction);
@@ -101,25 +138,17 @@ final class FlowerBlockLogic {
         return false;
     }
 
-    private static void place(ServerLevel level, BlockPos pos, BlockState replaced, long generationsLeft, @Nullable SpreadProfileBlockEntity parentProfile) {
+    private static void place(ServerLevel level, BlockPos pos, BlockState replaced, GardenBagContents profile, long depth) {
         level.setBlock(pos, FlowerDisease.FLOWER_BLOCK.get().defaultBlockState(), SettleTable.PLACEMENT_FLAGS);
 
-        if (level.getBlockEntity(pos) instanceof FlowerMassBlockEntity childProfile) {
-            childProfile.setReplacedState(replaced);
-            // Same "always persist the generation countdown, bag or not" rule as DiseasedPlantLogic#
-            // placeChild - the rest of the profile only copies down when there's a real bag profile to
-            // copy from (maybeSpawn's caller always has one, since spawnsFlowerBlocks() requires it, but
-            // a Flower Block spreading from another Flower Block with no profile falls back the same way).
-            if (parentProfile != null) {
-                childProfile.configure(parentProfile.toContents(generationsLeft));
-            } else {
-                childProfile.setGenerationsRemaining(generationsLeft);
-            }
+        if (level.getBlockEntity(pos) instanceof FlowerMassBlockEntity flowerBlock) {
+            flowerBlock.setReplacedState(replaced);
+            flowerBlock.inherit(profile, depth);
         }
 
-        if (generationsLeft == 0) {
-            // No budget left for the child to spread itself - settles the instant it's created instead of
-            // existing as an active Flower Block even briefly, same as a Diseased Flower child born at 0.
+        if (generationsLeft(profile, depth) == 0) {
+            // No budget left for the block to spread itself - settles the instant it's created instead of existing
+            // as an active Flower Block even briefly, same as a Diseased Flower child born out of generations.
             settle(level, pos, level.getBlockState(pos));
         }
     }

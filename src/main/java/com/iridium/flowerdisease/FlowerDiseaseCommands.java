@@ -2,20 +2,20 @@ package com.iridium.flowerdisease;
 
 import java.util.Arrays;
 import java.util.List;
+import java.util.Locale;
 
 import javax.annotation.Nullable;
 
 import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.arguments.BoolArgumentType;
-import com.mojang.brigadier.arguments.DoubleArgumentType;
 import com.mojang.brigadier.arguments.IntegerArgumentType;
-import com.mojang.brigadier.arguments.LongArgumentType;
 import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.brigadier.context.CommandContext;
 import com.mojang.brigadier.exceptions.CommandSyntaxException;
 
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
+import net.minecraft.commands.SharedSuggestionProvider;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.SectionPos;
 import net.minecraft.network.chat.Component;
@@ -27,11 +27,18 @@ import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.HitResult;
 
-// Debug-only tooling for testing the spread mechanic without having to keep teleporting to reset an area,
-// and for testing the (future Garden Bag's) per-planting override system before the bag item exists.
+// Debug-only tooling for testing the spread mechanic without having to keep teleporting to reset an area, and for
+// inspecting or overriding the per-planting profile of a single plant without going through the Garden Bag. All of
+// it needs operator permission: these commands rewrite or delete world content and have no business being available
+// to every player of a multiplayer server.
 final class FlowerDiseaseCommands {
     private static final int DEFAULT_VERTICAL_RANGE = 24;
     private static final double LOOK_DISTANCE = 6.0;
+    private static final int PERMISSION_LEVEL = 2;
+
+    private static final List<String> PROFILE_KEYS = List.of(
+            "generations", "density", "distance", "decay", "nodecay", "lifetime", "ignoreothers", "climbing", "moss", "species"
+    );
 
     // Toggled by /diseasedflower debug - see DiseasedPlantLogic, which spawns a particle at a plant's
     // position every time it's actually random-ticked (a settled plant never is, see SettleTable.SETTLED/
@@ -48,39 +55,42 @@ final class FlowerDiseaseCommands {
     }
 
     static void register(CommandDispatcher<CommandSourceStack> dispatcher) {
+        var verticalRange = Commands.argument("verticalRange", IntegerArgumentType.integer(1, 320))
+                .executes(context -> clear(
+                        context,
+                        IntegerArgumentType.getInteger(context, "radius"),
+                        IntegerArgumentType.getInteger(context, "verticalRange")
+                ));
+        var radius = Commands.argument("radius", IntegerArgumentType.integer(1, 512))
+                .executes(context -> clear(context, IntegerArgumentType.getInteger(context, "radius"), DEFAULT_VERTICAL_RANGE))
+                .then(verticalRange);
+
         dispatcher.register(
                 Commands.literal("cleargarden")
+                        .requires(source -> source.hasPermission(PERMISSION_LEVEL))
                         // No radius given: clear every currently loaded chunk instead of guessing a fixed
                         // area - this is what Ctrl+P sends, so it always reaches the whole test area.
                         .executes(context -> clearLoadedChunks(context, DEFAULT_VERTICAL_RANGE))
-                        .then(Commands.argument("radius", IntegerArgumentType.integer(1, 512))
-                                .executes(context -> clear(context, IntegerArgumentType.getInteger(context, "radius"), DEFAULT_VERTICAL_RANGE))
-                                .then(Commands.argument("verticalRange", IntegerArgumentType.integer(1, 320))
-                                        .executes(context -> clear(
-                                                context,
-                                                IntegerArgumentType.getInteger(context, "radius"),
-                                                IntegerArgumentType.getInteger(context, "verticalRange")
-                                        ))))
+                        .then(radius)
         );
+
+        var setValue = Commands.argument("value", StringArgumentType.greedyString())
+                .executes(FlowerDiseaseCommands::setProfile);
+        var setKey = Commands.argument("key", StringArgumentType.word())
+                .suggests((context, builder) -> SharedSuggestionProvider.suggest(PROFILE_KEYS, builder))
+                .then(setValue);
+        var profile = Commands.literal("profile")
+                .then(Commands.literal("show").executes(FlowerDiseaseCommands::showProfile))
+                .then(Commands.literal("clear").executes(FlowerDiseaseCommands::clearProfile))
+                .then(Commands.literal("set").then(setKey));
+        var debug = Commands.literal("debug")
+                .then(Commands.argument("enabled", BoolArgumentType.bool()).executes(FlowerDiseaseCommands::setDebugParticles));
 
         dispatcher.register(
                 Commands.literal("diseasedflower")
-                        .then(Commands.literal("profile")
-                                .then(Commands.literal("clear").executes(FlowerDiseaseCommands::clearProfile))
-                                .then(Commands.literal("set")
-                                        .then(Commands.argument("generations", LongArgumentType.longArg(-1))
-                                                .then(Commands.argument("spreadChance", DoubleArgumentType.doubleArg(-1, 1))
-                                                        .then(Commands.argument("spreadDistance", IntegerArgumentType.integer(-1, 64))
-                                                                .then(Commands.argument("densityPer16x16", IntegerArgumentType.integer(-1, 999))
-                                                                        .then(Commands.argument("territorial", BoolArgumentType.bool())
-                                                                                .then(Commands.argument("climbing", BoolArgumentType.bool())
-                                                                                        .then(Commands.argument("spawnsFlowerBlocks", BoolArgumentType.bool())
-                                                                                                .executes(context -> setProfile(context, ""))
-                                                                                                .then(Commands.argument("species", StringArgumentType.greedyString())
-                                                                                                        .executes(context -> setProfile(context, StringArgumentType.getString(context, "species")))))))))))))
-                        .then(Commands.literal("debug")
-                                .then(Commands.argument("enabled", BoolArgumentType.bool())
-                                        .executes(FlowerDiseaseCommands::setDebugParticles)))
+                        .requires(source -> source.hasPermission(PERMISSION_LEVEL))
+                        .then(profile)
+                        .then(debug)
         );
     }
 
@@ -151,46 +161,88 @@ final class FlowerDiseaseCommands {
         source.sendSuccess(() -> Component.literal("Flower Disease: cleared " + cleared + " plant blocks"), false);
     }
 
-    // "-1" means "no override, use Config.java/blockstate for that field" for every numeric argument
-    // here except generations, where "-1" means "infinite" (see SpreadProfileBlockEntity). species is a
-    // comma-separated list of "<block id> <weight>" outcome entries - a vanilla species id (e.g.
-    // "minecraft:rose_bush") or one of the Top/Bottom block ids (e.g. "flowerdisease:rose_bush_top",
-    // its own independent species) both work the same way, same as the Garden Bag's species grid.
-    // climbing/spawnsFlowerBlocks mirror the bag's Twisting Vines/Moss Block toggles (see
-    // PLANNING_STAGE2.md).
-    private static int setProfile(CommandContext<CommandSourceStack> context, String speciesArg) throws CommandSyntaxException {
-        SpreadProfileBlockEntity profile = profileLookedAt(context.getSource());
-        if (profile == null) {
+    // /diseasedflower profile set <key> <value> changes ONE field of the plant you're looking at (see
+    // PROFILE_KEYS for the names; the values mean what they do in GardenBagContents - "-1"/"-2" for generations,
+    // "-1" for density and distance meaning "automatic"). species takes a comma-separated list of
+    // "<block id> <weight>" entries - a vanilla species id (e.g. "minecraft:rose_bush") or one of the Top/Bottom
+    // block ids (e.g. "flowerdisease:rose_bush_top", its own independent species) both work the same way, same as
+    // the Garden Bag's species grid.
+    private static int setProfile(CommandContext<CommandSourceStack> context) throws CommandSyntaxException {
+        SpreadProfileBlockEntity plant = profileLookedAt(context.getSource());
+        if (plant == null) {
             context.getSource().sendFailure(Component.literal("Flower Disease: not looking at a Diseased Flower"));
             return 0;
         }
 
-        long generations = LongArgumentType.getLong(context, "generations");
-        double spreadChance = DoubleArgumentType.getDouble(context, "spreadChance");
-        int spreadDistance = IntegerArgumentType.getInteger(context, "spreadDistance");
-        int densityPer16x16 = IntegerArgumentType.getInteger(context, "densityPer16x16");
-        boolean territorial = BoolArgumentType.getBool(context, "territorial");
-        boolean climbing = BoolArgumentType.getBool(context, "climbing");
-        boolean spawnsFlowerBlocks = BoolArgumentType.getBool(context, "spawnsFlowerBlocks");
-        List<String> species = speciesArg.isBlank()
-                ? List.of()
-                : Arrays.stream(speciesArg.split(",")).map(String::trim).filter(s -> !s.isEmpty()).toList();
+        String key = StringArgumentType.getString(context, "key").toLowerCase(Locale.ROOT);
+        String value = StringArgumentType.getString(context, "value").trim();
 
-        profile.configure(new GardenBagContents(generations, spreadChance, spreadDistance, densityPer16x16, territorial, climbing, spawnsFlowerBlocks, species));
-        context.getSource().sendSuccess(() -> Component.literal("Flower Disease: profile set on the flower you're looking at"), false);
+        ProfileFields fields = new ProfileFields(plant.profile());
+        try {
+            fields.apply(key, value);
+        } catch (IllegalArgumentException e) {
+            context.getSource().sendFailure(Component.literal("Flower Disease: " + e.getMessage()));
+            return 0;
+        }
+
+        plant.configure(fields.build());
+        context.getSource().sendSuccess(() -> Component.literal("Flower Disease: " + key + " set on the flower you're looking at"), false);
         return 1;
     }
 
     private static int clearProfile(CommandContext<CommandSourceStack> context) throws CommandSyntaxException {
-        SpreadProfileBlockEntity profile = profileLookedAt(context.getSource());
-        if (profile == null) {
+        SpreadProfileBlockEntity plant = profileLookedAt(context.getSource());
+        if (plant == null) {
             context.getSource().sendFailure(Component.literal("Flower Disease: not looking at a Diseased Flower"));
             return 0;
         }
 
-        profile.configure(new GardenBagContents(SpreadProfileBlockEntity.NO_GENERATIONS_OVERRIDE, -1, -1, -1, true, false, false, List.of()));
-        context.getSource().sendSuccess(() -> Component.literal("Flower Disease: profile cleared, back to global config"), false);
+        plant.configure(GardenBagContents.DEFAULT);
+        context.getSource().sendSuccess(() -> Component.literal("Flower Disease: profile cleared, back to the server defaults"), false);
         return 1;
+    }
+
+    // Everything this plant's next random tick would be working with, resolved the same way the mod itself does -
+    // the quickest way to check that a bag's contents (or a "profile set") ended up meaning what was intended.
+    private static int showProfile(CommandContext<CommandSourceStack> context) throws CommandSyntaxException {
+        CommandSourceStack source = context.getSource();
+        SpreadProfileBlockEntity plant = profileLookedAt(source);
+        if (plant == null) {
+            source.sendFailure(Component.literal("Flower Disease: not looking at a Diseased Flower"));
+            return 0;
+        }
+
+        GardenBagContents profile = plant.profile();
+        long depth = plant.depth();
+        long left = DiseasedPlantLogic.generationsLeft(profile, depth);
+
+        double baseChance = profile.spreadChance() >= 0 ? profile.spreadChance() : Config.FLOWER_SPREAD_CHANCE.getAsDouble();
+        double half = SpreadMath.halfGenerations(profile.decayStrength());
+        double chance = SpreadMath.reproductionChance(baseChance, depth, half, profile.noDecay());
+        int density = SpreadMath.resolveDensity(profile.densityPer16x16());
+        int radius = SpreadMath.windowRadius(density);
+        int limit = SpreadMath.crowdLimit(density, radius);
+        int window = 2 * radius + 1;
+
+        List<String> lines = List.of(
+                "Flower Disease: depth " + depth + ", generations left " + (left < 0 ? "unlimited" : String.valueOf(left)),
+                "  reproduction chance now " + percent(chance) + " (base " + percent(baseChance) + ", "
+                        + (profile.noDecay() ? "no decay" : "halves at gen " + String.format(Locale.ROOT, "%.1f", half))
+                        + "), lifetime ~" + SpreadMath.resolveLifetimeAttempts(profile.lifetimeAttempts()) + " attempts",
+                "  density " + density + " per 16x16 (window " + window + "x" + window + ", limit " + limit
+                        + "), max distance " + SpreadMath.resolveMaxDistance(profile.spreadDistance(), density),
+                "  ignores others: " + !profile.respectAllSpecies() + ", climbing: " + profile.climbing()
+                        + ", moss: " + profile.mossBlocks() + " (" + percent(SpreadMath.flowerBlockChance(profile.mossBlocks())) + ")",
+                "  species: " + (profile.speciesWeights().isEmpty() ? "(none)" : String.join(", ", profile.speciesWeights()))
+        );
+        for (String line : lines) {
+            source.sendSuccess(() -> Component.literal(line), false);
+        }
+        return 1;
+    }
+
+    private static String percent(double fraction) {
+        return String.format(Locale.ROOT, "%.1f%%", fraction * 100.0);
     }
 
     private static int setDebugParticles(CommandContext<CommandSourceStack> context) {
@@ -210,6 +262,71 @@ final class FlowerDiseaseCommands {
             return null;
         }
 
-        return player.level().getBlockEntity(blockHit.getBlockPos()) instanceof SpreadProfileBlockEntity profile ? profile : null;
+        return player.level().getBlockEntity(blockHit.getBlockPos()) instanceof SpreadProfileBlockEntity plant ? plant : null;
+    }
+
+    // A mutable copy of a profile, so a debug command can change one field without spelling out all eleven.
+    private static final class ProfileFields {
+        long generations;
+        double spreadChance;
+        int spreadDistance;
+        int density;
+        boolean respectAllSpecies;
+        boolean climbing;
+        int mossBlocks;
+        int decayStrength;
+        boolean noDecay;
+        int lifetimeAttempts;
+        List<String> species;
+
+        ProfileFields(GardenBagContents from) {
+            generations = from.generations();
+            spreadChance = from.spreadChance();
+            spreadDistance = from.spreadDistance();
+            density = from.densityPer16x16();
+            respectAllSpecies = from.respectAllSpecies();
+            climbing = from.climbing();
+            mossBlocks = from.mossBlocks();
+            decayStrength = from.decayStrength();
+            noDecay = from.noDecay();
+            lifetimeAttempts = from.lifetimeAttempts();
+            species = from.speciesWeights();
+        }
+
+        // Throws IllegalArgumentException (which includes NumberFormatException) with a message fit to show as is.
+        void apply(String key, String value) {
+            switch (key) {
+                case "generations" -> generations = Long.parseLong(value);
+                case "density" -> density = Integer.parseInt(value);
+                case "distance" -> spreadDistance = Integer.parseInt(value);
+                case "decay" -> decayStrength = Integer.parseInt(value);
+                case "nodecay" -> noDecay = parseBoolean(value);
+                case "lifetime" -> lifetimeAttempts = Integer.parseInt(value);
+                case "ignoreothers" -> respectAllSpecies = !parseBoolean(value);
+                case "climbing" -> climbing = parseBoolean(value);
+                case "moss" -> mossBlocks = Integer.parseInt(value);
+                case "species" -> species = value.isEmpty()
+                        ? List.of()
+                        : Arrays.stream(value.split(",")).map(String::trim).filter(s -> !s.isEmpty()).toList();
+                default -> throw new IllegalArgumentException("unknown key '" + key + "' (one of " + String.join(", ", PROFILE_KEYS) + ")");
+            }
+        }
+
+        GardenBagContents build() {
+            return new GardenBagContents(
+                    generations, spreadChance, spreadDistance, density, respectAllSpecies, climbing,
+                    mossBlocks, decayStrength, noDecay, lifetimeAttempts, species
+            );
+        }
+
+        private static boolean parseBoolean(String value) {
+            if (value.equalsIgnoreCase("true")) {
+                return true;
+            }
+            if (value.equalsIgnoreCase("false")) {
+                return false;
+            }
+            throw new IllegalArgumentException("expected true or false, got '" + value + "'");
+        }
     }
 }

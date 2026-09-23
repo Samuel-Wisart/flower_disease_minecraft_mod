@@ -42,8 +42,9 @@ public class GardenBagItem extends Item {
         tooltip.add(Component.translatable("item.flowerdisease.garden_bag.tooltip.usage"));
         tooltip.add(Component.translatable("item.flowerdisease.garden_bag.tooltip.mix"));
         tooltip.add(Component.translatable("item.flowerdisease.garden_bag.tooltip.generations"));
-        tooltip.add(Component.translatable("item.flowerdisease.garden_bag.tooltip.speed"));
-        tooltip.add(Component.translatable("item.flowerdisease.garden_bag.tooltip.infinite"));
+        tooltip.add(Component.translatable("item.flowerdisease.garden_bag.tooltip.decay"));
+        tooltip.add(Component.translatable("item.flowerdisease.garden_bag.tooltip.no_decay"));
+        tooltip.add(Component.translatable("item.flowerdisease.garden_bag.tooltip.lifetime"));
         tooltip.add(Component.translatable("item.flowerdisease.garden_bag.tooltip.density"));
         tooltip.add(Component.translatable("item.flowerdisease.garden_bag.tooltip.range"));
         tooltip.add(Component.translatable("item.flowerdisease.garden_bag.tooltip.ignore_others"));
@@ -140,6 +141,9 @@ public class GardenBagItem extends Item {
         if (level.getBlockEntity(target) instanceof SpreadProfileBlockEntity profile) {
             profile.configure(contents);
         }
+
+        // The garden starts with a couple of generations already around the root instead of one lonely flower.
+        DiseasedPlantLogic.burst(level, target, level.getRandom());
         return null;
     }
 

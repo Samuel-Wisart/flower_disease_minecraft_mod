@@ -119,13 +119,4 @@ final class SettleTable {
         }
         return state.getBlock() instanceof BushBlock || state.getBlock() instanceof CreepingFlowerBlock;
     }
-
-    // Converts a player-facing "desired flowers per 16x16 area" target into the maxNearby cap actually
-    // used by the (fixed) internal density-check radius, so the mechanic can stay the same while the
-    // number the player configures means something intuitive regardless of that internal radius.
-    static int densityTargetToMaxNearby(int desiredPer16x16, int radius) {
-        int side = 2 * radius + 1;
-        double area = (double) side * side;
-        return Math.max(1, (int) Math.round(desiredPer16x16 * (area / 256.0)));
-    }
 }

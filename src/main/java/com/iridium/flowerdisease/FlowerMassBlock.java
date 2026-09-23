@@ -12,9 +12,9 @@ import net.minecraft.world.level.block.state.BlockBehaviour;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.StateDefinition;
 
-// The Flower Block (Stage 2 Fase 3, see PLANNING_STAGE2.md): a slow, low-chance byproduct of a
-// reproductive Diseased Flower corrupting the ground it's rooted in (see FlowerBlockLogic#maybeSpawn,
-// called from DiseasedPlantLogic's own random tick). Looks/acts like Moss Block for now - a placeholder
+// The Flower Block (Stage 2 Fase 3, see PLANNING_STAGE2.md): a slow, low-chance byproduct of a Diseased
+// Flower corrupting the ground it's rooted in when it settles (see FlowerBlockLogic#onPlantSettled, called
+// from DiseasedPlantLogic#settle). Looks/acts like Moss Block for now - a placeholder
 // until real art exists - a full solid cube that's valid ground for the flower still growing on top of it
 // (see the #minecraft:dirt tag entry in data/minecraft) which itself slowly corrupts its own immediate
 // neighbors on its own random tick, independent of and slower than the flower above it (see

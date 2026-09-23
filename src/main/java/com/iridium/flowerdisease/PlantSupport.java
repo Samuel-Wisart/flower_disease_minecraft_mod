@@ -54,11 +54,20 @@ final class PlantSupport {
         return state.is(CLIMBABLE);
     }
 
+    // What counts as a surface a plant may keep standing on / leaning against once it's there: anything tagged
+    // climbable, plus a Flower Block. The latter matters because a plant that settles converts the block it leans
+    // on into one (see FlowerBlockLogic#onPlantSettled) - a tilted flower on a log would lose its support the moment
+    // the log became a Flower Block, which isn't in the climbable tag (it's in #minecraft:dirt instead, exactly like
+    // Moss Block, so spreading onto it must not be gated behind the climbing toggle - see SpreadSearch).
+    private static boolean isSupport(BlockState state) {
+        return isClimbable(state) || state.getBlock() instanceof FlowerMassBlock;
+    }
+
     // FACING=UP structural permission: either this plant's own ordinary ground rule already allows it
     // (unchanged case - dirt, grass, etc), or the block directly below is climbable, letting it stand on
     // top of a log/leaf pile the same way it'd stand on dirt.
     static boolean canStandOn(LevelReader level, BlockPos below) {
-        return isClimbable(level.getBlockState(below));
+        return isSupport(level.getBlockState(below));
     }
 
     // Horizontal FACING structural permission: the block behind this plant (opposite the direction it
@@ -69,7 +78,7 @@ final class PlantSupport {
     // sturdiness on top of explicit tag membership is redundant, not an extra safety net.
     static boolean canClingTo(LevelReader level, BlockPos pos, Direction facing) {
         BlockPos supportPos = pos.relative(facing.getOpposite());
-        return isClimbable(level.getBlockState(supportPos));
+        return isSupport(level.getBlockState(supportPos));
     }
 
     // Deliberately reuses the SAME small box for every horizontal direction (just translated toward the

@@ -1,6 +1,7 @@
 package com.iridium.flowerdisease;
 
 import java.util.List;
+import java.util.Locale;
 
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
@@ -32,8 +33,8 @@ public class GardenBagScreen extends AbstractContainerScreen<GardenBagMenu> {
     public GardenBagScreen(GardenBagMenu menu, Inventory playerInventory, Component title) {
         super(menu, playerInventory, title);
         this.imageWidth = 176;
-        this.imageHeight = 256;
-        this.inventoryLabelY = 164;
+        this.imageHeight = GardenBagMenu.IMAGE_HEIGHT;
+        this.inventoryLabelY = GardenBagMenu.INVENTORY_TOP_Y - 8;
     }
 
     @Override
@@ -55,8 +56,11 @@ public class GardenBagScreen extends AbstractContainerScreen<GardenBagMenu> {
         guiGraphics.drawString(this.font, this.title, this.titleLabelX, this.titleLabelY, LABEL_COLOR, false);
 
         int y = INFO_TOP_Y;
+        int maxWidth = imageWidth - 16;
         for (String line : previewLines(GardenBagContents.read(bagSlotItems()))) {
-            guiGraphics.drawString(this.font, line, 8, y, INFO_COLOR, false);
+            // Never let a long value spill past the panel edge.
+            String shown = this.font.width(line) > maxWidth ? this.font.plainSubstrByWidth(line, maxWidth - this.font.width("...")) + "..." : line;
+            guiGraphics.drawString(this.font, shown, 8, y, INFO_COLOR, false);
             y += LINE_HEIGHT;
         }
 
@@ -74,50 +78,60 @@ public class GardenBagScreen extends AbstractContainerScreen<GardenBagMenu> {
     // Short lines summarizing exactly what GardenBagItem#plant would configure right now, so throwing
     // items in feels like reading a cauldron rather than filling out a form.
     private List<String> previewLines(GardenBagContents contents) {
-        String generations = contents.generations() == SpreadProfileBlockEntity.INFINITE_GENERATIONS
-                ? "infinite"
-                : contents.generations() == SpreadProfileBlockEntity.NO_GENERATIONS_OVERRIDE
-                        ? Config.FLOWER_MAX_GENERATIONS.getAsInt() + " (default)"
-                        : String.valueOf(contents.generations());
+        long cap = contents.generations() == SpreadProfileBlockEntity.NO_GENERATIONS_OVERRIDE
+                ? Config.FLOWER_MAX_GENERATIONS.getAsInt()
+                : contents.generations();
+        String generations = cap < 0 ? "unlimited" : String.valueOf(cap);
 
-        boolean speedOverridden = contents.spreadChance() >= 0;
-        double spreadChance = speedOverridden ? contents.spreadChance() : Config.FLOWER_SPREAD_CHANCE.getAsDouble();
-        String speed = (speedOverridden ? "" : "~") + Math.round(spreadChance * 1000) / 10.0 + "%";
+        String decay = contents.noDecay()
+                ? "none"
+                : "halves at gen " + number(SpreadMath.halfGenerations(contents.decayStrength()));
 
-        String range = contents.spreadDistance() >= 0
-                ? contents.spreadDistance() + " blocks"
-                : "~" + Config.FLOWER_SPREAD_DISTANCE.getAsInt() + " (default)";
+        String lifetime = "~" + SpreadMath.resolveLifetimeAttempts(contents.lifetimeAttempts()) + " children each";
 
-        String density = contents.densityPer16x16() >= 0 ? contents.densityPer16x16() + " / chunk" : "default";
+        int density = SpreadMath.resolveDensity(contents.densityPer16x16());
+        String distance = SpreadMath.resolveMaxDistance(contents.spreadDistance(), density)
+                + (contents.spreadDistance() >= 0 ? "" : " (auto)");
 
-        String respects = contents.respectAllSpecies() ? "yes" : "no - ignores others";
-        String climbing = contents.climbing() ? "yes - logs/leaves/moss" : "no";
-        String flowerBlocks = contents.spawnsFlowerBlocks() ? "yes - slowly, beneath itself" : "no";
+        String respects = contents.respectAllSpecies() ? "respected" : "ignored";
+        String climbing = contents.climbing() ? "yes" : "no";
+
+        String flowerBlock = !Config.FLOWER_BLOCK_CONVERSION.getAsBoolean()
+                ? "disabled by config"
+                : contents.mossBlocks() > 0
+                        ? percent(SpreadMath.flowerBlockChance(contents.mossBlocks())) + " per plant"
+                        : "off";
 
         return List.of(
                 "Generations: " + generations,
-                "Speed: " + speed,
-                "Range: " + range,
-                "Density: " + density,
-                "Respects other flowers: " + respects,
-                "Climbs non-plantable ground: " + climbing,
-                "Creates flower blocks: " + flowerBlocks,
-                "Est. reproduction: ~" + estimatePerDay(spreadChance) + " new flowers/day"
+                "Decay: " + decay,
+                "Lifetime: " + lifetime,
+                "Density: " + density + " per 16x16",
+                "Max distance: " + distance,
+                "Other flowers: " + respects,
+                "Climbing: " + climbing,
+                "Flower block: " + flowerBlock,
+                "Pace: ~" + triesPerDay(Config.FLOWER_SPREAD_CHANCE.getAsDouble()) + " tries/day at start"
         );
     }
 
-    // Simplified estimate the player asked for: assumes this is the ONLY flower in its chunk (no
-    // crowding, always finds room to spread into) - just the raw random-tick-sampling math. A block has
-    // `randomTickSpeed` chances per game tick out of the 4096 positions in its 16x16x16 chunk section;
-    // there are 24000 game ticks per in-game day.
-    private String estimatePerDay(double spreadChance) {
+    // Reproduction attempts per day for a plant at generation 0 - assumes nothing but the raw random-tick sampling
+    // maths: a block gets `randomTickSpeed` chances per game tick out of the 4096 positions in its 16x16x16 chunk
+    // section, and there are 24000 game ticks per in-game day. Whether an attempt finds room is a separate matter.
+    private String triesPerDay(double spreadChance) {
         Level level = Minecraft.getInstance().level;
         if (level == null) {
             return "?";
         }
         int randomTickSpeed = level.getGameRules().getInt(GameRules.RULE_RANDOMTICKING);
-        double ticksPerDay = 24000.0 * randomTickSpeed / 4096.0;
-        double perDay = ticksPerDay * spreadChance;
-        return perDay < 10 ? String.format("%.1f", perDay) : String.valueOf(Math.round(perDay));
+        return number(24000.0 * randomTickSpeed / 4096.0 * spreadChance);
+    }
+
+    private static String number(double value) {
+        return value >= 10 ? String.valueOf(Math.round(value)) : String.format(Locale.ROOT, "%.1f", value);
+    }
+
+    private static String percent(double fraction) {
+        return number(fraction * 100.0) + "%";
     }
 }

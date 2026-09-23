@@ -15,16 +15,20 @@ import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.component.ItemContainerContents;
 
 // The Garden Bag's configuration screen: one big "cauldron" inventory (27 slots, chest-sized) where every
-// item - modifiers (Bone Meal/Sculk/Nether Star/Slime Ball/Feather/Fermented Spider Eye, see
-// GardenBagContents) and species alike - gets thrown in together, no dedicated slot per role. Backed by
-// the bag ItemStack's own CONTAINER component (same one vanilla's Bundle uses) instead of a block entity -
-// the bag is the inventory. GardenBagContents reads whatever ends up in here into actual spread
-// parameters; GardenBagScreen shows a live computed preview above the grid.
+// item - modifiers (Bone Meal/Sculk/Nether Star/Rabbit's Foot/Slime Ball/Feather/Fermented Spider Eye/
+// Twisting Vines/Moss Block, see GardenBagContents) and species alike - gets thrown in together, no
+// dedicated slot per role. Backed by the bag ItemStack's own CONTAINER component (same one vanilla's Bundle
+// uses) instead of a block entity - the bag is the inventory. GardenBagContents reads whatever ends up in
+// here into actual spread parameters; GardenBagScreen shows a live computed preview above the grid.
 public class GardenBagMenu extends AbstractContainerMenu {
     static final int BAG_SLOTS = 27;
     private static final int GRID_COLUMNS = 9;
-    // Leaves room above for 8 lines of preview text (see GardenBagScreen) - grows if more knobs are added.
-    static final int GRID_TOP_Y = 104;
+    // Leaves room above for 9 lines of preview text (see GardenBagScreen) - grows if more knobs are added.
+    static final int GRID_TOP_Y = 114;
+    // Everything below the grid follows from it, so adding a preview line only means moving GRID_TOP_Y.
+    static final int INVENTORY_TOP_Y = GRID_TOP_Y + 68;
+    private static final int HOTBAR_Y = INVENTORY_TOP_Y + 58;
+    static final int IMAGE_HEIGHT = HOTBAR_Y + 26;
 
     private final ItemStack bagStack;
     private final InteractionHand hand;
@@ -46,11 +50,11 @@ public class GardenBagMenu extends AbstractContainerMenu {
 
         for (int row = 0; row < 3; row++) {
             for (int col = 0; col < 9; col++) {
-                addSlot(new Slot(playerInventory, col + row * 9 + 9, 8 + col * 18, 172 + row * 18));
+                addSlot(new Slot(playerInventory, col + row * 9 + 9, 8 + col * 18, INVENTORY_TOP_Y + row * 18));
             }
         }
         for (int col = 0; col < 9; col++) {
-            addSlot(new Slot(playerInventory, col, 8 + col * 18, 230));
+            addSlot(new Slot(playerInventory, col, 8 + col * 18, HOTBAR_Y));
         }
     }
 
@@ -58,8 +62,9 @@ public class GardenBagMenu extends AbstractContainerMenu {
     // rejecting anything else so the bag doesn't double as generic storage.
     private static boolean isBagItem(ItemStack stack) {
         return stack.is(GardenBagContents.GENERATIONS_ITEM)
-                || stack.is(GardenBagContents.INFINITE_GENERATIONS_ITEM)
-                || stack.is(GardenBagContents.SPEED_ITEM)
+                || stack.is(GardenBagContents.DECAY_ITEM)
+                || stack.is(GardenBagContents.NO_DECAY_ITEM)
+                || stack.is(GardenBagContents.LIFETIME_ITEM)
                 || stack.is(GardenBagContents.DENSITY_ITEM)
                 || stack.is(GardenBagContents.RANGE_ITEM)
                 || stack.is(GardenBagContents.IGNORE_OTHERS_ITEM)

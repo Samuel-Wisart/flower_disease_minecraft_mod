@@ -421,6 +421,12 @@ plantar) quanto por `GardenBagScreen` (client, pro preview ao vivo abaixo). Ante
 privados duplicando essa lógica dentro de `GardenBagItem`; agora é uma classe só, então as duas pontas
 NUNCA podem discordar sobre o que uma pilha de itens significa.
 
+> **Superado em 2026-09-23** pelo redesenho do ciclo de vida — ver `PLANNING_STAGE2.md`, seção "Ciclo de vida". A
+> tabela abaixo descreve o comportamento ANTERIOR (Sculk = velocidade, Nether Star = gerações infinitas, Slime Ball =
+> `maxNearby`, Feather = salto fixo, Moss Block sem efeito) e a lista de opções do `Config` mais abaixo também mudou.
+> Hoje: Sculk = decaimento, Nether Star = sem decaimento, Rabbit's Foot = vida útil, Slime Ball = densidade por 16×16,
+> Feather = alcance máximo, Moss Block = chance de flower block ao assentar.
+
 Modificadores (itens fixos, reconhecidos em `GardenBagContents`):
 
 | Item | Ausente | Com N (somado em toda a bag) |

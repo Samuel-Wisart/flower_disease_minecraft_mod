@@ -242,6 +242,10 @@ rotação). Matematicamente isso garante que os dois planos continuam se cruzand
 (x=8, z=16) depois da rotação, exatamente como se cruzavam em x=8,z=8 no cross original do vanilla -
 alinhados por construção, não por tentativa e erro. Validado com `runClient` (sem erro), ainda não visto em
 jogo - essa é a versão que preciso que você confirme.
+- **Redesenho do ciclo de vida (2026-09-23) — bloco 1 implementado, ver a seção "Ciclo de vida" mais
+  abaixo.** Substitui o espalhamento por "salto aleatório numa caixa" + settle por sorteio de chance fixa.
+  Blocos 2 em diante (ferramentas `stats`/`day`, registro de perfis compartilhados, crescimento em mancha do
+  creeper) ainda por fazer.
 - **Próximo passo: Fase 4 (compatibilidade, debug, documentação)** — já com boa parte adiantada (ver
   `/cleargarden` acima nas Fases 2 e 3).
 
@@ -361,6 +365,126 @@ Você reportou mais 4 coisas depois de testar de novo:
 
 Os 4 ainda não testados em jogo nessa rodada — validados só com build + `runClient` em background (log
 limpo).
+
+## Ciclo de vida (redesenho de 2026-09-23)
+
+Pedido do dono do projeto em 8 tópicos, discutidos e travados antes de codar. Substitui, nesta ordem: a busca por
+alvo "aleatório numa caixa" (`spreadDistance`), a checagem de densidade fixa (`maxNearbyFlowers`), o "settle por
+sorteio" e a velocidade do Sculk. **Onde este texto contradiz o `PLANNING.md` (tabela de modificadores da bag,
+`Config`), este vale.**
+
+### Fluxo de UM random tick de uma planta doente
+
+1. **Chance de reprodução** `c(g) = c0 / (1 + g/H)`, com `g` = profundidade da linhagem (0 = a planta que a bag
+   plantou). Falhou → o tick é ignorado (nada acontece, **não** assenta). `c0` = `spreadChance` do config (100% por
+   padrão; nenhum item da bag mexe nisso). `H = decayHalfGenerations / (1 + sculk/4)`, padrão 16 — o Sculk acelera o
+   decaimento. Nether Star = sem decaimento (`c = c0` sempre). Hiperbólica de propósito: nunca chega a zero, o
+   jardim segue crescendo cada vez mais devagar (raio ∝ √tempo) em vez de parar num tamanho finito como uma
+   exponencial faria.
+2. **Teste de vida útil**: a planta continua com probabilidade `N/(N+1)` (`N` = Rabbit's Foot na bag, padrão
+   `defaultLifetimeAttempts` = 8). Falhou → **assenta**. Distribuição geométrica: em média `N` filhos por planta.
+3. **Orçamento de gerações**: `restante = cap − g` (`cap` = Bone Meal na bag; sem Bone Meal = `maxGenerations` do
+   config, padrão −1 = ilimitado). `restante == 0` → assenta. Filho nascido com orçamento 0 já nasce assentado.
+4. **Reproduzir**: busca em anéis (abaixo) e coloca **um** filho. Espécie do filho: com probabilidade
+   `speciesInheritance` (0.6) copia a espécie do pai se ela ainda está na pool da bag, senão sorteia da pool por
+   peso. Se a busca não acha lugar pra forma sorteada (1 bloco / 2 blocos / creeper), tenta as outras formas da
+   pool antes de desistir. Nada achado → **assenta**.
+
+"Assentar" sempre mantém a espécie da própria planta (vira a versão vanilla se sobrevive ali, senão só trava no
+lugar) — nunca sorteia outra. `maxDepth` (config, 0 = sem limite) é uma válvula: profundidade ≥ ele assenta na hora.
+
+### Densidade, janela e alcance máximo
+
+`D` = Slime Ball na bag (padrão `defaultDensity` = 16), em flores por 16×16.
+
+| D | alcance máx. (auto) | janela | limite `K` |
+|---|---|---|---|
+| 1 | 16 | 17×17 | 1 |
+| 2 | 16 | 17×17 | 2 |
+| 4 | 12 | 17×17 | 5 |
+| 8 | 9 | 13×13 | 5 |
+| 16 | 6 | 9×9 | 5 |
+| 32 | 5 | 7×7 | 6 |
+| 64 | 3 | 5×5 | 6 |
+| 128 | 2 | 5×5 | 13 |
+
+- Alcance máx. automático `= clamp(ceil(autoSpreadReach · 16/√D), 2, spreadDistance)` (reach 1.5, teto 16). Feather
+  na bag **substitui** o automático (1..32) — vira o "alcance máximo" manual, não um salto fixo.
+- Janela `R = clamp(round((16·√(6/D) − 1)/2), 2, 8)` (ou `densityCheckRadius` manual ≠ 0) — cresce quando a
+  densidade cai, pra o limite continuar estatisticamente significativo (~6 flores) em vez de virar "1" pra qualquer
+  densidade baixa. `K = max(1, round(D·(2R+1)²/256))`.
+- A densidade é avaliada **no destino** (no candidato), não no pai: um pai numa área cheia ainda pode saltar por
+  cima da multidão. Caso especial: se `contagem(pai)+1 ≥ K`, nenhum anel dentro da janela serve — a busca começa no
+  anel `R+1` (ou desiste se o alcance ≤ `R`).
+- Território (padrão; Fermented Spider Eye desliga): qualquer planta conta como vizinha, não só da mesma família.
+
+### Busca em anéis (`SpreadSearch`)
+
+Anéis de distância 1, 2, … até o alcance máximo (distância euclidiana arredondada, então a frente é redonda), do
+mais perto pro mais longe — o jardim preenche as lacunas antes de avançar. Anéis 1–2 são verificados por completo; os
+seguintes, `spreadAttempts` amostras cada (início aleatório + passo coprimo, sem alocar). No máx. 8 varreduras de
+densidade por busca. `spreadVerticalRange` segue valendo (acompanhar degraus); com Twisting Vines sobe pra
+`max(spreadVerticalRange, alcance)`. Creeper busca em cascas 3D (até 16) e agarra a primeira face com suporte sólido.
+
+### Flower block: só no assentamento
+
+- Cada planta rola **uma vez**, quando assenta (não a cada tick). Chance por Moss Block `n` na bag:
+  `0.001^((64−n)/63)` — 1 → 0,1%; 8 → 0,2%; 16 → 0,5%; 32 → 3%; 48 → 17%; 56 → 42%; 64+ → 100%.
+- Converte o bloco em que a planta se apoia (embaixo se em pé; atrás se inclinada; face ativa se creeper), se
+  `PlantSupport.isConvertible`. `PlantSupport.isSupport` passou a aceitar o próprio flower block como suporte, senão
+  uma flor inclinada perderia o apoio no instante em que o tronco virasse flower block.
+- O flower block sorteia o **próprio** orçamento de gerações, uniforme em 0..`flowerBlockMaxGenerations` (4), e também
+  obedece ao teste de vida útil. Só se espalha pra vizinhos convertíveis com face exposta.
+- Peças de creeper **não** rolam (decisão conservadora minha — só a planta "de verdade" corrompe).
+
+### Explosão de plantio
+
+Logo depois de a bag plantar a raiz, 2 gerações (`plantingBurstGenerations`) surgem na hora: 2–4 filhos, depois 1–3 de
+cada um, no máx. `plantingBurstMaxPlants` (32) no total. Respeita orçamento de gerações, densidade e terreno; ignora a
+chance e o teste de vida útil.
+
+### Bag: o que cada item faz agora
+
+| Item | Efeito |
+|---|---|
+| Bone Meal | teto de gerações (sem ele: `maxGenerations`, ilimitado) |
+| Sculk | decaimento mais rápido: `H = 16/(1+sculk/4)` |
+| Nether Star | sem decaimento |
+| Rabbit's Foot | vida útil média em filhos (`N`, padrão 8) |
+| Slime Ball | densidade `D` por 16×16 |
+| Feather | alcance máximo manual (1..32) |
+| Fermented Spider Eye | ignora outras espécies |
+| Twisting Vines | também cresce/inclina em blocos `#flowerdisease:climbable` |
+| Moss Block | chance de virar flower block ao assentar (1..64) |
+
+`GardenBagContents` virou `(generations, spreadChance, spreadDistance, densityPer16x16, respectAllSpecies, climbing,
+mossBlocks, decayStrength, noDecay, lifetimeAttempts, speciesWeights)`. `SpreadProfileBlockEntity` guarda o perfil +
+`depth`; o orçamento restante **não** é mais gravado (é `cap − depth`). O NBT só escreve o que difere do padrão e lê as
+chaves antigas (`GenerationsRemaining`, `SpreadChanceOverride`, `SpawnsFlowerBlocks`, …) pra mundos já salvos.
+
+`Config.java` foi reescrito: sumiram `maxNearbyFlowers`/`flowerBlockChance`; entraram `decayHalfGenerations`,
+`defaultLifetimeAttempts`, `maxDepth`, `defaultDensity`, `autoSpreadReach`, `speciesInheritance`,
+`plantingBurstGenerations`, `plantingBurstMaxPlants`, `flowerBlockMaxGenerations`. O `flowerdisease-common.toml` antigo
+foi apagado (autorizado) — o jogo regenera com os novos padrões.
+
+### Comandos de debug (agora exigem op nível 2)
+
+`/cleargarden`, `/diseasedflower debug`, `/diseasedflower profile show` (profundidade, chance atual, janela, alcance…
+da planta que você está olhando), `/diseasedflower profile set <chave> <valor>` (um campo por vez: generations,
+density, distance, decay, nodecay, lifetime, ignoreothers, climbing, moss, species) e `/diseasedflower profile clear`.
+
+### Ritmo esperado (estimativa de design, ainda não medida)
+
+Com `c0 = 100%` e o `randomTickSpeed` padrão (17,6 random ticks/planta/dia = um a cada ~68 s reais): ~1 min entre
+tentativas na geração 0, ~2,3 min na 16, ~4,5 min na 48, ~8 min na 100. A validar com `/diseasedflower day` (bloco 2).
+
+### Ainda por fazer
+
+- **Bloco 2 — ferramentas**: `/diseasedflower stats`, `/diseasedflower day [n]` (simula um dia ticando só as plantas do
+  mod, fatiado em ~40 ms/tick; núcleo reaproveitável pro futuro bone meal "pula um dia"), tecla Alt+D.
+- **Bloco 3 — registro compartilhado de perfis** (`SavedData` + `gardenId` no BE; BEs antigos migram no primeiro tick).
+- **Bloco 4 — creeper em mancha**: energia da semente 0–5 (pesos 1,2,3,3,2,1), cresce via `MultifaceSpreader`
+  ignorando densidade, peças estéreis. Vinhas pendentes e "corrosão de cavernas" ficam pra depois.
 
 ## Decisão nova (durante a implementação, não estava no plano original)
 
