@@ -42,6 +42,17 @@ public class FlowerDiseaseClient {
             "key.categories.flowerdisease"
     );
 
+    // Debug-only: fast-forwards the plants around the player by one in-game day (see DayAdvance). Alt rather than
+    // Ctrl - Ctrl+D is sprint+strafe-right, which would trigger it mid-run.
+    private static final KeyMapping ADVANCE_DAY_KEY = new KeyMapping(
+            "key.flowerdisease.advance_day",
+            KeyConflictContext.UNIVERSAL,
+            KeyModifier.ALT,
+            InputConstants.Type.KEYSYM,
+            GLFW.GLFW_KEY_D,
+            "key.categories.flowerdisease"
+    );
+
     public FlowerDiseaseClient(ModContainer container) {
         // Allows NeoForge to create a config screen for this mod's configs.
         // The config screen is accessed by going to the Mods screen > clicking on your mod > clicking on config.
@@ -52,6 +63,7 @@ public class FlowerDiseaseClient {
     @SubscribeEvent
     static void onRegisterKeyMappings(RegisterKeyMappingsEvent event) {
         event.register(CLEAR_GARDEN_KEY);
+        event.register(ADVANCE_DAY_KEY);
     }
 
     @SubscribeEvent
@@ -114,6 +126,12 @@ public class FlowerDiseaseClient {
             LocalPlayer player = Minecraft.getInstance().player;
             if (player != null) {
                 player.connection.sendCommand("cleargarden");
+            }
+        }
+        while (ADVANCE_DAY_KEY.consumeClick()) {
+            LocalPlayer player = Minecraft.getInstance().player;
+            if (player != null) {
+                player.connection.sendCommand("diseasedflower day");
             }
         }
     }

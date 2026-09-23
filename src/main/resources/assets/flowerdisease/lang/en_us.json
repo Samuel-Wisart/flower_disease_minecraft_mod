@@ -3,6 +3,7 @@
   "config.jade.plugin_flowerdisease.species_name": "Diseased Flower Species Name",
   "key.categories.flowerdisease": "Flower Disease",
   "key.flowerdisease.clear_garden": "Clear Nearby Plants (Debug)",
+  "key.flowerdisease.advance_day": "Simulate One Day of Plant Growth (Debug)",
 
   "block.flowerdisease.diseased_dandelion": "Diseased Dandelion",
   "block.flowerdisease.diseased_poppy": "Diseased Poppy",

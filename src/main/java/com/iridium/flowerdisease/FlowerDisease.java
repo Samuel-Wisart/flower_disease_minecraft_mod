@@ -38,6 +38,8 @@ import net.neoforged.neoforge.common.NeoForge;
 import net.neoforged.neoforge.common.extensions.IMenuTypeExtension;
 import net.neoforged.neoforge.event.BuildCreativeModeTabContentsEvent;
 import net.neoforged.neoforge.event.RegisterCommandsEvent;
+import net.neoforged.neoforge.event.server.ServerStoppedEvent;
+import net.neoforged.neoforge.event.tick.ServerTickEvent;
 import net.neoforged.neoforge.registries.DeferredBlock;
 import net.neoforged.neoforge.registries.DeferredHolder;
 import net.neoforged.neoforge.registries.DeferredItem;
@@ -628,5 +630,16 @@ public class FlowerDisease {
     @SubscribeEvent
     public void onRegisterCommands(RegisterCommandsEvent event) {
         FlowerDiseaseCommands.register(event.getDispatcher());
+    }
+
+    // Drives /diseasedflower day (see DayAdvance), which spreads its work over as many ticks as it needs.
+    @SubscribeEvent
+    public void onServerTick(ServerTickEvent.Post event) {
+        DayAdvance.tick();
+    }
+
+    @SubscribeEvent
+    public void onServerStopped(ServerStoppedEvent event) {
+        DayAdvance.reset();
     }
 }

@@ -473,15 +473,65 @@ foi apagado (autorizado) — o jogo regenera com os novos padrões.
 da planta que você está olhando), `/diseasedflower profile set <chave> <valor>` (um campo por vez: generations,
 density, distance, decay, nodecay, lifetime, ignoreothers, climbing, moss, species) e `/diseasedflower profile clear`.
 
-### Ritmo esperado (estimativa de design, ainda não medida)
+### Ritmo (medido com os testes headless, ver "Bloco 2" abaixo)
 
-Com `c0 = 100%` e o `randomTickSpeed` padrão (17,6 random ticks/planta/dia = um a cada ~68 s reais): ~1 min entre
-tentativas na geração 0, ~2,3 min na 16, ~4,5 min na 48, ~8 min na 100. A validar com `/diseasedflower day` (bloco 2).
+Tempo entre tentativas de uma planta, com `c0 = 100%` e o `randomTickSpeed` padrão (17,6 random ticks/planta/dia = um a
+cada ~68 s reais): ~1 min na geração 0, ~2,3 min na 16, ~4,5 min na 48, ~8 min na 100. **A frente do jardim anda bem mais
+rápido do que eu havia estimado** (eu chutei "raio ~20 em ~40 min"): jardim padrão (Poppy/Dandelion, sem modificadores),
+chão que nunca acaba, 1 "dia" = 20 min reais de random ticks:
+
+| dia | plantas | raio da frente | ainda ativas | profundidade média (das ativas) |
+|---|---|---|---|---|
+| 1 | 1002 | 65 | 328 | 14 |
+| 2 | 2876 | 112 | 550 | 25 |
+| 3 | 5029 | 143 | 749 | 33 |
+| 4 | 6424 | 161 | 441 | 41 |
+| 5 | 6864 | 180 | 155 | 49 |
+
+(a região de teste acabou por volta do dia 6–7, então o fim da tabela é limite da região, não do mecanismo). Cada geração
+avança ~4 blocos (o filho vai pro anel livre mais próximo, que na borda do jardim é o 5º–6º); o tempo por geração cresce
+linearmente com a profundidade (`c(g)`), então a velocidade cai, mas devagar. O botão pra desacelerar é `spreadChance`
+(`c0`) no config e o Sculk na bag.
+
+**Densidade efetiva**: o limite `K` só protege a janela do candidato NO MOMENTO da colocação, então o campo satura acima
+do alvo — medido: D=4 → ~2,4× (≈10 por 16×16), D=16 → ~1,9× (≈30, média de 5,5 vizinhos na janela 9×9 contra o limite 5),
+D=64 → ~1,5×. É o mesmo comportamento do mecanismo antigo (`maxNearbyFlowers`), só com a janela agora escalando com D.
+Não foi recalibrado (seria mudar o visual que já foi aprovado em jogo); se quiser que "D por 16×16" seja literal, o
+caminho é escalar `K` por ~0,5.
+
+**Tamanho em disco** (NBT serializado, sem compressão): planta comum ~136 bytes, com todos os modificadores ~284 bytes,
+flower block ~184. `CompoundTag#sizeInBytes` (contabilidade em memória) dá ~6× isso — não confundir. Como uma planta que
+assenta vira flor vanilla e perde o BE, só existem BEs pra plantas ativas, creepers e flower blocks. Isso enfraquece o
+argumento de peso do registro compartilhado (bloco 3): 100 mil BEs seriam ~14 MB hoje.
+
+### Bloco 2 — ferramentas de debug e testes headless (feito)
+
+- **`/diseasedflower stats`** (op 2): censo dos blocos do mod nos chunks ao redor dos jogadores (`GardenStats`): ativas,
+  assentadas no lugar, peças de creeper, flower blocks, profundidade média/máxima, nº de BEs e tamanho amostrado. Só vê o
+  que ainda É bloco do mod — planta que virou flor vanilla é indistinguível de uma flor qualquer do mundo.
+- **`/diseasedflower day [n]`** e **Alt+D** (`DayAdvance`): avança `n` dias (1–30) ticando SÓ as plantas do mod, na mesma
+  taxa que o vanilla daria (`24000·randomTickSpeed/4096` por posição por dia, distribuição de Poisson), em 120 passos por
+  dia pros filhos nascidos cedo também tickarem depois. Fatiado em 40 ms/tick de servidor, progresso na action bar, resumo
+  com o antes/depois no fim; partículas de debug ficam desligadas enquanto roda; `/diseasedflower day stop` cancela; para
+  sozinho depois de 20 exceções. Um job por vez, estado descartado em `ServerStoppedEvent`. É o motor reaproveitável pro
+  futuro bone meal "pula um dia". Alt e não Ctrl+D porque Ctrl+D é sprint+strafe.
+- **Guarda de chunks não carregados** (achado ao medir o alcance): a busca chega a `alcance + janela` blocos (até 24 por
+  padrão, 40 com Feather), o que passa do anel de chunks que o vanilla garante carregado ao redor de um chunk que tica —
+  ler um bloco lá forçaria o servidor a carregar/gerar chunks dentro do random tick. Agora `randomTick` e a explosão de
+  plantio pulam o tick (sem assentar — assentar congelaria pra sempre toda planta na borda) quando
+  `level.isAreaLoaded(pos, SpreadMath.searchReach(perfil))` é falso.
+- **Testes headless** (`FlowerDiseaseGameTests`, roda com `./gradlew runGameTestServer`, ~1 min, sem GUI; só existe em
+  ambiente de desenvolvimento). Usa o framework de GameTest do NeoForge com uma arena vazia de 48×20×48
+  (`data/flowerdisease/structure/arena.nbt`). Cobre: plantio+explosão pelo mesmo código da bag; média de filhos por planta
+  = número de Rabbit's Foot (1440 tentativas, N=4 → 4,10); Moss 64 corrompe o chão de cada planta ao assentar e os flower
+  blocks se espalham até assentar; jardins padrão/esparso/denso por 3 dias via `DayAdvance`; teste de fumaça com parede,
+  troncos, alta, creeper, escalada e Moss 64; ida-e-volta de NBT (perfil completo, perfil padrão = 0 bytes, chaves antigas,
+  BE de verdade com profundidade); creeper plantável no chão, na parede e no teto; e a linha do tempo de 8 dias acima.
+  Todo teste termina checando invariantes: nenhuma planta que não sobrevive onde está, nenhuma metade de planta alta
+  solta, todo bloco doente com BlockEntity. 10/10 passando, 0 exceções.
 
 ### Ainda por fazer
 
-- **Bloco 2 — ferramentas**: `/diseasedflower stats`, `/diseasedflower day [n]` (simula um dia ticando só as plantas do
-  mod, fatiado em ~40 ms/tick; núcleo reaproveitável pro futuro bone meal "pula um dia"), tecla Alt+D.
 - **Bloco 3 — registro compartilhado de perfis** (`SavedData` + `gardenId` no BE; BEs antigos migram no primeiro tick).
 - **Bloco 4 — creeper em mancha**: energia da semente 0–5 (pesos 1,2,3,3,2,1), cresce via `MultifaceSpreader`
   ignorando densidade, peças estéreis. Vinhas pendentes e "corrosão de cavernas" ficam pra depois.

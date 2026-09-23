@@ -21,6 +21,8 @@ import net.minecraft.core.SectionPos;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.level.ChunkPos;
+import net.minecraft.world.level.GameRules;
 import net.minecraft.world.level.block.BushBlock;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
@@ -50,8 +52,10 @@ final class FlowerDiseaseCommands {
     private FlowerDiseaseCommands() {
     }
 
+    // Off while a day is being fast-forwarded (see DayAdvance): thousands of plants ticking at once would bury the
+    // client in particles for no benefit.
     static boolean debugParticlesEnabled() {
-        return debugParticlesEnabled;
+        return debugParticlesEnabled && !DayAdvance.isRunning();
     }
 
     static void register(CommandDispatcher<CommandSourceStack> dispatcher) {
@@ -85,12 +89,22 @@ final class FlowerDiseaseCommands {
                 .then(Commands.literal("set").then(setKey));
         var debug = Commands.literal("debug")
                 .then(Commands.argument("enabled", BoolArgumentType.bool()).executes(FlowerDiseaseCommands::setDebugParticles));
+        var stats = Commands.literal("stats").executes(FlowerDiseaseCommands::showStats);
+
+        var days = Commands.argument("days", IntegerArgumentType.integer(1, DayAdvance.MAX_DAYS))
+                .executes(context -> startDay(context, IntegerArgumentType.getInteger(context, "days")));
+        var day = Commands.literal("day")
+                .executes(context -> startDay(context, 1))
+                .then(Commands.literal("stop").executes(FlowerDiseaseCommands::stopDay))
+                .then(days);
 
         dispatcher.register(
                 Commands.literal("diseasedflower")
                         .requires(source -> source.hasPermission(PERMISSION_LEVEL))
                         .then(profile)
                         .then(debug)
+                        .then(stats)
+                        .then(day)
         );
     }
 
@@ -243,6 +257,81 @@ final class FlowerDiseaseCommands {
 
     private static String percent(double fraction) {
         return String.format(Locale.ROOT, "%.1f%%", fraction * 100.0);
+    }
+
+    // A census of the mod's blocks in the chunks around the players (see GardenStats for what it can and can't see).
+    private static int showStats(CommandContext<CommandSourceStack> context) {
+        CommandSourceStack source = context.getSource();
+        ServerLevel level = source.getLevel();
+        List<ChunkPos> chunks = GardenScan.chunksAroundPlayers(level);
+
+        source.sendSuccess(() -> Component.literal("Flower Disease: stats for " + chunks.size() + " chunks around the players"), false);
+        for (String line : GardenStats.collect(level, chunks).describe(null)) {
+            source.sendSuccess(() -> Component.literal(line), false);
+        }
+        return 1;
+    }
+
+    // Fast-forwards the plants around the players by `days` in-game days (see DayAdvance); Alt+D sends this with one.
+    private static int startDay(CommandContext<CommandSourceStack> context, int days) {
+        CommandSourceStack source = context.getSource();
+        ServerLevel level = source.getLevel();
+
+        if (level.getGameRules().getInt(GameRules.RULE_RANDOMTICKING) <= 0) {
+            source.sendFailure(Component.literal("Flower Disease: randomTickSpeed is 0, nothing would grow"));
+            return 0;
+        }
+        List<ChunkPos> chunks = GardenScan.chunksAroundPlayers(level);
+        if (chunks.isEmpty()) {
+            source.sendFailure(Component.literal("Flower Disease: no players in this dimension to simulate around"));
+            return 0;
+        }
+
+        ServerPlayer reportTo = source.getPlayer();
+        boolean started = DayAdvance.start(level, chunks, days, new DayAdvance.Listener() {
+            @Override
+            public void progress(int step, int totalSteps, int activePlants) {
+                if (reportTo != null) {
+                    reportTo.displayClientMessage(Component.literal(
+                            "Flower Disease: simulating " + days + " day(s) - step " + step + "/" + totalSteps + " (" + activePlants + " active plants)"
+                    ), true);
+                }
+            }
+
+            @Override
+            public void finished(DayAdvance.Result result) {
+                reportDay(source, result);
+            }
+        });
+
+        if (!started) {
+            source.sendFailure(Component.literal("Flower Disease: a day is already being simulated (/diseasedflower day stop cancels it)"));
+            return 0;
+        }
+        source.sendSuccess(() -> Component.literal(
+                "Flower Disease: simulating " + days + " day(s) for the plants within " + chunks.size() + " chunks of the players"
+        ), false);
+        return 1;
+    }
+
+    private static int stopDay(CommandContext<CommandSourceStack> context) {
+        if (!DayAdvance.isRunning()) {
+            context.getSource().sendFailure(Component.literal("Flower Disease: no day is being simulated"));
+            return 0;
+        }
+        DayAdvance.cancel();
+        return 1;
+    }
+
+    private static void reportDay(CommandSourceStack source, DayAdvance.Result result) {
+        String outcome = result.cancelled() ? (result.errors() > 0 ? "aborted after errors" : "cancelled") : "simulated";
+        source.sendSuccess(() -> Component.literal(
+                "Flower Disease: " + outcome + " " + result.days() + " day(s) - " + result.plantTicks() + " plant ticks in "
+                        + result.workMillis() + " ms of server time" + (result.errors() > 0 ? ", " + result.errors() + " ERRORS (see the log)" : "")
+        ), false);
+        for (String line : result.after().describe(result.before())) {
+            source.sendSuccess(() -> Component.literal(line), false);
+        }
     }
 
     private static int setDebugParticles(CommandContext<CommandSourceStack> context) {

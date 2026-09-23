@@ -89,9 +89,10 @@ public class GardenBagItem extends Item {
 
     // Returns null on success, or the reason it failed (shown to the player) otherwise - planting used
     // to fail completely silently, which made it impossible to tell "no species configured" apart from
-    // "bad spot" apart from "nothing actually got saved into the bag".
+    // "bad spot" apart from "nothing actually got saved into the bag". Package-visible and static so the game tests
+    // can plant exactly the way a right-click does.
     @Nullable
-    private Component plant(ServerLevel level, BlockPos target, ItemStack bagStack, Direction clickedFace) {
+    static Component plant(ServerLevel level, BlockPos target, ItemStack bagStack, Direction clickedFace) {
         GardenBagContents contents = GardenBagContents.read(readSlots(bagStack));
 
         // The root must be an actual growing plant, so only entries with a spreadable Diseased

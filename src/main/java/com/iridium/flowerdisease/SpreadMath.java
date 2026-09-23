@@ -64,6 +64,14 @@ final class SpreadMath {
         return Mth.clamp(distance, 2, Math.max(2, cap));
     }
 
+    // How far from the parent the search can possibly read: the maximum distance plus the crowding window around
+    // the farthest candidate. Every chunk within this many blocks must be loaded before searching, since reading a
+    // block in an unloaded chunk would force the server to load - and possibly generate - it.
+    static int searchReach(GardenBagContents profile) {
+        int density = resolveDensity(profile.densityPer16x16());
+        return resolveMaxDistance(profile.spreadDistance(), density) + windowRadius(density) + 1;
+    }
+
     // ---- Life cycle ----------------------------------------------------------------------------------
 
     static double halfGenerations(int decayStrength) {

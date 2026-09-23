@@ -112,6 +112,13 @@ final class DiseasedPlantLogic {
             return;
         }
 
+        // Only searches with the whole neighborhood loaded (see SpreadMath#searchReach): at the edge of the simulated
+        // area the tick is skipped, not spent - and the plant is not settled either, which would freeze every plant
+        // along that edge for good just because a player happened to be far away.
+        if (!level.isAreaLoaded(pos, SpreadMath.searchReach(profile))) {
+            return;
+        }
+
         int attempts = SpreadMath.resolveLifetimeAttempts(profile.lifetimeAttempts());
         if (random.nextDouble() >= SpreadMath.continueProbability(attempts)) {
             settle(level, pos, self, fallbackBlock, selfShape, state, profile, random);
@@ -325,7 +332,7 @@ final class DiseasedPlantLogic {
         }
 
         SpreadProfileBlockEntity plant = profileAt(level, pos);
-        if (plant == null) {
+        if (plant == null || !level.isAreaLoaded(pos, SpreadMath.searchReach(plant.profile()))) {
             return;
         }
 
