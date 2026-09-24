@@ -111,6 +111,31 @@ public class Config {
             .comment("Upper bound on how many extra plants a single planting burst may create.")
             .defineInRange("plantingBurstMaxPlants", 32, 0, 256);
 
+    // ---- Creeper patches ------------------------------------------------------------------------------
+
+    public static final ModConfigSpec.IntValue PATCH_MAX_ENERGY = BUILDER
+            .comment(
+                    "A creeping flower that is planted or born grows a patch around itself: it draws an energy from 0 to this",
+                    "value (the middle values the most likely) and every piece it grows has one less, so the patch spreads that",
+                    "many pieces out across the surfaces around it, ignoring the density. 0 turns patches off."
+            )
+            .defineInRange("patchMaxEnergy", 5, 0, 10);
+
+    public static final ModConfigSpec.DoubleValue PATCH_GROWTH_CHANCE = BUILDER
+            .comment(
+                    "Chance (0.0-1.0) that a creeper piece that still has energy grows one more piece when it receives a random",
+                    "tick. Independent of the reproduction chance; at the default random tick speed a patch fills in in about a day."
+            )
+            .defineInRange("patchGrowthChance", 0.33, 0.0, 1.0);
+
+    public static final ModConfigSpec.DoubleValue PATCH_FILL = BUILDER
+            .comment(
+                    "After a creeper piece grows a new piece, the chance (0.05-1.0) that it keeps growing more. 1.0 fills",
+                    "everything within the energy's reach solidly; lower values leave ragged, organic patches (a piece grows",
+                    "fill / (1 - fill) more pieces on average - 2.3 by default)."
+            )
+            .defineInRange("patchFill", 0.7, 0.05, 1.0);
+
     // ---- Flower blocks --------------------------------------------------------------------------------
 
     public static final ModConfigSpec.BooleanValue FLOWER_BLOCK_CONVERSION = BUILDER

@@ -29,6 +29,8 @@ final class GardenStats {
     int active;
     int settledInPlace;
     int creeperPieces;
+    // Creeper blocks whose patch is still growing (they still tick and hold a block entity).
+    int growingPieces;
     int flowerBlocksActive;
     int flowerBlocksSettled;
     // Diseased plants (not flower blocks) - the ones whose lineage depth means something.
@@ -68,7 +70,8 @@ final class GardenStats {
                 sampledBytes += serializedSize(saved);
                 sampledTags.add(saved);
             }
-            if (!flowerBlock) {
+            boolean patchPiece = plant instanceof CreeperBlockEntity creeper && creeper.lineageDone() && plant.garden() == GardenRegistry.NO_GARDEN;
+            if (!flowerBlock && !patchPiece) {
                 plants++;
                 depthSum += plant.depth();
                 maxDepth = Math.max(maxDepth, plant.depth());
@@ -89,6 +92,9 @@ final class GardenStats {
 
         if (state.getBlock() instanceof CreepingFlowerBlock) {
             creeperPieces++;
+            if (!settled) {
+                growingPieces++;
+            }
         }
         if (settled) {
             settledInPlace++;
@@ -149,7 +155,7 @@ final class GardenStats {
         List<String> lines = new ArrayList<>(List.of(
                 "  diseased plants: " + active + change(active, before == null ? null : before.active) + " active, "
                         + settledInPlace + change(settledInPlace, before == null ? null : before.settledInPlace)
-                        + " settled in place (creeper pieces: " + creeperPieces + ")",
+                        + " settled in place (creeper pieces: " + creeperPieces + ", still growing: " + growingPieces + ")",
                 "  flower blocks: " + flowerBlocksActive + " active, " + flowerBlocksSettled + " settled",
                 "  lineage depth: mean " + String.format(Locale.ROOT, "%.1f", meanDepth()) + ", max " + maxDepth + " (over " + plants + " plants)",
                 "  block entities: " + blockEntities + " - one saves as about " + bytesPerEntity() + " bytes (~"

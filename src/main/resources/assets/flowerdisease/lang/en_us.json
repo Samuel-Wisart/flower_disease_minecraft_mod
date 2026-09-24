@@ -91,6 +91,9 @@
   "flowerdisease.configuration.speciesInheritance": "Species Inheritance",
   "flowerdisease.configuration.plantingBurstGenerations": "Planting Burst Generations",
   "flowerdisease.configuration.plantingBurstMaxPlants": "Planting Burst Max Plants",
+  "flowerdisease.configuration.patchMaxEnergy": "Creeper Patch Max Energy",
+  "flowerdisease.configuration.patchGrowthChance": "Creeper Patch Growth Chance",
+  "flowerdisease.configuration.patchFill": "Creeper Patch Fill",
   "flowerdisease.configuration.flowerBlockConversion": "Flower Block Conversion",
   "flowerdisease.configuration.flowerBlockSpreadFactor": "Flower Block Spread Factor",
   "flowerdisease.configuration.flowerBlockMaxGenerations": "Flower Block Max Generations"

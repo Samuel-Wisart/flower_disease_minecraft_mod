@@ -26,11 +26,11 @@ import net.minecraft.world.level.block.state.StateDefinition;
 // DiseasedPlantLogic#randomTickCreeping passing itself as its own fallback, and DiseasedPlantLogic#settle's
 // "vanillaSpecies == diseasedSpecies" branch).
 //
-// Spreading is driven by the same shared random-tick engine as every other species (DiseasedPlantLogic),
-// NOT vanilla's own MultifaceSpreader/bonemeal mechanic - an independent random jump within spreadDistance
-// reads more like "the disease creeping across surfaces" than vanilla's strict face-to-face growth, and
-// keeps every species (tilted, tall, creeping) governed by one engine instead of three. getSpreader() is
-// still implemented (MultifaceBlock requires it), it's just never actually called by anything of ours.
+// Reproduction is driven by the same shared random-tick engine as every other species (DiseasedPlantLogic): an
+// independent jump within the spread distance reads more like "the disease creeping across surfaces" than vanilla's
+// strict face-to-face growth, and keeps every species (tilted, tall, creeping) governed by one engine. On top of that, a
+// creeper grows a small PATCH of pieces around itself with vanilla's own MultifaceSpreader (see PatchGrowth), which is
+// what getSpreader() is for - MultifaceBlock requires it, and the patch reuses its rules for where a piece may grow.
 public class CreepingFlowerBlock extends MultifaceBlock implements EntityBlock {
 
     private static final MapCodec<CreepingFlowerBlock> CODEC = simpleCodec(CreepingFlowerBlock::new);

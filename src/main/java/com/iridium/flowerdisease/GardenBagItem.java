@@ -142,6 +142,9 @@ public class GardenBagItem extends Item {
         // Every planting is a garden of its own: the plant remembers just the garden's id (see GardenRegistry).
         if (level.getBlockEntity(target) instanceof SpreadProfileBlockEntity root) {
             root.startGarden(level, contents, target);
+            if (root instanceof CreeperBlockEntity creeper) {
+                creeper.setEnergy(PatchGrowth.rollEnergy(level.getRandom()));
+            }
         }
 
         // The garden starts with its second generation already around the root instead of one lonely flower (or, with

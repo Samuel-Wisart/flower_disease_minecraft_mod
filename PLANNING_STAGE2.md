@@ -242,10 +242,11 @@ rotação). Matematicamente isso garante que os dois planos continuam se cruzand
 (x=8, z=16) depois da rotação, exatamente como se cruzavam em x=8,z=8 no cross original do vanilla -
 alinhados por construção, não por tentativa e erro. Validado com `runClient` (sem erro), ainda não visto em
 jogo - essa é a versão que preciso que você confirme.
-- **Redesenho do ciclo de vida (2026-09-23) — bloco 1 implementado, ver a seção "Ciclo de vida" mais
-  abaixo.** Substitui o espalhamento por "salto aleatório numa caixa" + settle por sorteio de chance fixa.
-  Blocos 2 em diante (ferramentas `stats`/`day`, registro de perfis compartilhados, crescimento em mancha do
-  creeper) ainda por fazer.
+- **Redesenho do ciclo de vida (2026-09-23) — blocos 1 a 4 implementados, ver a seção "Ciclo de vida" mais
+  abaixo.** Substitui o espalhamento por "salto aleatório numa caixa" + settle por sorteio de chance fixa. Bloco 1:
+  núcleo (decaimento, vida útil, anéis, explosão); bloco 2: ferramentas `stats`/`day` + testes headless; bloco 3:
+  registro de jardins; bloco 4: creeper em mancha. Entre eles, a explosão de plantio foi revista (planta plantada =
+  geração 1) e um bug antigo dos flower blocks ao recarregar o chunk foi corrigido.
 - **Próximo passo: Fase 4 (compatibilidade, debug, documentação)** — já com boa parte adiantada (ver
   `/cleargarden` acima nas Fases 2 e 3).
 
@@ -567,9 +568,68 @@ carregar o chunk, ganhava uma cópia própria dela na RAM.
   o jardim e o chão.
 - Entradas do registro nunca são removidas (~200 bytes por plantio; saber se ainda há plantas exigiria varrer o mundo).
 
+### Bloco 4 — creeper em mancha (feito)
+
+Um creeper plantado ou nascido de reprodução vira uma **semente**: sorteia uma **energia** de 0 a `patchMaxEnergy` (5), em
+curva de sino — pesos `min(e+1, max−e+1)` = 1, 2, 3, 3, 2, 1 de 12, então uma peça sem mancha nenhuma é rara (~1 em 12) — e
+cresce uma **mancha** ao redor com o `MultifaceSpreader` do vanilla (a mesma regra do Glow Lichen: outra face do mesmo bloco,
+a mesma parede, contornando a quina). Cada peça nova nasce com uma energia a menos que a peça de onde saiu; sem energia,
+nasce já assentada. **Ignora a densidade** (é o corpo de um creeper, não uma população) e tem chance própria de crescer
+(`patchGrowthChance`, 0,33 por random tick, ~1 dia pra encher no `randomTickSpeed` padrão).
+
+- **`patchFill`** (0,7): depois de cada peça nova, a chance de a peça continuar crescendo. Sem isso, cada peça crescia até
+  não haver mais espaço e a mancha saía um **losango perfeito** (medido: 25 peças pra energia 3); com 0,7 ela sai irregular
+  (7 a 25 peças, média 15).
+- **As peças da mancha são estéreis**: não se reproduzem, não sorteiam flower block, não têm geração. O que continua na
+  linhagem é a **semente**: ela reproduz como qualquer planta (sorteia espécie, procura anel, coloca filhos — cada filho
+  creeper é uma semente nova, com energia própria). Por isso um saco só de creepers continua se espalhando.
+- **Uma semente faz duas coisas ao mesmo tempo** (`CreeperBlockEntity`: `energy` + `lineageDone`): a cada random tick
+  cresce a mancha se ainda tem energia, e depois a vida de linhagem se ainda tem. Só assenta quando as duas acabam;
+  enquanto a mancha cresce, a semente que já esgotou a linhagem (teto de gerações, teste de vida útil) fica ativa com
+  `lineageDone`. A jogada de flower block da semente acontece uma vez, no fim da linhagem. Uma peça de mancha nasce com
+  `lineageDone` (ativa só enquanto tem energia).
+- **Bone Meal ×1 num creeper** planta uma "planta" só, mas a mancha ainda cresce em volta dela (é o corpo dela, não uma
+  geração).
+- **Sem BE em repouso**: peça assentada não tem BlockEntity (`removeBlockEntity`). Medido no teste de fumaça (Moss ×64,
+  3 dias): 13 mil peças de creeper (contra ~2 mil no bloco 2) com só 376 BEs — as que ainda estão crescendo.
+- `stats` mostra "still growing"; peças de mancha ficam fora da estatística de profundidade. `patchMaxEnergy = 0` desliga
+  tudo (o creeper volta a ser uma peça solta). Ficam pra depois: vinhas pendentes (suportadas só pela peça de cima) e a
+  "corrosão de cavernas".
+
+### Custo dos block entities (medido)
+
+Pergunta do dono do projeto: 50 mil block entities é problema? Medido com `blockEntityFootprint` (posições espalhadas,
+conteúdo variado, uma tag nova por entidade como num carregamento de chunk):
+
+| por block entity | planta ativa (antes → depois do registro) | flower block |
+|---|---|---|
+| NBT salvo (sem compressão) | 153 → 88 bytes | 142 → 116 bytes (assentado guarda menos) |
+| no chunk, comprimido em disco | ~7 → ~7 bytes | ~6 bytes |
+| no pacote de chunk pro cliente | ~5 bytes | ~5 bytes |
+| na RAM ao carregar | ~270 → ~90 bytes | ~90–100 bytes |
+
+50 mil BEs = ~6–8 MB de NBT antes de comprimir, **~0,3–0,4 MB no disco**, ~250 KB nos pacotes se todos os chunks fossem
+enviados de uma vez, ~5 MB de heap no servidor (e outro tanto em cada cliente). Não há custo por tick (nenhum tem ticker) e o
+carregamento é ~2–4 µs por BE. **Não é problema hoje**; é custo linear, e o que pesa em mundos grandes é a **quantidade**.
+Por isso o bloco 3 (só o id do jardim, e nenhum BE pra planta assentada ou metade de cima) e o bloco 4 (peças de mancha sem
+BE em repouso) atacam a quantidade. O que sobra em massa são flower blocks, que precisam do bloco que substituíram; uma
+saída se isso incomodar seria guardar o "chão" numa propriedade do blockstate (dirt/grass/stone/sand...) e só usar BE pros
+casos exóticos.
+
+A linha do `stats` agora mostra o tamanho salvo e o comprimido (amostra dos 64 primeiros BEs).
+
+**Bug achado e corrigido no caminho** (commit à parte): ao descarregar e recarregar um chunk, todo flower block perdia o
+`ReplacedState`, porque `BlockEntity#loadStatic` reconstrói pelo TIPO do BE, não pelo bloco, e a factory do tipo era
+`SpreadProfileBlockEntity::new` — o flower block voltava como um BE de planta comum (e o dado sumia de vez no próximo
+save; `/cleargarden` deixava buraco em vez de restaurar o terreno). A factory do tipo agora escolhe a subclasse certa
+(`SpreadProfileBlockEntity#forBlock`: flower block, creeper ou planta), com teste que reconstrói a partir do NBT.
+
 ### Ainda por fazer
-- **Bloco 4 — creeper em mancha**: energia da semente 0–5 (pesos 1,2,3,3,2,1), cresce via `MultifaceSpreader`
-  ignorando densidade, peças estéreis. Vinhas pendentes e "corrosão de cavernas" ficam pra depois.
+
+- Vinhas pendentes e "corrosão de cavernas" (mutação de flower block por scheduled tick), ruído de baixa frequência nos
+  pesos de espécie — adiados de propósito.
+- Opcional: flower block sem BE (chão numa propriedade do blockstate) se a contagem de BEs incomodar; recalibrar a
+  densidade efetiva (escalar `K` por ~0,5) se "D por 16×16" tiver que ser literal.
 
 ## Decisão nova (durante a implementação, não estava no plano original)
 

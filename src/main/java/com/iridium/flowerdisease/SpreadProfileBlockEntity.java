@@ -6,6 +6,7 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.core.HolderLookup;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.DoublePlantBlock;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
@@ -44,9 +45,14 @@ public class SpreadProfileBlockEntity extends BlockEntity {
     // the empty one. So this has to produce the right class for each of them, or a Flower Block would come back as a
     // plain plant entity that has forgotten the ground it replaced.
     static SpreadProfileBlockEntity forBlock(BlockPos pos, BlockState state) {
-        return state.getBlock() instanceof FlowerMassBlock
-                ? new FlowerMassBlockEntity(pos, state)
-                : new SpreadProfileBlockEntity(pos, state);
+        Block block = state.getBlock();
+        if (block instanceof FlowerMassBlock) {
+            return new FlowerMassBlockEntity(pos, state);
+        }
+        if (block instanceof CreepingFlowerBlock) {
+            return new CreeperBlockEntity(pos, state);
+        }
+        return new SpreadProfileBlockEntity(pos, state);
     }
 
     // What EntityBlock#newBlockEntity of every Diseased block returns: nothing for a plant that has settled, and

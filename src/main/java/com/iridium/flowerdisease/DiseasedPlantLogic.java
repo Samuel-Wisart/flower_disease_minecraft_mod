@@ -68,6 +68,11 @@ final class DiseasedPlantLogic {
     // Creeping species have no distinct vanilla form to settle into at all (see PLANNING_STAGE2.md Fase 2.1) -
     // self doubles as its own fallback, so settle() always falls through to "settle in place" for these
     // (vanillaSpecies == diseasedSpecies is exactly the check it makes).
+    //
+    // A creeper block can be two things at once (see PatchGrowth and CreeperBlockEntity): a seed - a member of the
+    // lineage, which reproduces like any other plant - and the origin of a patch that is still growing. Each random tick
+    // does the patch's part first, then the lineage's if the block still has one; a patch piece grown by another
+    // creeper has no lineage at all. The block only settles when both are over.
     static void randomTickCreeping(
             BlockState state,
             ServerLevel level,
@@ -75,6 +80,21 @@ final class DiseasedPlantLogic {
             RandomSource random,
             Block self
     ) {
+        if (level.getBlockEntity(pos) instanceof CreeperBlockEntity creeper) {
+            if (creeper.energy() > 0) {
+                PatchGrowth.grow(level, pos, state, creeper, random);
+                // Growing can add a face to this very block.
+                state = level.getBlockState(pos);
+            }
+
+            if (creeper.lineageDone()) {
+                if (creeper.energy() == 0) {
+                    settleInPlace(level, pos, state);
+                }
+                return;
+            }
+        }
+
         randomTick(state, level, pos, random, self, self, Shape.CREEPING);
     }
 
@@ -244,6 +264,11 @@ final class DiseasedPlantLogic {
             case TALL -> diseasedSpecies.defaultBlockState();
         };
 
+        if (childShape == Shape.CREEPING) {
+            placeSeed(level, target.pos(), childState, child, random);
+            return target.pos();
+        }
+
         if (generationsLeft(child.profile(), child.depth()) == 0) {
             // No budget left for the child to spread itself, so it settles the instant it's created instead of
             // existing as an active Diseased Flower even briefly - as its own (just-picked) species, same as any
@@ -264,6 +289,45 @@ final class DiseasedPlantLogic {
         return target.pos();
     }
 
+    // A newborn creeper: it draws the energy of the patch it will grow. If the generation cap leaves it no children its
+    // lineage is over at once - but a patch it can still grow keeps it (and its block entity) active until that is done,
+    // so only a seed with nothing to grow is born settled.
+    private static void placeSeed(ServerLevel level, BlockPos pos, BlockState childState, Lineage child, RandomSource random) {
+        int energy = PatchGrowth.rollEnergy(random);
+        boolean lineageOver = generationsLeft(child.profile(), child.depth()) == 0;
+        boolean settledAtBirth = lineageOver && energy == 0;
+
+        level.setBlock(pos, settledAtBirth ? childState.setValue(SettleTable.SETTLED, true) : childState, SettleTable.PLACEMENT_FLAGS);
+        if (!settledAtBirth && level.getBlockEntity(pos) instanceof CreeperBlockEntity seed) {
+            seed.inherit(child.garden(), child.depth());
+            seed.setEnergy(energy);
+            if (lineageOver) {
+                seed.markLineageDone();
+            }
+        }
+
+        if (lineageOver) {
+            FlowerBlockLogic.onPlantSettled(level, pos, childState, Shape.CREEPING, child, random);
+        }
+    }
+
+    // A creeper's own settling: its lineage is over (it has one roll at corrupting the block it clings to, like any
+    // plant), but if its patch is still growing it stays active for that - see randomTickCreeping.
+    private static void settleCreeper(ServerLevel level, BlockPos pos, BlockState state, Lineage lineage, RandomSource random) {
+        if (level.getBlockEntity(pos) instanceof CreeperBlockEntity creeper && creeper.energy() > 0) {
+            creeper.markLineageDone();
+        } else {
+            settleInPlace(level, pos, state);
+        }
+        FlowerBlockLogic.onPlantSettled(level, pos, state, Shape.CREEPING, lineage, random);
+    }
+
+    // Stops a block that stays one of ours for good: nothing left to remember, so its block entity goes too.
+    private static void settleInPlace(ServerLevel level, BlockPos pos, BlockState state) {
+        level.setBlock(pos, state.setValue(SettleTable.SETTLED, true), SettleTable.PLACEMENT_FLAGS);
+        level.removeBlockEntity(pos);
+    }
+
     // A plant that can't spread anymore isn't being "born" again - it just stabilizes. If its own vanilla species
     // can actually survive right here, it becomes that (the common case: a flower settling on ordinary ground).
     // Otherwise it keeps its EXACT current block/shape/facing and just gets marked SETTLED, instead of trying to
@@ -282,6 +346,11 @@ final class DiseasedPlantLogic {
             Lineage lineage,
             RandomSource random
     ) {
+        if (atShape == Shape.CREEPING) {
+            settleCreeper(level, pos, inPlaceState, lineage, random);
+            return;
+        }
+
         if (vanillaSpecies != diseasedSpecies && vanillaSpecies.defaultBlockState().canSurvive(level, pos)) {
             if (atShape == Shape.TALL) {
                 // The old upper half won't be overwritten unless the target is a real two-block plant, so clear it

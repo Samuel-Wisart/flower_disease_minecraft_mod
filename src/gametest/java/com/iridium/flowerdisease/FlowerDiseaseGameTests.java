@@ -7,13 +7,16 @@ import java.io.DataOutputStream;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.core.component.DataComponents;
 import net.minecraft.gametest.framework.GameTest;
+import net.minecraft.gametest.framework.GameTestAssertException;
 import net.minecraft.gametest.framework.GameTestHelper;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.ListTag;
@@ -34,6 +37,7 @@ import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.BushBlock;
 import net.minecraft.world.level.block.DoublePlantBlock;
+import net.minecraft.world.level.block.MultifaceBlock;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.properties.DoubleBlockHalf;
@@ -60,6 +64,8 @@ public final class FlowerDiseaseGameTests {
     // Chunks kept loaded around the arena so that plants near its edge still find their whole search area loaded.
     private static final int MARGIN_CHUNKS = 2;
     private static final int LONG_TIMEOUT = 12000;
+    // How many chunks beyond the ones kept loaded are swept for leftovers, before and after each test.
+    private static final int SWEEP_RING = 3;
 
     private FlowerDiseaseGameTests() {
     }
@@ -93,7 +99,7 @@ public final class FlowerDiseaseGameTests {
                 helper.assertTrue(plant != null, "child at " + pos + " has no block entity");
                 helper.assertTrue(plant.depth() == 1 && plant.profile().equals(bag.contents()), "a child of the planted flower should be generation 2, found depth " + plant.depth() + " at " + pos);
             }
-            failOnProblems(arena.validate());
+            failOnProblems(helper, arena.validate());
         } finally {
             arena.cleanup();
         }
@@ -112,7 +118,7 @@ public final class FlowerDiseaseGameTests {
 
             helper.assertTrue(arena.countPlants() == 1, "expected exactly one flower, found " + arena.countPlants());
             helper.assertTrue(!GardenScan.isPlantBlock(arena.level.getBlockState(root)), "the only generation there is should be settled, not still spreading");
-            failOnProblems(arena.validate());
+            failOnProblems(helper, arena.validate());
         } finally {
             arena.cleanup();
         }
@@ -133,7 +139,7 @@ public final class FlowerDiseaseGameTests {
             log("burst with Bone Meal x2: " + arena.countPlants() + " flowers, " + arena.countDiseased() + " still spreading\n" + arena.map());
             helper.assertTrue(arena.countPlants() >= 2, "expected children, found " + arena.countPlants() + " flowers");
             helper.assertTrue(arena.countDiseased() == 0, arena.countDiseased() + " plants are still spreading; the burst should have been everything");
-            failOnProblems(arena.validate());
+            failOnProblems(helper, arena.validate());
         } finally {
             arena.cleanup();
         }
@@ -238,7 +244,7 @@ public final class FlowerDiseaseGameTests {
                     "a settled flower block should keep only its garden and its ground: garden " + entity.garden() + ", depth " + entity.depth() + ", cap " + entity.cap());
         }
 
-        failOnProblems(arena.validate());
+        failOnProblems(helper, arena.validate());
     }
 
     @GameTest(template = TEMPLATE, batch = "gt_growth_default", timeoutTicks = LONG_TIMEOUT)
@@ -303,9 +309,9 @@ public final class FlowerDiseaseGameTests {
                 arena.cleanup();
                 simulation.problems = problems;
             }
-            failOnProblems(simulation.problems);
+            failOnProblems(helper, simulation.problems);
             if (simulation.result.errors() > 0) {
-                throw new IllegalStateException(simulation.result.errors() + " exceptions while ticking plants (see the log)");
+                failNow(helper, simulation.result.errors() + " exceptions while ticking plants (see the log)");
             }
         });
     }
@@ -393,7 +399,7 @@ public final class FlowerDiseaseGameTests {
             BlockPos underCeiling = arena.at(20, 4, 20);
             helper.assertTrue(GardenBagItem.plant(arena.level, underCeiling, bag.stack(), Direction.DOWN) == null, "a creeper could not be planted on a ceiling");
 
-            failOnProblems(arena.validate());
+            failOnProblems(helper, arena.validate());
         } finally {
             arena.cleanup();
         }
@@ -432,7 +438,7 @@ public final class FlowerDiseaseGameTests {
             log(String.format(Locale.ROOT, "timeline day %d: %d plants, front radius %.1f, %d still active (mean depth %.1f, max %d), %d ms",
                     day[0], plants.size(), radius, result.after().active, result.after().meanDepth(), result.after().maxDepth, result.workMillis()));
             if (result.errors() > 0) {
-                throw new IllegalStateException(result.errors() + " exceptions while ticking plants (see the log)");
+                failNow(helper, result.errors() + " exceptions while ticking plants (see the log)");
             }
 
             if (day[0] < totalDays) {
@@ -476,7 +482,7 @@ public final class FlowerDiseaseGameTests {
             GardenRegistry.Garden entry = registry.get(garden);
             helper.assertTrue(entry != null && !entry.legacy() && entry.profile().equals(bag.contents()) && entry.origin().equals(root),
                     "the registry should remember the planting: " + entry);
-            failOnProblems(arena.validate());
+            failOnProblems(helper, arena.validate());
         } finally {
             arena.cleanup();
         }
@@ -580,6 +586,12 @@ public final class FlowerDiseaseGameTests {
         try {
             BlockPos creeper = arena.at(10, 1, 10);
             plantVia(helper, arena, new Bag().add(FlowerDisease.SUNFLOWER_CREEPER_ITEM.get(), 1).add(Items.BONE_MEAL, 1), creeper);
+            // A planted creeper draws the energy of a patch, and stays active until that has grown; with none to grow it
+            // settles - so take the energy away and let it finish.
+            if (arena.level.getBlockEntity(creeper) instanceof CreeperBlockEntity planted) {
+                planted.setEnergy(0);
+            }
+            tickUntilSettled(arena.level, creeper, arena.level.getRandom());
             BlockState creeperState = arena.level.getBlockState(creeper);
             helper.assertTrue(creeperState.getBlock() instanceof CreepingFlowerBlock && DiseasedPlantLogic.isSettled(creeperState), "expected a settled creeper, found " + creeperState);
             helper.assertTrue(arena.level.getBlockEntity(creeper) == null, "a settled creeper should keep no block entity");
@@ -589,7 +601,197 @@ public final class FlowerDiseaseGameTests {
             helper.assertTrue(arena.level.getBlockEntity(tall) instanceof SpreadProfileBlockEntity, "the lower half of an active tall plant should have a block entity");
             helper.assertTrue(arena.level.getBlockEntity(tall.above()) == null, "the upper half should never have one");
 
-            failOnProblems(arena.validate());
+            failOnProblems(helper, arena.validate());
+        } finally {
+            arena.cleanup();
+        }
+        helper.succeed();
+    }
+
+    // ---- Creeper patches ----------------------------------------------------------------------------
+
+    // Energy 0 to 5 with weights 1, 2, 3, 3, 2, 1: most patches are middling and a lone piece is rare (1 in 12).
+    @GameTest(template = TEMPLATE, batch = "gt_patch_energy", timeoutTicks = 100)
+    public static void creeperEnergyFollowsTheBellCurve(GameTestHelper helper) {
+        RandomSource random = helper.getLevel().getRandom();
+        int max = Config.PATCH_MAX_ENERGY.getAsInt();
+        int[] counts = new int[max + 1];
+        int samples = 24_000;
+        for (int i = 0; i < samples; i++) {
+            counts[PatchGrowth.rollEnergy(random)]++;
+        }
+
+        int totalWeight = 0;
+        for (int energy = 0; energy <= max; energy++) {
+            totalWeight += PatchGrowth.weight(energy, max);
+        }
+        StringBuilder report = new StringBuilder("patch energy over " + samples + " rolls:");
+        for (int energy = 0; energy <= max; energy++) {
+            double expected = (double) PatchGrowth.weight(energy, max) / totalWeight;
+            double seen = (double) counts[energy] / samples;
+            report.append(String.format(Locale.ROOT, " %d=%.1f%% (expected %.1f%%)", energy, seen * 100, expected * 100));
+            helper.assertTrue(Math.abs(seen - expected) < 0.015, "energy " + energy + " came up " + seen + " of the time, expected " + expected);
+        }
+        log(report.toString());
+        helper.succeed();
+    }
+
+    // Seeds with energy 3 grow patches at most 3 pieces out, in about a day, made of pieces that never reproduce or
+    // corrupt anything; when they are done every piece has settled and the whole thing costs no block entities. Sixteen
+    // seeds, spread out so their patches stay apart, because a single ragged patch says little.
+    @GameTest(template = TEMPLATE, batch = "gt_patch_growth", timeoutTicks = LONG_TIMEOUT)
+    public static void creeperSeedsGrowBoundedSterilePatches(GameTestHelper helper) {
+        Arena arena = new Arena(helper);
+        arena.prepare();
+        ensureRandomTickSpeed(arena.level);
+
+        int energy = 3;
+        // Moss x64 so that any piece that DID roll for corrupting terrain would show as a Flower Block; Bone Meal x1 and the
+        // seeds marked done so that they have no lineage left to roll with either.
+        GardenBagContents contents = new Bag().add(FlowerDisease.SUNFLOWER_CREEPER_ITEM.get(), 1).add(Items.BONE_MEAL, 1).add(Items.MOSS_BLOCK, 64).contents();
+        List<BlockPos> seeds = new ArrayList<>();
+        for (int gx = 0; gx < 4; gx++) {
+            for (int gz = 0; gz < 4; gz++) {
+                BlockPos seed = arena.at(4 + gx * 10, 1, 4 + gz * 10);
+                placeSeed(arena.level, seed, contents, energy);
+                seeds.add(seed);
+            }
+        }
+
+        Simulation[] current = {Simulation.start(arena, 1)};
+        helper.assertTrue(current[0] != null, "a day simulation was already running");
+        int[] stage = {0};
+
+        helper.succeedWhen(() -> {
+            helper.assertTrue(current[0].result != null, "simulation still running");
+            List<BlockPos> pieces = arena.creeperPositions();
+            if (current[0].result.errors() > 0) {
+                failNow(helper, current[0].result.errors() + " exceptions while ticking plants (see the log)");
+            }
+
+            if (stage[0] == 0) {
+                // A day in: some pieces are still growing, and none of them is a member of the lineage.
+                for (BlockPos pos : pieces) {
+                    if (seeds.contains(pos)) {
+                        continue;
+                    }
+                    if (arena.level.getBlockEntity(pos) instanceof CreeperBlockEntity piece) {
+                        if (!piece.lineageDone() || piece.garden() != GardenRegistry.NO_GARDEN) {
+                            failNow(helper, "a patch piece at " + pos + " is a lineage member: done " + piece.lineageDone() + ", garden " + piece.garden());
+                        }
+                        if (piece.energy() < 0 || piece.energy() >= energy) {
+                            failNow(helper, "a patch piece at " + pos + " has energy " + piece.energy() + ", the seeds had " + energy);
+                        }
+                    }
+                }
+                stage[0] = 1;
+                current[0] = Simulation.start(arena, 3);
+                helper.assertTrue(false, "the patches have a few more days to finish");
+            }
+
+            // Finished: everything settled, nothing left holding data, all within the energy's reach of a seed.
+            double average = (double) pieces.size() / seeds.size();
+            log(String.format(Locale.ROOT, "patches: %d pieces from %d seeds with energy %d (%.1f each)%n%s", pieces.size(), seeds.size(), energy, average, arena.map()));
+            int reach = 0;
+            for (BlockPos pos : pieces) {
+                int nearest = Integer.MAX_VALUE;
+                for (BlockPos seed : seeds) {
+                    nearest = Math.min(nearest, Math.max(Math.abs(pos.getX() - seed.getX()), Math.abs(pos.getZ() - seed.getZ())));
+                }
+                reach = Math.max(reach, nearest);
+                BlockState state = arena.level.getBlockState(pos);
+                if (!DiseasedPlantLogic.isSettled(state) || arena.level.getBlockEntity(pos) != null) {
+                    failNow(helper, "a creeper at " + pos + " never finished: " + state);
+                }
+            }
+            helper.assertTrue(average >= 6 && average <= 25, "a patch of energy " + energy + " should average between 6 and 25 pieces, averaged " + average);
+            helper.assertTrue(reach <= energy, "a patch reaches " + reach + " blocks from its seed, which had energy " + energy);
+            helper.assertTrue(arena.countFlowerBlocks() == 0, "patch pieces must not corrupt terrain, found " + arena.countFlowerBlocks() + " Flower Blocks");
+            failOnProblems(helper, arena.validate());
+            arena.cleanup();
+        });
+    }
+
+    // No energy, no patch: it is one piece, and once its own life is over it settles and keeps no block entity.
+    @GameTest(template = TEMPLATE, batch = "gt_patch_none", timeoutTicks = 200)
+    public static void creeperWithoutEnergyStaysASinglePiece(GameTestHelper helper) {
+        Arena arena = new Arena(helper);
+        arena.prepare();
+        try {
+            // Bone Meal x1: the generation cap gives it no children, so its life ends at its first tick.
+            GardenBagContents contents = new Bag().add(FlowerDisease.SUNFLOWER_CREEPER_ITEM.get(), 1).add(Items.BONE_MEAL, 1).contents();
+            BlockPos pos = arena.at(24, 1, 24);
+            placeSeed(arena.level, pos, contents, 0, false);
+            tickUntilSettled(arena.level, pos, arena.level.getRandom());
+
+            BlockState state = arena.level.getBlockState(pos);
+            helper.assertTrue(state.getBlock() instanceof CreepingFlowerBlock && DiseasedPlantLogic.isSettled(state), "expected a settled creeper, found " + state);
+            helper.assertTrue(arena.level.getBlockEntity(pos) == null, "a settled creeper keeps no block entity");
+            helper.assertTrue(arena.creeperPositions().size() == 1, "with no energy there should be one piece, found " + arena.creeperPositions().size());
+        } finally {
+            arena.cleanup();
+        }
+        helper.succeed();
+    }
+
+    // The seed is still a member of the lineage: it reproduces (placing seeds of its own, each with a patch to grow)
+    // while only its patch is sterile.
+    @GameTest(template = TEMPLATE, batch = "gt_patch_seeds", timeoutTicks = 200)
+    public static void creeperSeedsKeepReproducing(GameTestHelper helper) {
+        Arena arena = new Arena(helper);
+        arena.prepare();
+        try {
+            Bag bag = new Bag().add(FlowerDisease.SUNFLOWER_CREEPER_ITEM.get(), 1).add(Items.RABBIT_FOOT, 1000);
+            plantVia(helper, arena, bag, arena.at(24, 1, 24));
+
+            int seeds = 0;
+            for (BlockPos pos : arena.creeperPositions()) {
+                if (arena.level.getBlockEntity(pos) instanceof CreeperBlockEntity creeper && !creeper.lineageDone() && creeper.garden() != GardenRegistry.NO_GARDEN) {
+                    seeds++;
+                }
+            }
+            log("creeper lineage: " + arena.creeperPositions().size() + " creeper pieces, " + seeds + " of them seeds still reproducing\n" + arena.map());
+            helper.assertTrue(seeds >= 1, "the planted creeper should have left children that are still seeds, found " + seeds);
+            failOnProblems(helper, arena.validate());
+        } finally {
+            arena.cleanup();
+        }
+        helper.succeed();
+    }
+
+    // Places a creeper on the ground with the given patch energy, the way a planting does, without the burst. A seed
+    // whose life is already over (`lineageDone`, the default here) only grows its patch.
+    private static void placeSeed(ServerLevel level, BlockPos pos, GardenBagContents contents, int energy) {
+        placeSeed(level, pos, contents, energy, true);
+    }
+
+    private static void placeSeed(ServerLevel level, BlockPos pos, GardenBagContents contents, int energy, boolean lineageDone) {
+        level.setBlock(pos, FlowerDisease.SUNFLOWER_CREEPER.get().defaultBlockState().setValue(MultifaceBlock.getFaceProperty(Direction.DOWN), true), SettleTable.PLACEMENT_FLAGS);
+        CreeperBlockEntity seed = (CreeperBlockEntity) level.getBlockEntity(pos);
+        seed.startGarden(level, contents, pos);
+        seed.setEnergy(energy);
+        if (lineageDone) {
+            seed.markLineageDone();
+        }
+    }
+
+    // A creeper's energy and whether its life is over are saved with it and come back as the right class.
+    @GameTest(template = TEMPLATE, batch = "gt_reload_creeper", timeoutTicks = 100)
+    public static void creeperDataSurvivesAReload(GameTestHelper helper) {
+        Arena arena = new Arena(helper);
+        arena.prepare();
+        try {
+            ServerLevel level = arena.level;
+            BlockPos pos = arena.at(10, 1, 10);
+            placeSeed(level, pos, new Bag().add(FlowerDisease.SUNFLOWER_CREEPER_ITEM.get(), 1).contents(), 4, true);
+            CreeperBlockEntity original = (CreeperBlockEntity) level.getBlockEntity(pos);
+            original.inherit(original.garden(), 6);
+
+            BlockEntity reloaded = BlockEntity.loadStatic(pos, level.getBlockState(pos), original.saveWithFullMetadata(level.registryAccess()), level.registryAccess());
+            helper.assertTrue(reloaded instanceof CreeperBlockEntity, "a creeper came back as " + (reloaded == null ? "nothing" : reloaded.getClass().getSimpleName()));
+            CreeperBlockEntity copy = (CreeperBlockEntity) reloaded;
+            helper.assertTrue(copy.energy() == 4 && copy.lineageDone() && copy.depth() == 6 && copy.garden() == original.garden(),
+                    "a creeper forgot its data across a reload: energy " + copy.energy() + ", done " + copy.lineageDone() + ", depth " + copy.depth() + ", garden " + copy.garden());
         } finally {
             arena.cleanup();
         }
@@ -708,9 +910,9 @@ public final class FlowerDiseaseGameTests {
                 arena.cleanup();
                 simulation.problems = problems;
             }
-            failOnProblems(simulation.problems);
+            failOnProblems(helper, simulation.problems);
             if (simulation.result.errors() > 0) {
-                throw new IllegalStateException(simulation.result.errors() + " exceptions while ticking plants (see the log)");
+                failNow(helper, simulation.result.errors() + " exceptions while ticking plants (see the log)");
             }
         });
     }
@@ -721,10 +923,17 @@ public final class FlowerDiseaseGameTests {
                 + result.errors() + " errors\n" + String.join("\n", result.after().describe(result.before()));
     }
 
-    private static void failOnProblems(List<String> problems) {
+    private static void failOnProblems(GameTestHelper helper, List<String> problems) {
         if (!problems.isEmpty()) {
-            throw new IllegalStateException(problems.size() + " invariant violations, first: " + problems.subList(0, Math.min(5, problems.size())));
+            failNow(helper, problems.size() + " invariant violations, first: " + problems.subList(0, Math.min(5, problems.size())));
         }
+    }
+
+    // Fails the test at once, from anywhere - including inside succeedWhen, where a thrown GameTestAssertException just
+    // means "not yet, try again next tick" (and any other exception takes the whole server's tick loop down with it).
+    private static void failNow(GameTestHelper helper, String message) {
+        helper.testInfo.fail(new GameTestAssertException(message));
+        throw new GameTestAssertException(message);
     }
 
     private static void ensureRandomTickSpeed(ServerLevel level) {
@@ -755,7 +964,7 @@ public final class FlowerDiseaseGameTests {
 
     // Sizes and costs of a set of block entities, see blockEntityFootprint.
     private static final class Footprint {
-        private static final int HEAP_SAMPLES = 50_000;
+        private static final int HEAP_SAMPLES = 200_000;
 
         final String label;
         int entities;
@@ -952,6 +1161,9 @@ public final class FlowerDiseaseGameTests {
                 }
             }
 
+            // Whatever an earlier test left within reach must not be ticked along with this one's plants.
+            sweep(sweepArea());
+
             BlockState air = Blocks.AIR.defaultBlockState();
             for (int x = 0; x < SIZE; x++) {
                 for (int z = 0; z < SIZE; z++) {
@@ -984,8 +1196,33 @@ public final class FlowerDiseaseGameTests {
         // Removes everything this mod put in the world (and the vanilla flowers its plants settled into) across the
         // loaded area, so a test never leaks plants into the next one, then lets go of the chunks.
         void cleanup() {
-            List<BlockPos> ours = new ArrayList<>();
+            sweep(sweepArea());
             for (ChunkPos chunk : chunks) {
+                level.setChunkForced(chunk.x, chunk.z, false);
+            }
+        }
+
+        // Every chunk that could hold something a test left behind: the ones kept loaded plus a ring around them, since
+        // plants at the edge of the loaded area place children just beyond it - where nothing ticks them or cleans up
+        // after them, and where a later test's arena may reach.
+        private Set<ChunkPos> sweepArea() {
+            Set<ChunkPos> area = new LinkedHashSet<>();
+            for (ChunkPos chunk : chunks) {
+                for (int dx = -SWEEP_RING; dx <= SWEEP_RING; dx++) {
+                    for (int dz = -SWEEP_RING; dz <= SWEEP_RING; dz++) {
+                        area.add(new ChunkPos(chunk.x + dx, chunk.z + dz));
+                    }
+                }
+            }
+            return area;
+        }
+
+        // Removes everything this mod put in these chunks (restoring the ground Flower Blocks replaced) and the vanilla
+        // flowers its plants settled into, so a test never leaks plants into the next one.
+        private void sweep(Set<ChunkPos> area) {
+            List<BlockPos> ours = new ArrayList<>();
+            for (ChunkPos chunk : area) {
+                level.getChunk(chunk.x, chunk.z);
                 GardenScan.forEachPlantBlock(level, chunk, (pos, state) -> ours.add(pos.immutable()));
             }
             for (BlockPos pos : ours) {
@@ -996,24 +1233,19 @@ public final class FlowerDiseaseGameTests {
                 level.setBlock(pos, restored, SettleTable.PLACEMENT_FLAGS);
             }
 
-            int minX = chunks.stream().mapToInt(ChunkPos::getMinBlockX).min().orElse(0);
-            int maxX = chunks.stream().mapToInt(ChunkPos::getMaxBlockX).max().orElse(0);
-            int minZ = chunks.stream().mapToInt(ChunkPos::getMinBlockZ).min().orElse(0);
-            int maxZ = chunks.stream().mapToInt(ChunkPos::getMaxBlockZ).max().orElse(0);
             BlockPos.MutableBlockPos cursor = new BlockPos.MutableBlockPos();
-            for (int x = minX; x <= maxX; x++) {
-                for (int z = minZ; z <= maxZ; z++) {
-                    for (int y = origin.getY() - 3; y < origin.getY() + HEIGHT; y++) {
-                        cursor.set(x, y, z);
-                        if (SettleTable.isAnyPlant(level.getBlockState(cursor)) || level.getBlockState(cursor).getBlock() instanceof DoublePlantBlock) {
-                            level.setBlock(cursor, Blocks.AIR.defaultBlockState(), SettleTable.PLACEMENT_FLAGS);
+            for (ChunkPos chunk : area) {
+                for (int x = chunk.getMinBlockX(); x <= chunk.getMaxBlockX(); x++) {
+                    for (int z = chunk.getMinBlockZ(); z <= chunk.getMaxBlockZ(); z++) {
+                        for (int y = origin.getY() - 3; y < origin.getY() + HEIGHT; y++) {
+                            cursor.set(x, y, z);
+                            BlockState state = level.getBlockState(cursor);
+                            if (SettleTable.isAnyPlant(state) || state.getBlock() instanceof DoublePlantBlock) {
+                                level.setBlock(cursor, Blocks.AIR.defaultBlockState(), SettleTable.PLACEMENT_FLAGS);
+                            }
                         }
                     }
                 }
-            }
-
-            for (ChunkPos chunk : chunks) {
-                level.setChunkForced(chunk.x, chunk.z, false);
             }
         }
 
@@ -1132,6 +1364,22 @@ public final class FlowerDiseaseGameTests {
                     }
                 }
             }
+        }
+
+        // Every creeper block (patch pieces included) in the arena's box.
+        List<BlockPos> creeperPositions() {
+            List<BlockPos> result = new ArrayList<>();
+            for (int x = 0; x < SIZE; x++) {
+                for (int z = 0; z < SIZE; z++) {
+                    for (int y = 1; y < HEIGHT; y++) {
+                        BlockPos pos = at(x, y, z);
+                        if (level.getBlockState(pos).getBlock() instanceof CreepingFlowerBlock) {
+                            result.add(pos);
+                        }
+                    }
+                }
+            }
+            return result;
         }
 
         List<BlockPos> flowerBlockPositions() {
