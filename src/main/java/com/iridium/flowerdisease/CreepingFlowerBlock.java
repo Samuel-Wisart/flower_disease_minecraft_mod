@@ -19,8 +19,8 @@ import net.minecraft.world.level.block.state.StateDefinition;
 // Creeping variant of the 4 big flowers (see PLANNING_STAGE2.md Fase 2) - same base as vanilla Glow Lichen/
 // Sculk Vein (MultifaceBlock): occupies any combination of a block's 6 faces, grows onto any structurally
 // solid face, organic or not, unlike the tilt/climb feature (DiseasedFlowerBlock), which is gated to the
-// climbable tag on purpose. One class covers all 4 species; what distinguishes them is just which instance
-// gets registered (sunflower_creeper, lilac_creeper, rose_bush_creeper, peony_creeper), same as every other
+// climbable tag on purpose. One class covers every species; what distinguishes them is just which instance
+// gets registered (sunflower_creeper, lilac_creeper, rose_bush_creeper, peony_creeper, oxeye_daisy_creeper), same as every other
 // Diseased plant class here. Unlike those, though, there is no separate vanilla block this settles into -
 // a creeping flower has no vanilla equivalent at all, so it always settles in place (see
 // DiseasedPlantLogic#randomTickCreeping passing itself as its own fallback, and DiseasedPlantLogic#settle's

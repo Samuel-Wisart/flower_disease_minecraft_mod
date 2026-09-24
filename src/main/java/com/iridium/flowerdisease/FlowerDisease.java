@@ -106,7 +106,7 @@ public class FlowerDisease {
     public static final DeferredBlock<DiseasedTallFlowerBlock> DISEASED_ROSE_BUSH = registerDiseasedTall("diseased_rose_bush", Blocks.ROSE_BUSH);
     public static final DeferredBlock<DiseasedTallFlowerBlock> DISEASED_PEONY = registerDiseasedTall("diseased_peony", Blocks.PEONY);
 
-    // Creeping variant of the same 4 tall flowers (Stage 2 Fase 2, see PLANNING_STAGE2.md and
+    // Creeping variants of the 4 tall flowers and of the Oxeye Daisy (Stage 2 Fase 2, see PLANNING_STAGE2.md and
     // CreepingFlowerBlock) - spreads across any solid face like Glow Lichen/Sculk Vein instead of standing
     // in the ground. No "vanilla" counterpart at all (diseasedByFallback() maps each to itself below), and
     // - unlike every other species here - the item form IS meant to be obtainable: it's the only way to
@@ -116,6 +116,8 @@ public class FlowerDisease {
     public static final DeferredBlock<CreepingFlowerBlock> LILAC_CREEPER = registerCreeping("lilac_creeper");
     public static final DeferredBlock<CreepingFlowerBlock> ROSE_BUSH_CREEPER = registerCreeping("rose_bush_creeper");
     public static final DeferredBlock<CreepingFlowerBlock> PEONY_CREEPER = registerCreeping("peony_creeper");
+    // The one small flower that also has a creeping version - a ground cover more than a bush.
+    public static final DeferredBlock<CreepingFlowerBlock> OXEYE_DAISY_CREEPER = registerCreeping("oxeye_daisy_creeper");
 
     // The Flower Block (Stage 2 Fase 3, see PLANNING_STAGE2.md and FlowerBlockLogic) - a reproductive
     // Diseased Flower with the bag's Moss Block modifier has a small chance of corrupting the ground below
@@ -272,7 +274,8 @@ public class FlowerDisease {
                     Map.entry(SUNFLOWER_CREEPER.get(), SUNFLOWER_CREEPER),
                     Map.entry(LILAC_CREEPER.get(), LILAC_CREEPER),
                     Map.entry(ROSE_BUSH_CREEPER.get(), ROSE_BUSH_CREEPER),
-                    Map.entry(PEONY_CREEPER.get(), PEONY_CREEPER)
+                    Map.entry(PEONY_CREEPER.get(), PEONY_CREEPER),
+                    Map.entry(OXEYE_DAISY_CREEPER.get(), OXEYE_DAISY_CREEPER)
             );
         }
         return diseasedByFallback;
@@ -309,7 +312,7 @@ public class FlowerDisease {
                     DISEASED_PINK_TULIP.get(), DISEASED_OXEYE_DAISY.get(), DISEASED_CORNFLOWER.get(), DISEASED_LILY_OF_THE_VALLEY.get(),
                     DISEASED_WITHER_ROSE.get(),
                     DISEASED_SUNFLOWER.get(), DISEASED_LILAC.get(), DISEASED_ROSE_BUSH.get(), DISEASED_PEONY.get(),
-                    SUNFLOWER_CREEPER.get(), LILAC_CREEPER.get(), ROSE_BUSH_CREEPER.get(), PEONY_CREEPER.get(),
+                    SUNFLOWER_CREEPER.get(), LILAC_CREEPER.get(), ROSE_BUSH_CREEPER.get(), PEONY_CREEPER.get(), OXEYE_DAISY_CREEPER.get(),
                     FLOWER_BLOCK.get(),
                     DISEASED_SHORT_GRASS.get(), DISEASED_FERN.get(), DISEASED_DEAD_BUSH.get(),
                     DISEASED_TALL_GRASS.get(), DISEASED_LARGE_FERN.get(),
@@ -350,6 +353,7 @@ public class FlowerDisease {
     public static final DeferredItem<BlockItem> LILAC_CREEPER_ITEM = ITEMS.registerSimpleBlockItem("lilac_creeper", LILAC_CREEPER);
     public static final DeferredItem<BlockItem> ROSE_BUSH_CREEPER_ITEM = ITEMS.registerSimpleBlockItem("rose_bush_creeper", ROSE_BUSH_CREEPER);
     public static final DeferredItem<BlockItem> PEONY_CREEPER_ITEM = ITEMS.registerSimpleBlockItem("peony_creeper", PEONY_CREEPER);
+    public static final DeferredItem<BlockItem> OXEYE_DAISY_CREEPER_ITEM = ITEMS.registerSimpleBlockItem("oxeye_daisy_creeper", OXEYE_DAISY_CREEPER);
     public static final DeferredItem<BlockItem> FLOWER_BLOCK_ITEM = ITEMS.registerSimpleBlockItem("flower_block", FLOWER_BLOCK);
 
     // What dropping a given item into one of the Garden Bag's species grid slots means - the stack count
@@ -404,7 +408,8 @@ public class FlowerDisease {
                     Map.entry(SUNFLOWER_CREEPER_ITEM.get(), SUNFLOWER_CREEPER.get()),
                     Map.entry(LILAC_CREEPER_ITEM.get(), LILAC_CREEPER.get()),
                     Map.entry(ROSE_BUSH_CREEPER_ITEM.get(), ROSE_BUSH_CREEPER.get()),
-                    Map.entry(PEONY_CREEPER_ITEM.get(), PEONY_CREEPER.get())
+                    Map.entry(PEONY_CREEPER_ITEM.get(), PEONY_CREEPER.get()),
+                    Map.entry(OXEYE_DAISY_CREEPER_ITEM.get(), OXEYE_DAISY_CREEPER.get())
             );
         }
         return bagOutcomeItems;
@@ -619,6 +624,7 @@ public class FlowerDisease {
         insertAfter(event, TALL_GRASS_TOP_ITEM.get(), TALL_GRASS_BOTTOM_ITEM);
         insertAfter(event, TALL_GRASS_BOTTOM_ITEM.get(), LARGE_FERN_TOP_ITEM);
         insertAfter(event, LARGE_FERN_TOP_ITEM.get(), LARGE_FERN_BOTTOM_ITEM);
+        insertAfter(event, Items.OXEYE_DAISY, OXEYE_DAISY_CREEPER_ITEM);
         insertAfter(event, Items.MOSS_BLOCK, FLOWER_BLOCK_ITEM);
     }
 
