@@ -291,6 +291,396 @@ public final class FlowerDiseaseGameTests {
         growth(helper, "dense (Slime x64)", new Bag().add(Items.POPPY, 3).add(Items.DANDELION, 2).add(Items.SLIME_BALL, 64), 3, 64);
     }
 
+    // ---- Natural variation (see Variation) ------------------------------------------------------------
+
+    // The noise itself, with no world involved: a variance of one and centred at every detail, smooth from one block to the
+    // next, and - with the calibration - an average density that stays the bag's however strong the variation is. The species
+    // fields are independent of each other, and make stretches where one species dominates.
+    @GameTest(template = TEMPLATE, batch = "gt_variation_noise", timeoutTicks = 600)
+    public static void variationNoiseIsUnitSmoothAndKeepsTheAverageDensity(GameTestHelper helper) {
+        List<String> problems = new ArrayList<>();
+
+        for (double detail : new double[]{0.0, 0.4, 1.0}) {
+            double sum = 0.0;
+            double sumSquares = 0.0;
+            double largestStep = 0.0;
+            int count = 0;
+            for (int i = 0; i < 300; i++) {
+                for (int j = 0; j < 300; j++) {
+                    double x = i * 9.3;
+                    double z = j * 9.3;
+                    double value = Variation.field(555L, x, z, 48.0, detail);
+                    sum += value;
+                    sumSquares += value * value;
+                    count++;
+                    largestStep = Math.max(largestStep, Math.abs(value - Variation.field(555L, x + 1.0, z, 48.0, detail)));
+                }
+            }
+            double mean = sum / count;
+            double std = Math.sqrt(sumSquares / count - mean * mean);
+            log(String.format(Locale.ROOT, "variation noise, detail %.1f: mean %.3f, std %.3f, largest step across one block %.3f", detail, mean, std, largestStep));
+            if (Math.abs(mean) > 0.08 || std < 0.93 || std > 1.07) {
+                problems.add(String.format(Locale.ROOT, "detail %.1f: mean %.3f and std %.3f should be about 0 and 1", detail, mean, std));
+            }
+            if (largestStep > 0.4) {
+                problems.add(String.format(Locale.ROOT, "detail %.1f: the field jumps by %.3f across a single block", detail, largestStep));
+            }
+        }
+
+        // The average of 1 / factor squared (what the density goes with) over a sample the calibration has never seen - at
+        // several strengths, and with the limits of the spacing moved.
+        for (double[] setting : new double[][]{{0.2, 0.4, 3.0}, {0.4, 0.4, 3.0}, {0.8, 0.4, 3.0}, {1.2, 0.4, 3.0}, {0.8, 0.25, 6.0}, {1.0, 0.7, 1.5}}) {
+            double sigma = setting[0];
+            Variation.Settings settings = new Variation.Settings(sigma, 48.0, setting[1], setting[2], 0.0, 64.0, 0.4, 0);
+            double sum = 0.0;
+            double smallest = Double.MAX_VALUE;
+            double largest = 0.0;
+            int count = 0;
+            for (int i = 0; i < 120; i++) {
+                for (int j = 0; j < 120; j++) {
+                    double factor = Variation.spacingFactor(settings, 999L, i * 0.71 * 48.0, j * 0.71 * 48.0);
+                    sum += 1.0 / (factor * factor);
+                    smallest = Math.min(smallest, factor);
+                    largest = Math.max(largest, factor);
+                    count++;
+                }
+            }
+            double density = sum / count;
+            log(String.format(Locale.ROOT, "variation %.1f within x%.2f..x%.2f: average density x%.3f of the bag's, spacing from x%.2f to x%.2f (constant x%.3f)",
+                    sigma, setting[1], setting[2], density, smallest, largest, Variation.calibration(settings)));
+            if (density < 0.9 || density > 1.1) {
+                problems.add(String.format(Locale.ROOT, "variation %.1f within x%.2f..x%.2f: the average density is x%.3f of the bag's, not about 1", sigma, setting[1], setting[2], density));
+            }
+            if (smallest < setting[1] - 1e-9 || largest > setting[2] + 1e-9) {
+                problems.add(String.format(Locale.ROOT, "variation %.1f: the spacing factor went outside its limits x%.2f..x%.2f (x%.2f..x%.2f)", sigma, setting[1], setting[2], smallest, largest));
+            }
+        }
+
+        if (Variation.field(7L, 12.5, -80.25, 48.0, 0.4) != Variation.field(7L, 12.5, -80.25, 48.0, 0.4)) {
+            problems.add("the same place gave two different values");
+        }
+        if (Variation.field(7L, 12.5, -80.25, 48.0, 0.4) == Variation.field(8L, 12.5, -80.25, 48.0, 0.4)) {
+            problems.add("two seeds gave the same field");
+        }
+        Variation.Settings off = Variation.Settings.OFF;
+        if (Variation.spacingFactor(off, 1L, 3.0, 4.0) != 1.0 || Variation.speciesFactor(off, 1L, 3.0, 4.0, Blocks.POPPY) != 1.0) {
+            problems.add("with the variation off the factors must be exactly 1");
+        }
+
+        // Two species: independent fields (no correlation), and stretches where either one is the far likelier.
+        Variation.Settings species = new Variation.Settings(0.0, 48.0, 0.4, 3.0, 1.0, 64.0, 0.4, 0);
+        double sumA = 0.0, sumB = 0.0, sumAA = 0.0, sumBB = 0.0, sumAB = 0.0;
+        double highest = -Double.MAX_VALUE;
+        double lowest = Double.MAX_VALUE;
+        int samples = 0;
+        for (int i = 0; i < 100; i++) {
+            for (int j = 0; j < 100; j++) {
+                double x = i * 0.71 * 64.0;
+                double z = j * 0.71 * 64.0;
+                double a = Math.log(Variation.speciesFactor(species, 42L, x, z, Blocks.POPPY));
+                double b = Math.log(Variation.speciesFactor(species, 42L, x, z, Blocks.DANDELION));
+                sumA += a;
+                sumB += b;
+                sumAA += a * a;
+                sumBB += b * b;
+                sumAB += a * b;
+                highest = Math.max(highest, a - b);
+                lowest = Math.min(lowest, a - b);
+                samples++;
+            }
+        }
+        double correlation = (samples * sumAB - sumA * sumB) / Math.sqrt((samples * sumAA - sumA * sumA) * (samples * sumBB - sumB * sumB));
+        log(String.format(Locale.ROOT, "species fields: correlation %.3f between two species, log ratio from %.2f to %.2f", correlation, lowest, highest));
+        if (Math.abs(correlation) > 0.15) {
+            problems.add(String.format(Locale.ROOT, "two species' fields are correlated (%.3f)", correlation));
+        }
+        if (highest < Math.log(3.0) || lowest > -Math.log(3.0)) {
+            problems.add(String.format(Locale.ROOT, "no stretch where one species is 3 times likelier than the other (log ratios %.2f to %.2f)", lowest, highest));
+        }
+
+        failOnProblems(helper, problems);
+        helper.succeed();
+    }
+
+    // A parent's children keep the spacing of the ground it stands on - wide in a clearing, tight in a thicket - under the same
+    // garden rules, only the spacing field differs. The two spots are the widest and the tightest around, on a seed whose field
+    // has plenty of contrast, and the children are made one after the other by the very code a random tick uses.
+    @GameTest(template = TEMPLATE, batch = "gt_variation_spacing", timeoutTicks = 600)
+    public static void childrenKeepTheSpacingOfTheGroundTheirParentStandsOn(GameTestHelper helper) {
+        Arena arena = new Arena(helper);
+        arena.prepare(true, MARGIN_CHUNKS);
+        try {
+            BlockPos thicket = null;
+            BlockPos clearing = null;
+            for (int seed = 0; seed < 60 && thicket == null; seed++) {
+                Variation.override(new Variation.Settings(0.9, 20.0, 0.4, 3.0, 0.0, 64.0, 0.3, seed));
+                double low = Double.MAX_VALUE;
+                double high = 0.0;
+                BlockPos lowest = null;
+                BlockPos highest = null;
+                for (int x = -8; x <= 56; x += 4) {
+                    for (int z = -8; z <= 56; z += 4) {
+                        BlockPos pos = arena.at(x, 1, z);
+                        double factor = Variation.spacingFactor(arena.level, pos);
+                        if (factor < low) {
+                            low = factor;
+                            lowest = pos;
+                        }
+                        if (factor > high) {
+                            high = factor;
+                            highest = pos;
+                        }
+                    }
+                }
+                if (high >= 2.5 && low <= 0.6) {
+                    thicket = lowest;
+                    clearing = highest;
+                }
+            }
+            helper.assertTrue(thicket != null, "no seed gave a field with both a thicket and a clearing around the arena");
+
+            GardenBagContents contents = new Bag().add(Items.POPPY, 3).add(Items.DANDELION, 2).contents();
+            int density = SpreadMath.resolveDensity(contents.densityPer16x16());
+            double nominal = SpreadMath.minSpacing(density);
+            double[] closestPair = new double[2];
+            for (int spot = 0; spot < 2; spot++) {
+                BlockPos root = spot == 0 ? thicket : clearing;
+                double factor = Variation.spacingFactor(arena.level, root);
+                double spacing = SpreadMath.spacing(density, factor);
+
+                placeRoot(arena.level, root, FlowerDisease.DISEASED_POPPY.get(), contents);
+                SpreadProfileBlockEntity rootPlant = DiseasedPlantLogic.profileAt(arena.level, root);
+                List<BlockPos> family = new ArrayList<>(List.of(root));
+                for (int attempt = 0; attempt < 12; attempt++) {
+                    BlockPos child = DiseasedPlantLogic.tryReproduce(arena.level, root, arena.level.getRandom(), FlowerDisease.DISEASED_POPPY.get(),
+                            Blocks.POPPY, DiseasedPlantLogic.Shape.SINGLE, rootPlant.lineage());
+                    if (child == null) {
+                        break;
+                    }
+                    family.add(child);
+                }
+
+                double closest = Double.MAX_VALUE;
+                double farthest = 0.0;
+                for (int i = 0; i < family.size(); i++) {
+                    farthest = Math.max(farthest, Math.sqrt(family.get(i).distSqr(root)));
+                    for (int j = i + 1; j < family.size(); j++) {
+                        closest = Math.min(closest, Math.sqrt(family.get(i).distSqr(family.get(j))));
+                    }
+                }
+                log(String.format(Locale.ROOT, "%s at %s: spacing x%.2f = %.1f blocks (usual %.1f), %d plants in the family, closest pair %.2f, farthest child %.1f",
+                        spot == 0 ? "thicket" : "clearing", root.toShortString(), factor, spacing, nominal, family.size(), closest, farthest));
+                helper.assertTrue(family.size() >= 2, "the parent in the " + (spot == 0 ? "thicket" : "clearing") + " found no place for a single child");
+                helper.assertTrue(closest >= spacing - 1e-9, "two plants are " + closest + " blocks apart, closer than the local spacing " + spacing);
+                closestPair[spot] = closest;
+                arena.clearAround(root, 30);
+            }
+            helper.assertTrue(closestPair[0] < nominal, "plants in the thicket should come closer than the usual spacing " + nominal + ", closest pair was " + closestPair[0]);
+            helper.assertTrue(closestPair[1] >= 2 * nominal, "plants in the clearing should keep more than twice the usual spacing " + nominal + ", closest pair was " + closestPair[1]);
+        } finally {
+            arena.cleanup();
+            Variation.override(Variation.Settings.OFF);
+        }
+        helper.succeed();
+    }
+
+    // The species fields make stretches of one species: where a pool's flower is favoured it is most of what is drawn (even
+    // when the parent is the other kind, because inheritance yields to a species the ground holds back), and where it is
+    // held back it is the exception.
+    @GameTest(template = TEMPLATE, batch = "gt_variation_species", timeoutTicks = 600)
+    public static void speciesFieldsMakeStretchesOfOneSpecies(GameTestHelper helper) {
+        ServerLevel level = helper.getLevel();
+        BlockPos base = helper.absolutePos(BlockPos.ZERO);
+        List<SettleTable.Option> pool = List.of(new SettleTable.Option(Blocks.POPPY, 3), new SettleTable.Option(Blocks.DANDELION, 2));
+        try {
+            BlockPos poppies = null;
+            BlockPos dandelions = null;
+            for (int seed = 0; seed < 60 && poppies == null; seed++) {
+                Variation.override(new Variation.Settings(0.0, 48.0, 0.4, 3.0, 1.5, 24.0, 0.3, seed));
+                double most = 0.0;
+                double least = 1.0;
+                BlockPos mostAt = null;
+                BlockPos leastAt = null;
+                for (int x = -8; x <= 56; x += 3) {
+                    for (int z = -8; z <= 56; z += 3) {
+                        BlockPos pos = base.offset(x, 1, z);
+                        double[] weights = Variation.weights(level, pos, pool);
+                        double share = weights[0] / (weights[0] + weights[1]);
+                        if (share > most) {
+                            most = share;
+                            mostAt = pos;
+                        }
+                        if (share < least) {
+                            least = share;
+                            leastAt = pos;
+                        }
+                    }
+                }
+                if (most >= 0.9 && least <= 0.1) {
+                    poppies = mostAt;
+                    dandelions = leastAt;
+                }
+            }
+            helper.assertTrue(poppies != null, "no seed gave a field with a stretch for each species around the arena");
+
+            RandomSource random = level.getRandom();
+            int poppiesAmongPoppies = 0;
+            int poppiesAmongDandelions = 0;
+            for (int i = 0; i < 400; i++) {
+                // The parents are the wrong kind on purpose.
+                if (DiseasedPlantLogic.pickSpecies(level, poppies, pool, Blocks.DANDELION, random).block() == Blocks.POPPY) {
+                    poppiesAmongPoppies++;
+                }
+                if (DiseasedPlantLogic.pickSpecies(level, dandelions, pool, Blocks.POPPY, random).block() == Blocks.POPPY) {
+                    poppiesAmongDandelions++;
+                }
+            }
+            log("species stretches: " + poppiesAmongPoppies + "/400 poppies where they are favoured (parent a dandelion), "
+                    + poppiesAmongDandelions + "/400 where they are held back (parent a poppy)");
+            helper.assertTrue(poppiesAmongPoppies >= 260, "only " + poppiesAmongPoppies + "/400 children were poppies where poppies are favoured");
+            helper.assertTrue(poppiesAmongDandelions <= 120, poppiesAmongDandelions + "/400 children were poppies where poppies are held back");
+        } finally {
+            Variation.override(Variation.Settings.OFF);
+        }
+        helper.succeed();
+    }
+
+    // What /diseasedflower variation prints: the summary, and the two maps (spacing, and the species of a pool of three), each
+    // with the right number of rows of the right width and the marker in the middle - and the flat map when the variation is off.
+    @GameTest(template = TEMPLATE, batch = "gt_variation_commands", timeoutTicks = 200)
+    public static void variationCommandsDrawTheirMaps(GameTestHelper helper) {
+        ServerLevel level = helper.getLevel();
+        BlockPos here = helper.absolutePos(new BlockPos(24, 1, 24));
+        Variation.Settings settings = new Variation.Settings(0.6, 32.0, 0.4, 3.0, 1.0, 48.0, 0.4, 3);
+        List<SettleTable.Option> pool = List.of(new SettleTable.Option(Blocks.POPPY, 3), new SettleTable.Option(Blocks.DANDELION, 2), new SettleTable.Option(Blocks.CORNFLOWER, 1));
+        try {
+            Variation.override(settings);
+            List<String> summary = VariationCommands.describe(level, here);
+            log("variation summary:\n" + String.join("\n", summary));
+            helper.assertTrue(summary.size() == 5, "expected 5 lines of summary, got " + summary.size());
+            helper.assertTrue(summary.get(1).contains("0.60") && summary.get(2).contains("1.00"), "the summary should show the settings: " + summary);
+
+            for (List<SettleTable.Option> options : List.of(List.<SettleTable.Option>of(), pool)) {
+                List<Component> map = VariationCommands.render(settings, level.getSeed(), here, 4, options);
+                helper.assertTrue(map.size() == 19, "a map is a header, 17 rows and a legend, got " + map.size() + " lines");
+                for (int row = 1; row <= 17; row++) {
+                    String text = map.get(row).getString();
+                    helper.assertTrue(text.length() == 57, "row " + row + " of the " + (options.isEmpty() ? "spacing" : "species") + " map has " + text.length() + " cells, not 57");
+                    helper.assertTrue((row == 9) == (text.charAt(28) == '+'), "the marker belongs in the middle of the middle row only (row " + row + ")");
+                }
+                helper.assertTrue(map.get(18).getString().length() > 10, "the legend is empty");
+            }
+
+            List<Component> flat = VariationCommands.render(Variation.Settings.OFF, level.getSeed(), here, 4, List.of());
+            helper.assertTrue(flat.get(0).getString().contains("off"), "a map of a variation that is off should say so: " + flat.get(0).getString());
+        } finally {
+            Variation.override(Variation.Settings.OFF);
+        }
+        helper.succeed();
+    }
+
+    // A whole garden on a strongly varying spacing field: its density follows the field. The interior of the arena is cut into
+    // 9x9 cells; for each, the density the field predicts (the mean of 1 / factor^2 over sample points in it) is compared with
+    // the plants that grew there, on a seed whose field has plenty of contrast over the arena. Every structural invariant
+    // still holds.
+    @GameTest(template = TEMPLATE, batch = "gt_variation_growth", timeoutTicks = LONG_TIMEOUT)
+    public static void gardenDensityFollowsTheSpacingField(GameTestHelper helper) {
+        Arena arena = new Arena(helper);
+        arena.prepare();
+        ensureRandomTickSpeed(arena.level);
+
+        int cells = 4;
+        int side = 9;
+        int border = (SIZE - cells * side) / 2;
+        double[] predicted = new double[cells * cells];
+        boolean found = false;
+        for (int seed = 0; seed < 80 && !found; seed++) {
+            Variation.override(new Variation.Settings(0.6, 16.0, 0.4, 3.0, 0.0, 64.0, 0.3, seed));
+            for (int cell = 0; cell < predicted.length; cell++) {
+                double sum = 0.0;
+                for (int i = 0; i < 3; i++) {
+                    for (int j = 0; j < 3; j++) {
+                        int x = border + (cell % cells) * side + 1 + i * 3;
+                        int z = border + (cell / cells) * side + 1 + j * 3;
+                        double factor = Variation.spacingFactor(arena.level, arena.at(x, 1, z));
+                        sum += 1.0 / (factor * factor);
+                    }
+                }
+                predicted[cell] = sum / 9.0;
+            }
+            double smallest = Double.MAX_VALUE;
+            double largest = 0.0;
+            for (double value : predicted) {
+                smallest = Math.min(smallest, value);
+                largest = Math.max(largest, value);
+            }
+            found = largest / smallest >= 4.0;
+        }
+        helper.assertTrue(found, "no seed gave a field with enough contrast over the arena");
+
+        Bag bag = new Bag().add(Items.POPPY, 3).add(Items.DANDELION, 2);
+        BlockPos root = arena.at(24, 1, 24);
+        plantVia(helper, arena, bag, root);
+        for (BlockPos extra : List.of(arena.at(12, 1, 12), arena.at(36, 1, 12), arena.at(12, 1, 36), arena.at(36, 1, 36))) {
+            plantVia(helper, arena, bag, extra);
+        }
+
+        Simulation simulation = Simulation.start(arena, 3);
+        helper.assertTrue(simulation != null, "a day simulation was already running");
+
+        helper.succeedWhen(() -> {
+            helper.assertTrue(simulation.result != null, "simulation still running");
+            if (!simulation.reported) {
+                simulation.reported = true;
+
+                int[] counts = new int[cells * cells];
+                for (BlockPos plant : arena.plantPositions()) {
+                    int x = plant.getX() - arena.origin.getX() - border;
+                    int z = plant.getZ() - arena.origin.getZ() - border;
+                    if (x >= 0 && x < cells * side && z >= 0 && z < cells * side) {
+                        counts[(z / side) * cells + x / side]++;
+                    }
+                }
+
+                double meanCount = 0.0;
+                double meanPredicted = 0.0;
+                for (int cell = 0; cell < counts.length; cell++) {
+                    meanCount += counts[cell];
+                    meanPredicted += predicted[cell];
+                }
+                meanCount /= counts.length;
+                meanPredicted /= counts.length;
+                double covariance = 0.0;
+                double varianceCount = 0.0;
+                double variancePredicted = 0.0;
+                StringBuilder table = new StringBuilder();
+                for (int cell = 0; cell < counts.length; cell++) {
+                    covariance += (counts[cell] - meanCount) * (predicted[cell] - meanPredicted);
+                    varianceCount += (counts[cell] - meanCount) * (counts[cell] - meanCount);
+                    variancePredicted += (predicted[cell] - meanPredicted) * (predicted[cell] - meanPredicted);
+                    table.append(String.format(Locale.ROOT, "%2d (field says x%.2f) ", counts[cell], predicted[cell]));
+                    if (cell % cells == cells - 1) {
+                        table.append('\n');
+                    }
+                }
+                double correlation = covariance / Math.sqrt(varianceCount * variancePredicted);
+                log(String.format(Locale.ROOT, "variation growth: plants per 9x9 cell against the density the field predicts, correlation %.2f, mean %.1f per cell%n%s%s%n%s",
+                        correlation, meanCount, table, describe(simulation.result), arena.map()));
+                if (correlation < 0.5) {
+                    failNow(helper, String.format(Locale.ROOT, "the density of the garden does not follow the spacing field (correlation %.2f)", correlation));
+                }
+                List<String> problems = arena.validate();
+                arena.cleanup();
+                Variation.override(Variation.Settings.OFF);
+                simulation.problems = problems;
+            }
+            failOnProblems(helper, simulation.problems);
+            if (simulation.result.errors() > 0) {
+                failNow(helper, simulation.result.errors() + " exceptions while ticking plants (see the log)");
+            }
+        });
+    }
+
     @GameTest(template = TEMPLATE, batch = "gt_smoke", timeoutTicks = LONG_TIMEOUT)
     public static void tallCreepingAndClimbingSmokeTest(GameTestHelper helper) {
         Arena arena = new Arena(helper);
@@ -1313,6 +1703,8 @@ public final class FlowerDiseaseGameTests {
         Arena(GameTestHelper helper) {
             this.level = helper.getLevel();
             this.origin = helper.absolutePos(BlockPos.ZERO);
+            // Every scenario but the variation ones measures an evenly spaced garden, whatever the config says.
+            Variation.override(Variation.Settings.OFF);
         }
 
         BlockPos at(int x, int y, int z) {

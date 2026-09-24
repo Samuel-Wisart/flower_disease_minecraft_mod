@@ -1,5 +1,6 @@
 package com.iridium.flowerdisease;
 
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
@@ -109,6 +110,7 @@ final class FlowerDiseaseCommands {
                         .then(debug)
                         .then(stats)
                         .then(spreadChance)
+                        .then(VariationCommands.node())
                         .then(day)
         );
     }
@@ -262,20 +264,35 @@ final class FlowerDiseaseCommands {
         double half = SpreadMath.halfGenerations(profile.decayStrength());
         double chance = SpreadMath.reproductionChance(baseChance, depth, half, profile.noDecay());
         int density = SpreadMath.resolveDensity(profile.densityPer16x16());
-        double spacing = SpreadMath.minSpacing(density);
+        // Where this plant stands the spacing field may stretch the bag's spacing (see Variation).
+        double spacingFactor = Variation.spacingFactor(source.getLevel(), plant.getBlockPos());
+        double spacing = SpreadMath.spacing(density, spacingFactor);
 
-        List<String> lines = List.of(
+        List<String> lines = new ArrayList<>(List.of(
                 "Flower Disease: " + gardenLine,
                 "  generation " + (depth + 1) + " (depth " + depth + "), generations left " + (left < 0 ? "unlimited" : String.valueOf(left)),
                 "  reproduction chance now " + percent(chance) + " (base " + percent(baseChance) + ", "
                         + (profile.noDecay() ? "no decay" : "halves at gen " + String.format(Locale.ROOT, "%.1f", half))
                         + "), lifetime ~" + SpreadMath.resolveLifetimeAttempts(profile.lifetimeAttempts()) + " attempts",
                 "  density " + density + " per 16x16 (plants keep " + String.format(Locale.ROOT, "%.1f", spacing)
-                        + " blocks apart), max distance " + SpreadMath.resolveMaxDistance(profile.spreadDistance(), density),
+                        + " blocks apart here, x" + String.format(Locale.ROOT, "%.2f", spacingFactor) + " of the usual "
+                        + String.format(Locale.ROOT, "%.1f", SpreadMath.minSpacing(density)) + "), max distance "
+                        + SpreadMath.resolveMaxDistance(profile.spreadDistance(), density, spacingFactor),
                 "  ignores others: " + !profile.respectAllSpecies() + ", climbing: " + profile.climbing()
                         + ", moss: " + profile.mossBlocks() + " (" + percent(SpreadMath.flowerBlockChance(profile.mossBlocks())) + ")",
                 "  species: " + (profile.speciesWeights().isEmpty() ? "(none)" : String.join(", ", profile.speciesWeights()))
-        );
+        ));
+
+        // What the species fields make of the pool at this spot: how many times likelier than in the bag each one is here.
+        List<SettleTable.Option> pool = SettleTable.parse(profile.speciesWeights());
+        if (pool.size() > 1 && Variation.settings().species() > 0.0) {
+            double[] here = Variation.weights(source.getLevel(), plant.getBlockPos(), pool);
+            List<String> favoured = new ArrayList<>();
+            for (int i = 0; i < pool.size(); i++) {
+                favoured.add(pool.get(i).block().getName().getString() + " x" + String.format(Locale.ROOT, "%.2f", here[i] / pool.get(i).weight()));
+            }
+            lines.add("  species fields here: " + String.join(", ", favoured));
+        }
         for (String line : lines) {
             source.sendSuccess(() -> Component.literal(line), false);
         }
@@ -396,7 +413,7 @@ final class FlowerDiseaseCommands {
     }
 
     @Nullable
-    private static SpreadProfileBlockEntity profileLookedAt(CommandSourceStack source) throws CommandSyntaxException {
+    static SpreadProfileBlockEntity profileLookedAt(CommandSourceStack source) throws CommandSyntaxException {
         ServerPlayer player = source.getPlayerOrException();
         HitResult hit = player.pick(LOOK_DISTANCE, 1.0F, false);
         if (!(hit instanceof BlockHitResult blockHit)) {

@@ -136,7 +136,7 @@ final class DiseasedPlantLogic {
         // Only searches with the whole neighborhood loaded (see SpreadMath#searchReach): at the edge of the simulated
         // area the tick is skipped, not spent - and the plant is not settled either, which would freeze every plant
         // along that edge for good just because a player happened to be far away.
-        if (!level.isAreaLoaded(pos, SpreadMath.searchReach(profile))) {
+        if (!level.isAreaLoaded(pos, SpreadMath.searchReach(profile, Variation.spacingFactor(level, pos)))) {
             return;
         }
 
@@ -181,8 +181,10 @@ final class DiseasedPlantLogic {
 
         boolean climbing = profile.climbing();
         int density = SpreadMath.resolveDensity(profile.densityPer16x16());
-        double spacing = SpreadMath.minSpacing(density);
-        int maxDistance = SpreadMath.resolveMaxDistance(profile.spreadDistance(), density);
+        // Thickets and clearings: the bag's spacing stretched by the spacing field where this plant stands (see Variation).
+        double spacingFactor = Variation.spacingFactor(level, pos);
+        double spacing = SpreadMath.spacing(density, spacingFactor);
+        int maxDistance = SpreadMath.resolveMaxDistance(profile.spreadDistance(), density, spacingFactor);
         int verticalConfig = Config.FLOWER_SPREAD_VERTICAL_RANGE.getAsInt();
 
         // A climbing chain grows up a trunk one block at a time and a creeping colony grows across walls, so both
@@ -203,7 +205,7 @@ final class DiseasedPlantLogic {
         // One draw per shape at most: when the search finds no room for the drawn species' shape (a creeper with no
         // wall in reach, say), the other shapes of the pool still get their chance before the plant gives up.
         while (true) {
-            SettleTable.Option picked = pickSpecies(candidates, fallbackBlock, random);
+            SettleTable.Option picked = pickSpecies(level, pos, candidates, fallbackBlock, random);
             Shape childShape = picked != null ? shapeOf(picked.block()) : selfShape;
             Block vanillaSpecies = picked != null ? picked.block() : fallbackBlock;
             Block diseasedSpecies = picked != null ? diseasedOf(picked.block(), self) : self;
@@ -225,21 +227,42 @@ final class DiseasedPlantLogic {
 
     // Either copies the parent's species (with the configured probability, when it's still in the pool) or draws
     // from the pool by weight. Copying is what gives gardens organic same-species patches instead of a uniform mix;
-    // the pool weights remain the long-run average composition.
+    // the pool weights remain the long-run average composition. Around `pos` the weights are the ones the species
+    // fields leave (see Variation) - so some stretches favour one species and some another - and the copy is less
+    // likely where the fields hold the parent's species back: otherwise inheritance would carry a species on and on
+    // into a stretch that isn't its own.
     @Nullable
-    private static SettleTable.Option pickSpecies(List<SettleTable.Option> candidates, Block parentSpecies, RandomSource random) {
+    static SettleTable.Option pickSpecies(ServerLevel level, BlockPos pos, List<SettleTable.Option> candidates, Block parentSpecies, RandomSource random) {
         if (candidates.isEmpty()) {
             return null;
         }
 
-        if (random.nextDouble() < Config.FLOWER_SPECIES_INHERITANCE.getAsDouble()) {
-            for (SettleTable.Option option : candidates) {
-                if (option.block() == parentSpecies) {
-                    return option;
+        double[] weights = Variation.weights(level, pos, candidates);
+        for (int i = 0; i < weights.length; i++) {
+            if (candidates.get(i).block() == parentSpecies) {
+                double copyChance = Config.FLOWER_SPECIES_INHERITANCE.getAsDouble() * Math.min(1.0, relativeWeight(candidates, weights, i));
+                if (random.nextDouble() < copyChance) {
+                    return candidates.get(i);
                 }
+                break;
             }
         }
-        return SettleTable.pickWeighted(candidates, random);
+        return SettleTable.pickWeighted(candidates, weights, random);
+    }
+
+    // How the option at `index` stands here compared with how it stands in the bag: its share of the weights now over its
+    // nominal share. 1.0 with no species variation, below 1 where the species fields hold it back.
+    private static double relativeWeight(List<SettleTable.Option> options, double[] weights, int index) {
+        double nominalTotal = 0.0;
+        double total = 0.0;
+        for (int i = 0; i < weights.length; i++) {
+            nominalTotal += options.get(i).weight();
+            total += weights[i];
+        }
+        if (total <= 0.0) {
+            return 1.0;
+        }
+        return (weights[index] / total) / (options.get(index).weight() / nominalTotal);
     }
 
     // `child` is the newborn's own lineage: its parent's garden, one generation deeper.
@@ -423,7 +446,7 @@ final class DiseasedPlantLogic {
         Lineage lineage = plant.lineage();
         GardenBagContents profile = lineage.profile();
         long depth = lineage.depth();
-        if (!level.isAreaLoaded(pos, SpreadMath.searchReach(profile))) {
+        if (!level.isAreaLoaded(pos, SpreadMath.searchReach(profile, Variation.spacingFactor(level, pos)))) {
             return;
         }
 

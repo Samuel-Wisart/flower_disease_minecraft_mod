@@ -18,6 +18,8 @@ final class SpreadMath {
     // Measured with the game tests (default lifetime): at the plain lattice spacing a garden reached 0.72-0.83 of its density;
     // with this scale it lands at 0.85-0.9 at densities 16 and 64 (the grid of blocks makes it step rather than slide).
     private static final double SPACING_SCALE = 0.88;
+    // The widest the spacing may get where the spacing field stretches it (see spacing()).
+    private static final double MAX_LOCAL_SPACING = 20.0;
 
     private SpreadMath() {
     }
@@ -38,31 +40,47 @@ final class SpreadMath {
         return SPACING_SCALE * CHUNK_SIDE / Math.sqrt(density);
     }
 
+    // The spacing at one particular place: the bag's, stretched by the spacing field there (see Variation) - a factor of 1
+    // is the plain garden. The stretch is capped because the crowding check scans a cube with this radius around every
+    // candidate, so a clearing must not be able to make a search cost the earth; a garden already sparser than the cap
+    // keeps its own spacing.
+    static double spacing(int density, double factor) {
+        double nominal = minSpacing(density);
+        return Math.min(nominal * factor, Math.max(nominal, MAX_LOCAL_SPACING));
+    }
+
     // ---- Spread distance -----------------------------------------------------------------------------
 
     static int resolveMaxDistance(int distanceOverride, int density) {
+        return resolveMaxDistance(distanceOverride, density, 1.0);
+    }
+
+    // A Feather in the bag fixes the reach whatever the ground is like; the automatic one follows the local spacing, so a
+    // parent in a clearing can reach across it.
+    static int resolveMaxDistance(int distanceOverride, int density, double spacingFactor) {
         if (distanceOverride >= 0) {
             return Mth.clamp(distanceOverride, 1, MAX_MANUAL_DISTANCE);
         }
-        return autoMaxDistance(density, Config.FLOWER_AUTO_SPREAD_REACH.getAsDouble(), Config.FLOWER_SPREAD_DISTANCE.getAsInt());
+        return autoMaxDistance(density, Config.FLOWER_AUTO_SPREAD_REACH.getAsDouble(), Config.FLOWER_SPREAD_DISTANCE.getAsInt(), spacingFactor);
     }
 
     // A child has to keep the minimum spacing from every plant, its parent included, so it can only go between the
     // spacing and the maximum distance: reaching `reach` spacings out leaves room to find a gap, and denser gardens
     // correctly get a shorter reach so they walk across the map. Never below one block past the spacing, or nothing
     // would fit at all - though the cap has the last word.
-    static int autoMaxDistance(int density, double reach, int cap) {
-        double spacing = minSpacing(density);
+    static int autoMaxDistance(int density, double reach, int cap, double spacingFactor) {
+        double spacing = spacing(density, spacingFactor);
         int distance = Math.max((int) Math.ceil(reach * spacing), (int) Math.ceil(spacing) + 1);
         return Math.max(2, Math.min(distance, cap));
     }
 
     // How far from the parent the search can possibly read: the maximum distance plus the spacing around the farthest
     // candidate. Every chunk within this many blocks must be loaded before searching, since reading a block in an
-    // unloaded chunk would force the server to load - and possibly generate - it.
-    static int searchReach(GardenBagContents profile) {
+    // unloaded chunk would force the server to load - and possibly generate - it. `spacingFactor` is the spacing field
+    // where the parent stands, the one its search will use.
+    static int searchReach(GardenBagContents profile, double spacingFactor) {
         int density = resolveDensity(profile.densityPer16x16());
-        return resolveMaxDistance(profile.spreadDistance(), density) + (int) Math.ceil(minSpacing(density)) + 1;
+        return resolveMaxDistance(profile.spreadDistance(), density, spacingFactor) + (int) Math.ceil(spacing(density, spacingFactor)) + 1;
     }
 
     // ---- Life cycle ----------------------------------------------------------------------------------

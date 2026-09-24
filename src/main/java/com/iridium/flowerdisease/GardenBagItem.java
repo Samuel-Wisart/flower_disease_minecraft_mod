@@ -100,7 +100,8 @@ public class GardenBagItem extends Item {
         // same as an empty bag. Drawn from the whole pool regardless of shape, same as every child/settle
         // draw - see DiseasedPlantLogic.
         List<SettleTable.Option> spreadable = DiseasedPlantLogic.spreadableOptions(SettleTable.parse(contents.speciesWeights()));
-        SettleTable.Option chosen = SettleTable.pickWeighted(spreadable, level.getRandom());
+        // Where the bag is used, the species fields (see Variation) may favour one of the pool over the others.
+        SettleTable.Option chosen = SettleTable.pickWeighted(spreadable, Variation.weights(level, target, spreadable), level.getRandom());
         if (chosen == null) {
             return Component.translatable("item.flowerdisease.garden_bag.error.no_species");
         }

@@ -68,24 +68,27 @@ final class SettleTable {
         return options;
     }
 
+    // Draws one option, each with its own weight from `weights` (index for index with `options`) - the pool's weights as
+    // they stand at some place, once the species fields have had their say (see Variation#weights).
     @Nullable
-    static Option pickWeighted(List<Option> options, RandomSource random) {
-        int total = 0;
-        for (Option option : options) {
-            total += option.weight();
+    static Option pickWeighted(List<Option> options, double[] weights, RandomSource random) {
+        double total = 0.0;
+        for (double weight : weights) {
+            total += weight;
         }
-        if (total <= 0) {
+        if (total <= 0.0) {
             return null;
         }
 
-        int roll = random.nextInt(total);
-        for (Option option : options) {
-            roll -= option.weight();
-            if (roll < 0) {
-                return option;
+        double roll = random.nextDouble() * total;
+        for (int i = 0; i < weights.length; i++) {
+            roll -= weights[i];
+            if (roll < 0.0) {
+                return options.get(i);
             }
         }
-        return null;
+        // Only rounding gets here: the roll was within an ulp of the total.
+        return options.get(options.size() - 1);
     }
 
     // "Same species" for density purposes: this block, its fallback, or any of its settle outcomes.

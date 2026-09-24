@@ -107,6 +107,67 @@ public class Config {
             .comment("Upper bound on how many extra plants a single planting burst may create.")
             .defineInRange("plantingBurstMaxPlants", 32, 0, 256);
 
+    // ---- Natural variation ----------------------------------------------------------------------------
+    // Two smooth noise fields laid over the world (see Variation): one stretches and shrinks the spacing between plants from
+    // place to place (thickets and clearings), the others make some species dominate some stretches. Everything is a function of
+    // the position, the world seed and variationSeed, so it is the same every time; /diseasedflower variation changes these live
+    // and /diseasedflower variation map draws them.
+
+    public static final ModConfigSpec.DoubleValue SPACING_VARIATION = BUILDER
+            .comment(
+                    "How much the spacing between plants varies from place to place (0.0 = evenly spaced everywhere). It is the",
+                    "standard deviation of the logarithm of the spacing: at 0.4 most places are within x0.8 to x1.7 of the bag's",
+                    "spacing, and the extremes (a thicket, a clearing) reach the limits spacingMinFactor and spacingMaxFactor.",
+                    "The average density over the world stays what the bag asks for: the thickets are paid for by the clearings,",
+                    "so the typical place is a little sparser than the bag says (about x1.2 the spacing at 0.4, x1.7 at 0.8)."
+            )
+            .defineInRange("spacingVariation", 0.4, 0.0, 1.5);
+
+    public static final ModConfigSpec.IntValue SPACING_VARIATION_SCALE = BUILDER
+            .comment("About how many blocks across a thicket or a clearing is. Larger values give bigger, slower changes.")
+            .defineInRange("spacingVariationScale", 48, 8, 512);
+
+    public static final ModConfigSpec.DoubleValue SPACING_MIN_FACTOR = BUILDER
+            .comment(
+                    "The tightest a thicket may get, as a fraction of the bag's spacing: 0.4 = plants 2.5 times closer together, 6",
+                    "times as dense. Lower values make denser thickets - every plant is still a block entity, so mind the count."
+            )
+            .defineInRange("spacingMinFactor", 0.4, 0.1, 1.0);
+
+    public static final ModConfigSpec.DoubleValue SPACING_MAX_FACTOR = BUILDER
+            .comment(
+                    "The widest a clearing may get, as a multiple of the bag's spacing: 3.0 = plants 3 times farther apart, 9 times",
+                    "sparser. The spacing never goes above 20 blocks whatever this says (the crowding check has to scan that far)."
+            )
+            .defineInRange("spacingMaxFactor", 3.0, 1.0, 10.0);
+
+    public static final ModConfigSpec.DoubleValue SPECIES_VARIATION = BUILDER
+            .comment(
+                    "How strongly the species of a garden's pool favour different places (0.0 = every species everywhere, in",
+                    "proportion to its weight in the bag). Every species has its own field and its weight is multiplied by e^(this",
+                    "x field) - at 0.8 a species is about 5 times likelier where its field is high than where it is low, and a",
+                    "stretch can end up almost entirely one flower. Only matters for a bag with two species or more."
+            )
+            .defineInRange("speciesVariation", 0.8, 0.0, 3.0);
+
+    public static final ModConfigSpec.IntValue SPECIES_VARIATION_SCALE = BUILDER
+            .comment("About how many blocks across a stretch dominated by one species is.")
+            .defineInRange("speciesVariationScale", 64, 8, 512);
+
+    public static final ModConfigSpec.DoubleValue VARIATION_DETAIL = BUILDER
+            .comment(
+                    "How much finer detail rides on top of the big shapes of both fields (0.0 = smooth blobs, 1.0 = as much",
+                    "small-scale change as large-scale). Raises the ragged, organic look of the borders."
+            )
+            .defineInRange("variationDetail", 0.4, 0.0, 1.0);
+
+    public static final ModConfigSpec.IntValue VARIATION_SEED = BUILDER
+            .comment(
+                    "Mixed into the world seed to pick the fields. Change it to get a different arrangement of thickets, clearings and",
+                    "species stretches in the same world - handy to compare settings on the same spot."
+            )
+            .defineInRange("variationSeed", 0, Integer.MIN_VALUE, Integer.MAX_VALUE);
+
     // ---- Disease Powder -------------------------------------------------------------------------------
 
     public static final ModConfigSpec.IntValue POWDER_DAYS = BUILDER

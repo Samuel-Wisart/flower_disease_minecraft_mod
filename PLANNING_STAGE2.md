@@ -425,6 +425,60 @@ numa fração estável (~0,8–0,9) dessa rede — o `0,88` compensa. **Nenhum p
 - `densityCheckRadius` deixou de existir. A medição por tamanho de amostra: com o padrão a variação é ±15%; em D pequeno
   (poucas plantas no interior) o acaso sozinho move a contagem.
 
+### Variação natural: moitas, clareiras e trechos de uma espécie (2026-09-24)
+
+O espaçamento mínimo deixa o jardim **regular demais**: cada filho vai pro lugar válido mais próximo do pai, então quase
+todo par de vizinhas fica a ~`s` blocos (o padrão "blue noise" / Poisson-disk — nenhum par mais perto que `s`, quase nenhum
+muito mais longe), sem moitas nem clareiras. Pedido do dono do projeto: manchas, variação de espaçamento, clareiras e regiões
+onde certas espécies se concentram, tudo parametrizável no config pra analisar e testar variações. `Variation` põe **dois
+tipos de ruído suave de baixa frequência sobre o mundo**:
+
+- **Campo de espaçamento**: o espaçamento local é `s · fator`, `fator = c · exp(σ · ruído)` limitado a
+  **[`spacingMinFactor` ; `spacingMaxFactor`]** (padrão 0,4 e 3,0: uma moita é no máx. 2,5× mais apertada, uma clareira 3× mais
+  larga — o que dá 6× mais e 9× menos plantas por área; são os botões de "quão fundas" as clareiras e moitas ficam) e o
+  resultado cortado em 20 blocos (`SpreadMath#spacing`), porque a varredura de aglomeração lê um cubo de raio `ceil(s)` em
+  volta de cada candidato. Ruído alto = esparso. `σ = spacingVariation` (padrão 0,4). O alcance máximo automático acompanha o
+  espaçamento local (um pai numa clareira alcança do outro lado dela); Feather continua fixo.
+- **Campos de espécie**: um por espécie da pool (semente = id do bloco), independentes entre si (correlação medida
+  −0,02). O peso de cada espécie no sorteio vira `peso · exp(τ · ruído_da_espécie)`, `τ = speciesVariation` (padrão 0,8) — onde o
+  campo de uma espécie está alto e o das outras baixo, o trecho é quase todo dela. Só faz diferença com 2 ou mais
+  espécies na bag. A **herança de espécie** (`speciesInheritance`) passou a valer `p · min(1, participação aqui / participação
+  nominal)` da espécie do pai: sem isso, a cópia carregaria a espécie pra dentro de um trecho que não é dela. O primeiro
+  plantio da bag também sorteia com os pesos do lugar.
+- **Calibração da densidade média**: densidade vai com `1/fator²`, então o mundo ficaria mais denso que o pedido (as moitas ganham
+  mais do que as clareiras perdem). `c` é a constante que devolve a média de `1/fator²` a 1, resolvida por bisseção numa
+  amostra fixa do próprio ruído (já contando os limites) e guardada até o config mudar. Medido numa amostra que a calibração
+  nunca viu: densidade média **×0,998** do pedido em σ = 0,2 / 0,4 / 0,8 / 1,2; `c` = 1,04 / 1,17 / 1,67 / 2,50 — ou seja, com σ
+  alto o lugar típico é bem mais esparso que a bag diz e umas poucas moitas guardam a maior parte das plantas.
+- **Sempre a posição do pai**: um pai decide o espaçamento e a espécie do filho pelo lugar onde ele está, então a busca inteira
+  usa um número só (o anel inicial `ceil(s − 0,5)`, o filtro do pai e a varredura continuam válidos). Os campos variam devagar
+  (`spacingVariationScale` = 48 blocos, `speciesVariationScale` = 64) perto do alcance (≤ ~16), então o erro é pequeno.
+- **O ruído** (`Variation#field`): gradiente 2D (Perlin) com 64 direções e fade quíntico, mais uma segunda oitava de
+  frequência dobrada (`variationDetail`, padrão 0,4) que só rasga as bordas. Normalizado a variância 1 (`GRADIENT_STD` 0,2162,
+  medido; os testes acham 0,986–0,989), então os números do config significam a mesma coisa em qualquer detalhe. Função pura de
+  `(seed do mundo, variationSeed, x, z)`: **nada é guardado** (nenhum custo nos block entities), e o mesmo lugar tem sempre o
+  mesmo caráter. Mudar `variationSeed` sorteia outro arranjo no mesmo mundo, pra comparar ajustes no mesmo terreno.
+- **Configs** (seção "Natural variation"): `spacingVariation` (0..1,5; 0 desliga), `spacingVariationScale` (8..512),
+  `spacingMinFactor` (0,1..1), `spacingMaxFactor` (1..10), `speciesVariation` (0..3; 0 desliga), `speciesVariationScale`,
+  `variationDetail` (0..1), `variationSeed`.
+- **Comandos**: `/diseasedflower variation` mostra os valores e o que vale onde você está;
+  `/diseasedflower variation <spacing|spacingscale|spacingmin|spacingmax|species|speciesscale|detail|seed> <valor>` troca um
+  **ao vivo** (e grava no config); `/diseasedflower variation map [passo]` desenha o campo de espaçamento em volta de você no chat (verde-escuro =
+  moita, claro = clareira; 57 colunas × 17 linhas, `passo` blocos por coluna, o dobro por linha, norte pra cima, a cruz branca
+  é você); `/diseasedflower variation map species [passo]` faz o mesmo pra pool da planta que você está olhando — uma cor por
+  espécie, mais fraca onde o trecho é misto. `profile show` também mostra o espaçamento local e o fator de cada espécie ali.
+- **Testes** (`FlowerDiseaseGameTests`, todos os outros rodam com a variação desligada — `Arena` fixa `Settings.OFF`): o ruído
+  (variância 1, média 0, degrau máximo por bloco, calibração, independência das espécies), os filhos de um pai numa moita e
+  numa clareira respeitando o espaçamento local (medido: moita ×0,40 = 1,4 blocos, par mais próximo 1,41; clareira ×3,0 = 10,6
+  blocos, par mais próximo 10,8), trechos de espécie (~380/400 filhos são papoulas onde elas são favorecidas, 4–31/400 onde são
+  seguradas, mesmo com o pai da outra espécie), o texto do `variation` e dos dois mapas (17 linhas de 57 células, a cruz no
+  meio) e um jardim inteiro: 4×4 células de 9×9 blocos, densidade real × densidade que o campo prevê, **correlação 0,95–0,96**
+  (a densidade do jardim segue o campo, sem achatar — ×2,9 previsto deu 13 plantas contra 5 do padrão). O calibrador também
+  foi conferido com limites deslocados (×0,25..×6 e ×0,7..×1,5): densidade média ×0,995–1,004.
+- **Limitação conhecida**: com densidade ≤ 3 o espaçamento nominal passa de 8 blocos e o corte de 20 blocos (varredura de
+  aglomeração) trunca as clareiras — o fator máximo efetivo cai (×1,4 em D=1) e a densidade média sai um pouco acima do pedido.
+  Não corrigido: D=1 é raro e o custo de deixar a varredura crescer é alto.
+
 ### Busca em anéis (`SpreadSearch`)
 
 Anéis de distância 1, 2, … até o alcance máximo (distância euclidiana arredondada, então a frente é redonda), do
@@ -495,7 +549,8 @@ alcance… da planta que você está olhando), `/diseasedflower profile set <cha
 density, distance, decay, nodecay, lifetime, ignoreothers, climbing, moss, species), `/diseasedflower profile clear`,
 `/diseasedflower stats`, `/diseasedflower day [n|stop]` e — novo — `/diseasedflower spreadchance [0.0-1.0]`, que mostra ou
 troca **ao vivo** a chance-base de reprodução (`spreadChance` do config; nenhum item da bag mexe nela) e grava no arquivo,
-pra ir testando o quão rápido um jardim começa sem reiniciar.
+pra ir testando o quão rápido um jardim começa sem reiniciar. `/diseasedflower variation …` faz o mesmo com os campos de
+variação natural e desenha o mapa deles (ver "Variação natural").
 
 ### Ritmo (medido com os testes headless, ver "Bloco 2" abaixo)
 
@@ -667,8 +722,8 @@ save; `/cleargarden` deixava buraco em vez de restaurar o terreno). A factory do
 
 ### Ainda por fazer
 
-- Vinhas pendentes e "corrosão de cavernas" (mutação de flower block por scheduled tick), ruído de baixa frequência nos
-  pesos de espécie — adiados de propósito.
+- Vinhas pendentes e "corrosão de cavernas" (mutação de flower block por scheduled tick) — adiadas de propósito. (O ruído
+  de baixa frequência nos pesos de espécie, que estava aqui, virou a "Variação natural".)
 - Opcional: flower block sem BE (chão numa propriedade do blockstate) se a contagem de BEs incomodar.
 - Receita de crafting do Disease Powder; arte de verdade do Oxeye Daisy Creeper e do Disease Powder.
 
