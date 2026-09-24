@@ -8,6 +8,7 @@ import javax.annotation.Nullable;
 
 import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.arguments.BoolArgumentType;
+import com.mojang.brigadier.arguments.DoubleArgumentType;
 import com.mojang.brigadier.arguments.IntegerArgumentType;
 import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.brigadier.context.CommandContext;
@@ -90,6 +91,9 @@ final class FlowerDiseaseCommands {
         var debug = Commands.literal("debug")
                 .then(Commands.argument("enabled", BoolArgumentType.bool()).executes(FlowerDiseaseCommands::setDebugParticles));
         var stats = Commands.literal("stats").executes(FlowerDiseaseCommands::showStats);
+        var spreadChance = Commands.literal("spreadchance")
+                .executes(FlowerDiseaseCommands::showSpreadChance)
+                .then(Commands.argument("chance", DoubleArgumentType.doubleArg(0.0, 1.0)).executes(FlowerDiseaseCommands::setSpreadChance));
 
         var days = Commands.argument("days", IntegerArgumentType.integer(1, DayAdvance.MAX_DAYS))
                 .executes(context -> startDay(context, IntegerArgumentType.getInteger(context, "days")));
@@ -104,6 +108,7 @@ final class FlowerDiseaseCommands {
                         .then(profile)
                         .then(debug)
                         .then(stats)
+                        .then(spreadChance)
                         .then(day)
         );
     }
@@ -257,9 +262,7 @@ final class FlowerDiseaseCommands {
         double half = SpreadMath.halfGenerations(profile.decayStrength());
         double chance = SpreadMath.reproductionChance(baseChance, depth, half, profile.noDecay());
         int density = SpreadMath.resolveDensity(profile.densityPer16x16());
-        int radius = SpreadMath.windowRadius(density);
-        int limit = SpreadMath.crowdLimit(density, radius);
-        int window = 2 * radius + 1;
+        double spacing = SpreadMath.minSpacing(density);
 
         List<String> lines = List.of(
                 "Flower Disease: " + gardenLine,
@@ -267,8 +270,8 @@ final class FlowerDiseaseCommands {
                 "  reproduction chance now " + percent(chance) + " (base " + percent(baseChance) + ", "
                         + (profile.noDecay() ? "no decay" : "halves at gen " + String.format(Locale.ROOT, "%.1f", half))
                         + "), lifetime ~" + SpreadMath.resolveLifetimeAttempts(profile.lifetimeAttempts()) + " attempts",
-                "  density " + density + " per 16x16 (window " + window + "x" + window + ", limit " + limit
-                        + "), max distance " + SpreadMath.resolveMaxDistance(profile.spreadDistance(), density),
+                "  density " + density + " per 16x16 (plants keep " + String.format(Locale.ROOT, "%.1f", spacing)
+                        + " blocks apart), max distance " + SpreadMath.resolveMaxDistance(profile.spreadDistance(), density),
                 "  ignores others: " + !profile.respectAllSpecies() + ", climbing: " + profile.climbing()
                         + ", moss: " + profile.mossBlocks() + " (" + percent(SpreadMath.flowerBlockChance(profile.mossBlocks())) + ")",
                 "  species: " + (profile.speciesWeights().isEmpty() ? "(none)" : String.join(", ", profile.speciesWeights()))
@@ -281,6 +284,31 @@ final class FlowerDiseaseCommands {
 
     private static String percent(double fraction) {
         return String.format(Locale.ROOT, "%.1f%%", fraction * 100.0);
+    }
+
+    // The base reproduction chance is a server setting - no bag item changes it - and is the knob that sets how fast a
+    // garden starts out, so it can be changed here while testing, without a restart or editing the file. It is written
+    // to the config too, so it stays.
+    private static int showSpreadChance(CommandContext<CommandSourceStack> context) {
+        double chance = Config.FLOWER_SPREAD_CHANCE.getAsDouble();
+        context.getSource().sendSuccess(() -> Component.literal(
+                "Flower Disease: base reproduction chance is " + percent(chance) + " (a plant tries about " + String.format(Locale.ROOT, "%.1f", 24000.0 * 3 / 4096.0 * chance)
+                        + " times a day at generation 0 with the default randomTickSpeed) - /diseasedflower spreadchance <0.0-1.0> changes it"
+        ), false);
+        return 1;
+    }
+
+    private static int setSpreadChance(CommandContext<CommandSourceStack> context) {
+        double chance = DoubleArgumentType.getDouble(context, "chance");
+        try {
+            Config.FLOWER_SPREAD_CHANCE.set(chance);
+            Config.FLOWER_SPREAD_CHANCE.save();
+        } catch (IllegalStateException e) {
+            context.getSource().sendFailure(Component.literal("Flower Disease: the config is not loaded yet, could not change it"));
+            return 0;
+        }
+        context.getSource().sendSuccess(() -> Component.literal("Flower Disease: base reproduction chance set to " + percent(chance) + ", from the next random tick on"), true);
+        return 1;
     }
 
     // A census of the mod's blocks in the chunks around the players (see GardenStats for what it can and can't see).

@@ -1,8 +1,10 @@
 package com.iridium.flowerdisease;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 
+import net.minecraft.ChatFormatting;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.screens.inventory.AbstractContainerScreen;
@@ -35,6 +37,56 @@ public class GardenBagScreen extends AbstractContainerScreen<GardenBagMenu> {
         this.imageWidth = 176;
         this.imageHeight = GardenBagMenu.IMAGE_HEIGHT;
         this.inventoryLabelY = GardenBagMenu.INVENTORY_TOP_Y - 8;
+    }
+
+    // AbstractContainerScreen never draws the tooltip of the hovered slot by itself - each subclass asks for it, the way
+    // vanilla's chest screen does - so without this the items in the bag showed no name at all.
+    @Override
+    public void render(GuiGraphics guiGraphics, int mouseX, int mouseY, float partialTick) {
+        super.render(guiGraphics, mouseX, mouseY, partialTick);
+        this.renderTooltip(guiGraphics, mouseX, mouseY);
+    }
+
+    // The item's usual tooltip, plus - for the modifier items - what the bag makes of it.
+    @Override
+    protected List<Component> getTooltipFromContainerItem(ItemStack stack) {
+        List<Component> lines = new ArrayList<>(super.getTooltipFromContainerItem(stack));
+        String effect = effectKey(stack);
+        if (effect != null) {
+            lines.add(Component.translatable("item.flowerdisease.garden_bag.tooltip." + effect).withStyle(ChatFormatting.GRAY));
+        }
+        return lines;
+    }
+
+    private static String effectKey(ItemStack stack) {
+        if (stack.is(GardenBagContents.GENERATIONS_ITEM)) {
+            return "generations";
+        }
+        if (stack.is(GardenBagContents.DECAY_ITEM)) {
+            return "decay";
+        }
+        if (stack.is(GardenBagContents.NO_DECAY_ITEM)) {
+            return "no_decay";
+        }
+        if (stack.is(GardenBagContents.LIFETIME_ITEM)) {
+            return "lifetime";
+        }
+        if (stack.is(GardenBagContents.DENSITY_ITEM)) {
+            return "density";
+        }
+        if (stack.is(GardenBagContents.RANGE_ITEM)) {
+            return "range";
+        }
+        if (stack.is(GardenBagContents.IGNORE_OTHERS_ITEM)) {
+            return "ignore_others";
+        }
+        if (stack.is(GardenBagContents.CLIMBING_ITEM)) {
+            return "climbing";
+        }
+        if (stack.is(GardenBagContents.FLOWER_BLOCK_ITEM)) {
+            return "flower_block";
+        }
+        return FlowerDisease.bagOutcomeItems().containsKey(stack.getItem()) ? "species" : null;
     }
 
     @Override
@@ -90,8 +142,9 @@ public class GardenBagScreen extends AbstractContainerScreen<GardenBagMenu> {
         String lifetime = "~" + SpreadMath.resolveLifetimeAttempts(contents.lifetimeAttempts()) + " children each";
 
         int density = SpreadMath.resolveDensity(contents.densityPer16x16());
-        String distance = SpreadMath.resolveMaxDistance(contents.spreadDistance(), density)
-                + (contents.spreadDistance() >= 0 ? "" : " (auto)");
+        int maxDistance = SpreadMath.resolveMaxDistance(contents.spreadDistance(), density);
+        String distance = maxDistance
+                + (contents.spreadDistance() < 0 ? " (auto)" : maxDistance < SpreadMath.minSpacing(density) ? " (too short!)" : "");
 
         String respects = contents.respectAllSpecies() ? "respected" : "ignored";
         String climbing = contents.climbing() ? "yes" : "no";

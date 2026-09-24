@@ -106,6 +106,34 @@ public final class FlowerDiseaseGameTests {
         helper.succeed();
     }
 
+    // With the default lifetime the root would come up empty 1 time in 9 if the lifetime test applied to its first child;
+    // the burst never leaves a planting without one. Forty-eight plantings, so that the 1 in 9 would show up.
+    @GameTest(template = TEMPLATE, batch = "gt_burst_child", timeoutTicks = 400)
+    public static void plantingBurstAlwaysHasAChild(GameTestHelper helper) {
+        Arena arena = new Arena(helper);
+        arena.prepare();
+        try {
+            Bag bag = new Bag().add(Items.POPPY, 1).add(Items.BONE_MEAL, 2);
+            int planted = 0;
+            for (int round = 0; round < 3; round++) {
+                for (int gx = 0; gx < 4; gx++) {
+                    for (int gz = 0; gz < 4; gz++) {
+                        BlockPos root = arena.at(6 + gx * 12, 1, 6 + gz * 12);
+                        plantVia(helper, arena, bag, root);
+                        int flowers = arena.countPlantsAround(root, 8);
+                        helper.assertTrue(flowers >= 2, "a planting came up with " + flowers + " flower(s) - the root should always have a child");
+                        arena.clearAround(root, 8);
+                        planted++;
+                    }
+                }
+            }
+            log("burst: " + planted + " plantings, every one with a child");
+        } finally {
+            arena.cleanup();
+        }
+        helper.succeed();
+    }
+
     // Bone Meal counts generations with the planted flower as the first, so one of it is exactly one flower.
     @GameTest(template = TEMPLATE, batch = "gt_burst_one", timeoutTicks = 200)
     public static void oneBoneMealPlantsOnlyOneFlower(GameTestHelper helper) {
@@ -759,6 +787,28 @@ public final class FlowerDiseaseGameTests {
         helper.succeed();
     }
 
+    // Every creeper species can be picked in the bag, planted, and grows its own block.
+    @GameTest(template = TEMPLATE, batch = "gt_creeper_species", timeoutTicks = 200)
+    public static void everyCreeperSpeciesCanBePlanted(GameTestHelper helper) {
+        Arena arena = new Arena(helper);
+        arena.prepare();
+        try {
+            List<net.neoforged.neoforge.registries.DeferredItem<net.minecraft.world.item.BlockItem>> items = List.of(
+                    FlowerDisease.SUNFLOWER_CREEPER_ITEM, FlowerDisease.LILAC_CREEPER_ITEM, FlowerDisease.ROSE_BUSH_CREEPER_ITEM,
+                    FlowerDisease.PEONY_CREEPER_ITEM, FlowerDisease.OXEYE_DAISY_CREEPER_ITEM);
+            int spot = 0;
+            for (var item : items) {
+                helper.assertTrue(FlowerDisease.bagOutcomeItems().containsKey(item.get()), item.getId() + " cannot be picked in the bag");
+                BlockPos pos = arena.at(6 + 8 * spot++, 1, 10);
+                plantVia(helper, arena, new Bag().add(item.get(), 1).add(Items.BONE_MEAL, 1), pos);
+                helper.assertTrue(arena.level.getBlockState(pos).getBlock() == item.get().getBlock(), item.getId() + " planted as " + arena.level.getBlockState(pos));
+            }
+        } finally {
+            arena.cleanup();
+        }
+        helper.succeed();
+    }
+
     // Places a creeper on the ground with the given patch energy, the way a planting does, without the burst. A seed
     // whose life is already over (`lineageDone`, the default here) only grows its patch.
     private static void placeSeed(ServerLevel level, BlockPos pos, GardenBagContents contents, int energy) {
@@ -891,9 +941,13 @@ public final class FlowerDiseaseGameTests {
         arena.prepare();
         ensureRandomTickSpeed(arena.level);
 
+        // Five plantings, so that measuring how a garden fills up does not hang on one lineage surviving: any single plant's
+        // descendants die out about 1 time in 8 at the default lifetime (a geometric offspring count with mean 8).
         BlockPos root = arena.at(24, 1, 24);
-        Component failure = GardenBagItem.plant(arena.level, root, bag.stack(), Direction.UP);
-        helper.assertTrue(failure == null, "planting failed: " + failure);
+        plantVia(helper, arena, bag, root);
+        for (BlockPos extra : List.of(arena.at(12, 1, 12), arena.at(36, 1, 12), arena.at(12, 1, 36), arena.at(36, 1, 36))) {
+            plantVia(helper, arena, bag, extra);
+        }
         int afterBurst = arena.countPlants();
 
         Simulation simulation = Simulation.start(arena, days);
@@ -903,9 +957,20 @@ public final class FlowerDiseaseGameTests {
             helper.assertTrue(simulation.result != null, "simulation still running");
             if (!simulation.reported) {
                 simulation.reported = true;
-                int window = SpreadMath.windowRadius(SpreadMath.resolveDensity(density));
+                double spacing = SpreadMath.minSpacing(SpreadMath.resolveDensity(density));
+                Arena.Density measured = arena.measureDensity(root, 10);
                 log("growth [" + label + "]: " + afterBurst + " plants after the burst, " + arena.countPlants() + " after " + days
-                        + " days; " + describe(simulation.result) + "\n" + arena.densityReport(root, window, SpreadMath.crowdLimit(density, window)) + "\n" + arena.map());
+                        + " days; " + describe(simulation.result) + "\n" + measured.describe(density, spacing) + "\n" + arena.map());
+                // The point of the spacing model: nobody is closer than it, and a full garden holds about `density` per chunk.
+                if (measured.minDistance < spacing - 1e-6) {
+                    failNow(helper, "two plants are " + measured.minDistance + " blocks apart, closer than the minimum spacing " + spacing);
+                }
+                // Within 30% - or more when the interior holds so few plants that chance alone moves the count that much.
+                double interiorPlants = density * (SIZE - 20.0) * (SIZE - 20.0) / 256.0;
+                double slack = Math.max(0.3, 2.0 / Math.sqrt(interiorPlants));
+                if (measured.perChunk < density * (1 - slack) || measured.perChunk > density * (1 + slack)) {
+                    failNow(helper, String.format(Locale.ROOT, "a garden of density %d holds %.1f plants per 16x16, expected about %d", density, measured.perChunk, density));
+                }
                 List<String> problems = arena.validate();
                 arena.cleanup();
                 simulation.problems = problems;
@@ -1499,25 +1564,34 @@ public final class FlowerDiseaseGameTests {
                     + vanilla + " plain vanilla flowers; " + countFlowerBlocks() + " flower blocks";
         }
 
-        // How many other plants each plant sees in the crowding window, against the limit it was supposed to respect.
-        String densityReport(BlockPos root, int radius, int limit) {
-            List<BlockPos> plants = plantPositions();
-            int max = 0;
-            long sum = 0;
-            double farthest = 0;
-            for (BlockPos plant : plants) {
-                int count = 0;
-                for (BlockPos other : plants) {
-                    if (other != plant && Math.abs(other.getX() - plant.getX()) <= radius && Math.abs(other.getZ() - plant.getZ()) <= radius) {
-                        count++;
-                    }
-                }
-                max = Math.max(max, count);
-                sum += count;
-                farthest = Math.max(farthest, Math.sqrt(plant.distSqr(root)));
+        // What a garden looks like once it has filled the arena: plants per 16x16 in the middle of it (away from the edges,
+        // where the garden simply stops), and the smallest distance between any two of them.
+        record Density(int plants, double perChunk, double minDistance, double farthest) {
+            String describe(int density, double spacing) {
+                return String.format(Locale.ROOT, "%d plants: %.1f per 16x16 in the interior (density %d), closest pair %.2f blocks apart (minimum spacing %.2f), farthest %.1f blocks from the root",
+                        plants, perChunk, density, minDistance, spacing, farthest);
             }
-            return String.format(Locale.ROOT, "%d plants, window %dx%d limit %d: mean neighbors %.1f, max %d, farthest %.1f blocks from the root",
-                    plants.size(), 2 * radius + 1, 2 * radius + 1, limit, plants.isEmpty() ? 0.0 : (double) sum / plants.size(), max, farthest);
+        }
+
+        Density measureDensity(BlockPos root, int border) {
+            List<BlockPos> plants = plantPositions();
+            int interior = 0;
+            double minDistance = Double.MAX_VALUE;
+            double farthest = 0;
+            for (int i = 0; i < plants.size(); i++) {
+                BlockPos plant = plants.get(i);
+                int x = plant.getX() - origin.getX();
+                int z = plant.getZ() - origin.getZ();
+                if (x >= border && x < SIZE - border && z >= border && z < SIZE - border) {
+                    interior++;
+                }
+                farthest = Math.max(farthest, Math.sqrt(plant.distSqr(root)));
+                for (int j = i + 1; j < plants.size(); j++) {
+                    minDistance = Math.min(minDistance, Math.sqrt(plant.distSqr(plants.get(j))));
+                }
+            }
+            double area = (SIZE - 2.0 * border) * (SIZE - 2.0 * border);
+            return new Density(plants.size(), interior / area * 256.0, plants.size() < 2 ? Double.MAX_VALUE : minDistance, farthest);
         }
 
         // ---- Invariants ----

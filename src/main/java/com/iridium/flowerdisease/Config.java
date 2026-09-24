@@ -13,6 +13,7 @@ public class Config {
     public static final ModConfigSpec.DoubleValue FLOWER_SPREAD_CHANCE = BUILDER
             .comment(
                     "Chance (0.0-1.0) that a Diseased plant receiving a random tick tries to reproduce, at generation 0.",
+                    "The knob for how fast a garden starts out - /diseasedflower spreadchance <value> changes it live.",
                     "It decays with the generation depth (see decayHalfGenerations), so a garden starts fast and keeps",
                     "slowing down without ever fully stopping. Vanilla delivers ~17.6 random ticks per block per",
                     "in-game day with the default randomTickSpeed=3."
@@ -51,31 +52,26 @@ public class Config {
 
     public static final ModConfigSpec.IntValue FLOWER_DEFAULT_DENSITY = BUILDER
             .comment(
-                    "Flowers per 16x16 area a planting aims for when the bag has no Slime Ball. It also drives the",
-                    "automatic density window and the automatic maximum spread distance."
+                    "Flowers per 16x16 area a planting aims for when the bag has no Slime Ball. Plants of a garden keep",
+                    "16 / sqrt(density) blocks from each other, so a full garden holds about this many per chunk (16 -> one",
+                    "every 4 blocks, 64 -> every other block). It also sets the automatic maximum spread distance."
             )
             .defineInRange("defaultDensity", 16, 1, 256);
-
-    public static final ModConfigSpec.IntValue FLOWER_DENSITY_RADIUS = BUILDER
-            .comment(
-                    "Manual override for the radius (in blocks) of the window used to count nearby flowers. 0 = automatic:",
-                    "the window grows or shrinks with the density so the limit stays around 5-6 flowers."
-            )
-            .defineInRange("densityCheckRadius", 0, 0, 16);
 
     public static final ModConfigSpec.IntValue FLOWER_SPREAD_DISTANCE = BUILDER
             .comment(
                     "Upper cap (in blocks) for the automatically computed maximum spread distance. A Feather in the",
-                    "bag overrides the automatic value (up to 32)."
+                    "bag overrides the automatic value (up to 32). Keep it above 16 / sqrt(density) or nothing fits."
             )
-            .defineInRange("spreadDistance", 16, 1, 32);
+            .defineInRange("spreadDistance", 32, 1, 32);
 
     public static final ModConfigSpec.DoubleValue FLOWER_AUTO_SPREAD_REACH = BUILDER
             .comment(
-                    "How many average flower spacings the automatic maximum spread distance reaches. The spacing is",
-                    "16 / sqrt(density), so denser gardens get a shorter reach and walk across the map instead of leaping."
+                    "How many minimum spacings (16 / sqrt(density) blocks) out the automatic maximum spread distance reaches.",
+                    "A child can only go between one spacing and this, so denser gardens get a shorter reach and walk across",
+                    "the map instead of leaping."
             )
-            .defineInRange("autoSpreadReach", 1.5, 0.5, 5.0);
+            .defineInRange("autoSpreadReach", 1.5, 1.1, 5.0);
 
     public static final ModConfigSpec.IntValue FLOWER_SPREAD_VERTICAL_RANGE = BUILDER
             .comment(

@@ -29,24 +29,26 @@ final class SpreadSearch {
     record Target(BlockPos pos, Direction facing) {
     }
 
-    // How crowded is "too crowded" around a spot: a window of the given radius that may hold at most `limit - 1`
-    // plants of the relevant kind. Territorial (the default) counts every plant, otherwise only this species' family.
+    // The minimum spacing every plant keeps from every other (see SpreadMath#minSpacing): a spot is crowded when any
+    // plant of the relevant kind sits closer than `spacing` to it. Territorial (the default) counts every plant,
+    // otherwise only this species' family.
     record Crowd(
-            int radius,
+            double spacing,
             int verticalRange,
-            int limit,
             Block self,
             Block fallbackBlock,
             List<SettleTable.Option> pool,
             boolean territorial
     ) {
-        int count(LevelReader level, BlockPos center) {
-            int count = 0;
+        boolean isCrowdedAt(LevelReader level, BlockPos center) {
+            int radius = (int) Math.ceil(spacing);
+            double limit = spacing * spacing;
             BlockPos.MutableBlockPos cursor = new BlockPos.MutableBlockPos();
             for (int dx = -radius; dx <= radius; dx++) {
                 for (int dz = -radius; dz <= radius; dz++) {
                     for (int dy = -verticalRange; dy <= verticalRange; dy++) {
-                        if (dx == 0 && dy == 0 && dz == 0) {
+                        // Exactly `spacing` away is fine; only closer counts (and the spot itself never does).
+                        if (dx * dx + dy * dy + dz * dz >= limit || (dx == 0 && dy == 0 && dz == 0)) {
                             continue;
                         }
 
@@ -55,17 +57,13 @@ final class SpreadSearch {
                         boolean crowding = territorial
                                 ? SettleTable.isAnyPlant(state)
                                 : SettleTable.isSameSpecies(state, self, fallbackBlock, pool);
-                        if (crowding && ++count >= limit) {
-                            return count;
+                        if (crowding) {
+                            return true;
                         }
                     }
                 }
             }
-            return count;
-        }
-
-        boolean isCrowdedAt(LevelReader level, BlockPos center) {
-            return count(level, center) >= limit;
+            return false;
         }
     }
 
@@ -131,6 +129,11 @@ final class SpreadSearch {
                 }
 
                 if (crowd != null) {
+                    // The parent is one of the plants the child has to keep its distance from, and that costs nothing
+                    // to check - unlike the scan, which is what MAX_CROWD_SCANS is there to bound.
+                    if (candidate.pos().distSqr(origin) < crowd.spacing() * crowd.spacing()) {
+                        continue;
+                    }
                     if (scans >= MAX_CROWD_SCANS) {
                         return null;
                     }

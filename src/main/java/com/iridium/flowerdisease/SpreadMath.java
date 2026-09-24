@@ -11,11 +11,13 @@ final class SpreadMath {
     static final int MAX_MANUAL_DISTANCE = 32;
     static final int MAX_MOSS_BLOCKS = 64;
 
-    private static final double TARGET_FLOWERS_PER_WINDOW = 6.0;
-    private static final int MIN_WINDOW_RADIUS = 2;
-    private static final int MAX_WINDOW_RADIUS = 8;
     private static final double MIN_MOSS_CHANCE = 0.001;
     private static final double CHUNK_SIDE = 16.0;
+    // A garden never fills its lattice completely - every plant lives only so many attempts, and the gaps its parents
+    // leave behind stay gaps - so the spacing is a little tighter than the lattice that would hold exactly `density`.
+    // Measured with the game tests (default lifetime): at the plain lattice spacing a garden reached 0.72-0.83 of its density;
+    // with this scale it lands at 0.85-0.9 at densities 16 and 64 (the grid of blocks makes it step rather than slide).
+    private static final double SPACING_SCALE = 0.88;
 
     private SpreadMath() {
     }
@@ -28,24 +30,12 @@ final class SpreadMath {
         return Mth.clamp(density, 1, 256);
     }
 
-    static int windowRadius(int density) {
-        return windowRadius(density, Config.FLOWER_DENSITY_RADIUS.getAsInt());
-    }
-
-    // The window used to count nearby flowers scales with the density, so the crowding limit stays a
-    // statistically meaningful ~6 flowers instead of collapsing to "1" for every low density (a fixed 9x9
-    // window holds 0.3 flowers on average at 1 per chunk, which the integer limit can't tell apart from 4 per chunk).
-    static int windowRadius(int density, int manualRadius) {
-        if (manualRadius > 0) {
-            return manualRadius;
-        }
-        double raw = (CHUNK_SIDE * Math.sqrt(TARGET_FLOWERS_PER_WINDOW / density) - 1.0) / 2.0;
-        return Mth.clamp((int) Math.round(raw), MIN_WINDOW_RADIUS, MAX_WINDOW_RADIUS);
-    }
-
-    static int crowdLimit(int density, int radius) {
-        double side = 2.0 * radius + 1.0;
-        return Math.max(1, (int) Math.round(density * side * side / 256.0));
+    // The closest two plants of a garden may be: about 16 / sqrt(density) blocks. A square lattice with exactly that
+    // spacing holds `density` plants per 16x16 area (one per 16 blocks at 1, one per 4 at 16, one every other block at
+    // 64), and a garden that fills in by putting every child at the nearest place that keeps the spacing ends up at a
+    // steady fraction of the lattice - SPACING_SCALE makes up for it, so "density per chunk" means what it says.
+    static double minSpacing(int density) {
+        return SPACING_SCALE * CHUNK_SIDE / Math.sqrt(density);
     }
 
     // ---- Spread distance -----------------------------------------------------------------------------
@@ -57,19 +47,22 @@ final class SpreadMath {
         return autoMaxDistance(density, Config.FLOWER_AUTO_SPREAD_REACH.getAsDouble(), Config.FLOWER_SPREAD_DISTANCE.getAsInt());
     }
 
-    // Average spacing between flowers at this density is 16 / sqrt(density); reaching a bit over one spacing
-    // is enough to find a gap, and denser gardens correctly get a shorter reach so they walk across the map.
+    // A child has to keep the minimum spacing from every plant, its parent included, so it can only go between the
+    // spacing and the maximum distance: reaching `reach` spacings out leaves room to find a gap, and denser gardens
+    // correctly get a shorter reach so they walk across the map. Never below one block past the spacing, or nothing
+    // would fit at all - though the cap has the last word.
     static int autoMaxDistance(int density, double reach, int cap) {
-        int distance = (int) Math.ceil(reach * CHUNK_SIDE / Math.sqrt(density));
-        return Mth.clamp(distance, 2, Math.max(2, cap));
+        double spacing = minSpacing(density);
+        int distance = Math.max((int) Math.ceil(reach * spacing), (int) Math.ceil(spacing) + 1);
+        return Math.max(2, Math.min(distance, cap));
     }
 
-    // How far from the parent the search can possibly read: the maximum distance plus the crowding window around
-    // the farthest candidate. Every chunk within this many blocks must be loaded before searching, since reading a
-    // block in an unloaded chunk would force the server to load - and possibly generate - it.
+    // How far from the parent the search can possibly read: the maximum distance plus the spacing around the farthest
+    // candidate. Every chunk within this many blocks must be loaded before searching, since reading a block in an
+    // unloaded chunk would force the server to load - and possibly generate - it.
     static int searchReach(GardenBagContents profile) {
         int density = resolveDensity(profile.densityPer16x16());
-        return resolveMaxDistance(profile.spreadDistance(), density) + windowRadius(density) + 1;
+        return resolveMaxDistance(profile.spreadDistance(), density) + (int) Math.ceil(minSpacing(density)) + 1;
     }
 
     // ---- Life cycle ----------------------------------------------------------------------------------

@@ -181,26 +181,21 @@ final class DiseasedPlantLogic {
 
         boolean climbing = profile.climbing();
         int density = SpreadMath.resolveDensity(profile.densityPer16x16());
-        int radius = SpreadMath.windowRadius(density);
-        int limit = SpreadMath.crowdLimit(density, radius);
+        double spacing = SpreadMath.minSpacing(density);
         int maxDistance = SpreadMath.resolveMaxDistance(profile.spreadDistance(), density);
         int verticalConfig = Config.FLOWER_SPREAD_VERTICAL_RANGE.getAsInt();
 
         // A climbing chain grows up a trunk one block at a time and a creeping colony grows across walls, so both
-        // need the crowding window to be as tall as it is wide to see their own neighbors.
-        int scanVertical = climbing || selfShape == Shape.CREEPING ? radius : verticalConfig;
-        SpreadSearch.Crowd crowd = new SpreadSearch.Crowd(radius, scanVertical, limit, self, fallbackBlock, pool, profile.respectAllSpecies());
+        // need the spacing to be checked as far up and down as sideways to see their own neighbors.
+        int scanVertical = climbing || selfShape == Shape.CREEPING ? (int) Math.ceil(spacing) : verticalConfig;
+        SpreadSearch.Crowd crowd = new SpreadSearch.Crowd(spacing, scanVertical, self, fallbackBlock, pool, profile.respectAllSpecies());
 
-        // A child placed next to this plant would count it, and everything around it, as its own neighbors: if that
-        // alone reaches the limit, nothing within the window is acceptable and the search starts beyond it - which
-        // is the only way a plant standing in a crowd can still leave it (and impossible when the reach is shorter
-        // than the window).
-        int startRing = 1;
-        if (crowd.count(level, pos) + 1 >= limit) {
-            if (maxDistance <= radius) {
-                return null;
-            }
-            startRing = radius + 1;
+        // A child has to keep the minimum spacing from this plant too, so the rings closer than that hold nothing
+        // acceptable: the search starts where they end. A reach shorter than the spacing (a Feather with too few
+        // feathers) leaves no ring at all - the plant simply cannot spread.
+        int startRing = Math.max(1, (int) Math.ceil(spacing - 0.5));
+        if (maxDistance < startRing) {
+            return null;
         }
 
         int verticalRange = climbing ? Math.max(verticalConfig, maxDistance) : verticalConfig;
@@ -386,7 +381,7 @@ final class DiseasedPlantLogic {
     // planted flower is generation 1, the way the Bone Meal count reads. If the cap leaves it no children (Bone Meal
     // x1) it simply settles: one flower, as asked. Otherwise the planting gets `plantingBurstGenerations` generations
     // right away: the planted flower lives its WHOLE life at once - the lifetime test decides how many children it
-    // has, exactly as it would over time - and with a burst of 3 or more those children live theirs too. The last
+    // has (never none), exactly as it would over time - and with a burst of 3 or more those children live theirs too. The last
     // generation of the burst stays active and carries on normally, unless the cap already ends it (Bone Meal x2 makes
     // the burst everything there will ever be).
     static void onPlanted(ServerLevel level, BlockPos rootPos, RandomSource random) {
@@ -439,7 +434,10 @@ final class DiseasedPlantLogic {
 
         List<BlockPos> children = new ArrayList<>();
         while (!finished && budget[0] > 0) {
-            if (generationsLeft(profile, depth) == 0 || random.nextDouble() >= keepGoing) {
+            // The lifetime test is skipped until there is a first child: a planting that came up empty (1 in N + 1 at the
+            // default) would just look like a bug. Only the generation cap - or a lack of room, below - can stop that.
+            boolean hasChild = !children.isEmpty();
+            if (generationsLeft(profile, depth) == 0 || (hasChild && random.nextDouble() >= keepGoing)) {
                 // Out of generations, or the lifetime test ended it.
                 finished = true;
                 continue;
