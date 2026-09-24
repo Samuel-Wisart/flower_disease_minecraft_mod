@@ -383,8 +383,11 @@ sorteio" e a velocidade do Sculk. **Onde este texto contradiz o `PLANNING.md` (t
    exponencial faria.
 2. **Teste de vida útil**: a planta continua com probabilidade `N/(N+1)` (`N` = Rabbit's Foot na bag, padrão
    `defaultLifetimeAttempts` = 8). Falhou → **assenta**. Distribuição geométrica: em média `N` filhos por planta.
-3. **Orçamento de gerações**: `restante = cap − g` (`cap` = Bone Meal na bag; sem Bone Meal = `maxGenerations` do
-   config, padrão −1 = ilimitado). `restante == 0` → assenta. Filho nascido com orçamento 0 já nasce assentado.
+3. **Orçamento de gerações**: `restante = cap − (g + 1)` (`cap` = Bone Meal na bag; sem Bone Meal = `maxGenerations` do
+   config, padrão −1 = ilimitado). **A planta que a bag plantou é a geração 1** (é assim que o jogador conta), então
+   Bone Meal ×1 = uma flor só, ×2 = ela e os filhos, e assim por diante; `g` continua 0-based (0 = a plantada), por isso
+   a geração de uma planta é `g + 1`. `restante == 0` → assenta. Filho nascido com orçamento 0 já nasce assentado. O flower
+   block conta igual: sorteia um teto de 1 (nunca se espalha) a `flowerBlockMaxGenerations + 1`.
 4. **Reproduzir**: busca em anéis (abaixo) e coloca **um** filho. Espécie do filho: com probabilidade
    `speciesInheritance` (0.6) copia a espécie do pai se ela ainda está na pool da bag, senão sorteia da pool por
    peso. Se a busca não acha lugar pra forma sorteada (1 bloco / 2 blocos / creeper), tenta as outras formas da
@@ -439,15 +442,26 @@ densidade por busca. `spreadVerticalRange` segue valendo (acompanhar degraus); c
 
 ### Explosão de plantio
 
-Logo depois de a bag plantar a raiz, 2 gerações (`plantingBurstGenerations`) surgem na hora: 2–4 filhos, depois 1–3 de
-cada um, no máx. `plantingBurstMaxPlants` (32) no total. Respeita orçamento de gerações, densidade e terreno; ignora a
-chance e o teste de vida útil.
+**Revisada em 2026-09-23 depois do teste em jogo** (a versão anterior sorteava "2–4 filhos e depois 1–3 de cada", o que
+não batia com o que o dono do projeto esperava). Agora a planta plantada é a geração 1 e a explosão **simula a geração
+2 inteira**: a planta plantada vive a vida toda de uma vez (o teste de vida útil decide quantos filhos ela tem, igual
+ao que aconteceria ao longo do tempo), e ao fim da vida ela assenta. `plantingBurstGenerations` (padrão 2, 1..5) diz
+até que geração a explosão vai — 1 = só a flor plantada, 3 = os filhos também vivem a vida inteira na hora, etc. —
+com no máx. `plantingBurstMaxPlants` (32) plantas extras no total. Ignora a chance de reprodução (que só decide QUANDO
+uma tentativa acontece); respeita o teste de vida útil, o teto de gerações, a densidade e o terreno. A última geração
+da explosão continua ativa e segue normalmente ao longo do tempo, a menos que o teto já a encerre.
+
+- **Bone Meal ×1** = uma flor só: nasce assentada, sem explosão.
+- **Bone Meal ×2** = a explosão É toda a reprodução esperada: os filhos são a última geração, nascem assentados, e a
+  planta plantada assenta — nada no jardim continua vivo depois.
+- Se o teto do jardim esgotar `plantingBurstMaxPlants` no meio da vida de uma planta, ela fica ativa pra terminar a
+  vida com o tempo (em vez de assentar com a vida cortada).
 
 ### Bag: o que cada item faz agora
 
 | Item | Efeito |
 |---|---|
-| Bone Meal | teto de gerações (sem ele: `maxGenerations`, ilimitado) |
+| Bone Meal | teto de gerações, contando a planta plantada como a 1ª (sem ele: `maxGenerations`, ilimitado) |
 | Sculk | decaimento mais rápido: `H = 16/(1+sculk/4)` |
 | Nether Star | sem decaimento |
 | Rabbit's Foot | vida útil média em filhos (`N`, padrão 8) |

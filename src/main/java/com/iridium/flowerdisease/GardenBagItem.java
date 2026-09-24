@@ -143,8 +143,9 @@ public class GardenBagItem extends Item {
             profile.configure(contents);
         }
 
-        // The garden starts with a couple of generations already around the root instead of one lonely flower.
-        DiseasedPlantLogic.burst(level, target, level.getRandom());
+        // The garden starts with its second generation already around the root instead of one lonely flower (or, with
+        // Bone Meal x1, as exactly that one flower).
+        DiseasedPlantLogic.onPlanted(level, target, level.getRandom());
         return null;
     }
 

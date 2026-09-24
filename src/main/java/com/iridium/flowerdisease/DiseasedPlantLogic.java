@@ -306,49 +306,86 @@ final class DiseasedPlantLogic {
         FlowerBlockLogic.onPlantSettled(level, pos, inPlaceState, atShape, profile, random);
     }
 
-    // ---- Planting burst ------------------------------------------------------------------------------
+    // ---- Planting ------------------------------------------------------------------------------------
 
-    // Right after the bag plants a root, forces a couple of generations of children straight away - ignoring the
-    // reproduction chance and the lifetime test, but not the generation budget, density or terrain - so the player
-    // gets a taste of the garden instead of one lonely flower.
-    static void burst(ServerLevel level, BlockPos rootPos, RandomSource random) {
+    // What happens the instant the Garden Bag plants a root (see PLANNING_STAGE2.md, "Explosão de plantio"). The
+    // planted flower is generation 1, the way the Bone Meal count reads. If the cap leaves it no children (Bone Meal
+    // x1) it simply settles: one flower, as asked. Otherwise the planting gets `plantingBurstGenerations` generations
+    // right away: the planted flower lives its WHOLE life at once - the lifetime test decides how many children it
+    // has, exactly as it would over time - and with a burst of 3 or more those children live theirs too. The last
+    // generation of the burst stays active and carries on normally, unless the cap already ends it (Bone Meal x2 makes
+    // the burst everything there will ever be).
+    static void onPlanted(ServerLevel level, BlockPos rootPos, RandomSource random) {
+        BlockState state = level.getBlockState(rootPos);
+        Block fallback = FlowerDisease.fallbackByDiseased().get(state.getBlock());
+        SpreadProfileBlockEntity plant = profileAt(level, rootPos);
+        if (fallback == null || plant == null) {
+            return;
+        }
+
+        if (generationsLeft(plant.profile(), plant.depth()) == 0) {
+            settle(level, rootPos, state.getBlock(), fallback, shapeOf(state.getBlock()), state, plant.profile(), random);
+            return;
+        }
+
         int generations = Config.FLOWER_BURST_GENERATIONS.getAsInt();
         int maxPlants = Config.FLOWER_BURST_MAX_PLANTS.getAsInt();
-        if (generations > 0 && maxPlants > 0) {
-            burstFrom(level, rootPos, random, 1, generations, new int[]{maxPlants});
+        if (generations > 1 && maxPlants > 0) {
+            burstLife(level, rootPos, random, 1, generations, new int[]{maxPlants});
         }
     }
 
-    private static void burstFrom(ServerLevel level, BlockPos pos, RandomSource random, int generation, int maxGenerations, int[] budget) {
-        if (generation > maxGenerations) {
-            return;
-        }
-
+    // One plant of the given generation living its whole life in an instant, then (if the burst goes that deep) its
+    // children doing the same. Ignores the reproduction chance, which only decides WHEN an attempt happens, but not
+    // the lifetime test, the generation budget, the density or the terrain. `budget` is the number of extra plants the
+    // whole burst may still create; if it runs out mid-life the plant is left active to finish over time instead of
+    // being settled with its life cut short.
+    private static void burstLife(ServerLevel level, BlockPos pos, RandomSource random, int generation, int burstGenerations, int[] budget) {
         BlockState state = level.getBlockState(pos);
-        Block fallback = FlowerDisease.fallbackByDiseased().get(state.getBlock());
-        if (fallback == null || isSettled(state)) {
-            // Not one of our plants (a child that settled straight into its vanilla self, say), or one that's done.
-            return;
-        }
-
+        Block self = state.getBlock();
+        Block fallback = FlowerDisease.fallbackByDiseased().get(self);
         SpreadProfileBlockEntity plant = profileAt(level, pos);
-        if (plant == null || !level.isAreaLoaded(pos, SpreadMath.searchReach(plant.profile()))) {
+        if (fallback == null || isSettled(state) || plant == null) {
+            // Not one of our plants any more (a child that settled straight into its vanilla self, say), or one that's done.
             return;
         }
 
-        int children = generation == 1 ? 2 + random.nextInt(3) : generation == 2 ? 1 + random.nextInt(3) : 1 + random.nextInt(2);
-        for (int i = 0; i < children && budget[0] > 0; i++) {
-            if (generationsLeft(plant.profile(), plant.depth()) == 0) {
-                return;
+        GardenBagContents profile = plant.profile();
+        long depth = plant.depth();
+        if (!level.isAreaLoaded(pos, SpreadMath.searchReach(profile))) {
+            return;
+        }
+
+        Shape shape = shapeOf(self);
+        double keepGoing = SpreadMath.continueProbability(SpreadMath.resolveLifetimeAttempts(profile.lifetimeAttempts()));
+        int maxDepth = Config.FLOWER_MAX_DEPTH.getAsInt();
+        boolean finished = maxDepth > 0 && depth >= maxDepth;
+
+        List<BlockPos> children = new ArrayList<>();
+        while (!finished && budget[0] > 0) {
+            if (generationsLeft(profile, depth) == 0 || random.nextDouble() >= keepGoing) {
+                // Out of generations, or the lifetime test ended it.
+                finished = true;
+                continue;
             }
 
-            BlockPos child = tryReproduce(level, pos, random, state.getBlock(), fallback, shapeOf(state.getBlock()), plant.profile(), plant.depth());
+            BlockPos child = tryReproduce(level, pos, random, self, fallback, shape, profile, depth);
             if (child == null) {
-                return;
+                // Nowhere to put one.
+                finished = true;
+                continue;
             }
-
             budget[0]--;
-            burstFrom(level, child, random, generation + 1, maxGenerations, budget);
+            children.add(child);
+        }
+
+        if (finished) {
+            settle(level, pos, self, fallback, shape, state, profile, random);
+        }
+        if (generation + 1 < burstGenerations) {
+            for (BlockPos child : children) {
+                burstLife(level, child, random, generation + 1, burstGenerations, budget);
+            }
         }
     }
 

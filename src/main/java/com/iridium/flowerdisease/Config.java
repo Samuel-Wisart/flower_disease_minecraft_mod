@@ -35,8 +35,8 @@ public class Config {
 
     public static final ModConfigSpec.IntValue FLOWER_MAX_GENERATIONS = BUILDER
             .comment(
-                    "How many generations a planting may spread when the bag has no Bone Meal. -1 = unlimited (default).",
-                    "0 disables spreading entirely."
+                    "How many generations a planting may have when the bag has no Bone Meal, counting the flower that was",
+                    "planted as the first: 1 = just that flower, 2 = it and its children, and so on. -1 = unlimited (default)."
             )
             .defineInRange("maxGenerations", -1, -1, 1000);
 
@@ -100,10 +100,12 @@ public class Config {
 
     public static final ModConfigSpec.IntValue FLOWER_BURST_GENERATIONS = BUILDER
             .comment(
-                    "How many generations of children appear instantly when a planting is made with the Garden Bag,",
-                    "so the player gets a taste of the garden right away. 0 disables it."
+                    "How many generations a planting made with the Garden Bag gets instantly, counting the planted flower",
+                    "as the first: 1 = just the flower (no burst), 2 = it lives its whole life at once and all its children",
+                    "appear (default), 3 = its children do the same, and so on. The lifetime test, density and the",
+                    "generation cap still apply."
             )
-            .defineInRange("plantingBurstGenerations", 2, 0, 4);
+            .defineInRange("plantingBurstGenerations", 2, 1, 5);
 
     public static final ModConfigSpec.IntValue FLOWER_BURST_MAX_PLANTS = BUILDER
             .comment("Upper bound on how many extra plants a single planting burst may create.")
@@ -129,8 +131,8 @@ public class Config {
 
     public static final ModConfigSpec.IntValue FLOWER_BLOCK_MAX_GENERATIONS = BUILDER
             .comment(
-                    "A new Flower Block draws its own generation budget uniformly from 0 to this value, instead of",
-                    "inheriting the plant's. Also the budget of a Flower Block placed by hand."
+                    "A new Flower Block draws how many generations it may spread uniformly from 0 to this value, instead",
+                    "of inheriting the plant's. Also the most a Flower Block placed by hand may spread."
             )
             .defineInRange("flowerBlockMaxGenerations", 4, 0, 16);
 

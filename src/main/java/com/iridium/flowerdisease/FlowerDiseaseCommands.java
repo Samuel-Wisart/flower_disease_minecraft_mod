@@ -239,7 +239,7 @@ final class FlowerDiseaseCommands {
         int window = 2 * radius + 1;
 
         List<String> lines = List.of(
-                "Flower Disease: depth " + depth + ", generations left " + (left < 0 ? "unlimited" : String.valueOf(left)),
+                "Flower Disease: generation " + (depth + 1) + " (depth " + depth + "), generations left " + (left < 0 ? "unlimited" : String.valueOf(left)),
                 "  reproduction chance now " + percent(chance) + " (base " + percent(baseChance) + ", "
                         + (profile.noDecay() ? "no decay" : "halves at gen " + String.format(Locale.ROOT, "%.1f", half))
                         + "), lifetime ~" + SpreadMath.resolveLifetimeAttempts(profile.lifetimeAttempts()) + " attempts",

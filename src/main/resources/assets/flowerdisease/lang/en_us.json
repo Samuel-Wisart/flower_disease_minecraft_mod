@@ -60,7 +60,7 @@
   "item.flowerdisease.garden_bag": "Garden Bag",
   "item.flowerdisease.garden_bag.tooltip.usage": "Right-click air to configure, right-click a block to plant",
   "item.flowerdisease.garden_bag.tooltip.mix": "Throw everything in together, like a cauldron - no dedicated slots",
-  "item.flowerdisease.garden_bag.tooltip.generations": "Bone Meal: caps how many generations it can spread (unlimited by default)",
+  "item.flowerdisease.garden_bag.tooltip.generations": "Bone Meal: how many generations it may have, counting the planted flower as the first (unlimited by default)",
   "item.flowerdisease.garden_bag.tooltip.decay": "Sculk: the reproduction chance fades faster with every generation",
   "item.flowerdisease.garden_bag.tooltip.no_decay": "Nether Star: the reproduction chance never fades",
   "item.flowerdisease.garden_bag.tooltip.lifetime": "Rabbit's Foot: how many children a flower makes on average before it settles",

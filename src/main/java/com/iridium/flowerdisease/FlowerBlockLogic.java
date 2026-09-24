@@ -115,11 +115,11 @@ final class FlowerBlockLogic {
         settle(level, pos, state);
     }
 
-    // A Flower Block's budget is the one its plant drew (0-4 by default), never unlimited; one placed by hand, with
-    // no profile, gets the server default for it.
+    // A Flower Block's budget is the cap its plant drew for it (see SpreadMath#rollFlowerBlockGenerations), never
+    // unlimited; one placed by hand, with no profile, gets the most the server allows.
     private static long generationsLeft(GardenBagContents profile, long depth) {
         long cap = profile.generations() == SpreadProfileBlockEntity.NO_GENERATIONS_OVERRIDE
-                ? Config.FLOWER_BLOCK_MAX_GENERATIONS.getAsInt()
+                ? Config.FLOWER_BLOCK_MAX_GENERATIONS.getAsInt() + 1
                 : profile.generations();
         return SpreadMath.generationsLeft(cap, depth);
     }

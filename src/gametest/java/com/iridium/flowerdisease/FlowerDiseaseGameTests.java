@@ -54,40 +54,83 @@ public final class FlowerDiseaseGameTests {
 
     // ---- Tests ---------------------------------------------------------------------------------------
 
+    // The planted flower is generation 1; the burst is generation 2 - everything the planted flower would have spawned
+    // over its whole life, all at once. It then has nothing left to do, so it settles, and only its children (still
+    // generation 2, the burst's last) stay active. Rabbit's Foot x1000 keeps the lifetime test from ending the root's
+    // life before it has a single child (1 in 9 at the default), so what limits it is the room around it.
     @GameTest(template = TEMPLATE, batch = "gt_burst", timeoutTicks = 200)
-    public static void plantingBurstCreatesAFewGenerations(GameTestHelper helper) {
+    public static void plantingBurstIsTheWholeSecondGeneration(GameTestHelper helper) {
         Arena arena = new Arena(helper);
         arena.prepare();
         try {
-            burst(helper, arena);
+            Bag bag = new Bag().add(Items.POPPY, 3).add(Items.DANDELION, 2).add(Items.RABBIT_FOOT, 1000);
+            BlockPos root = arena.at(24, 1, 24);
+            plantVia(helper, arena, bag, root);
+
+            List<BlockPos> plants = arena.plantPositions();
+            log("burst: " + plants.size() + " plants after planting\n" + arena.map());
+            helper.assertTrue(plants.size() >= 2, "expected the burst to create children, found " + plants.size() + " plants");
+            helper.assertTrue(plants.size() <= 1 + Config.FLOWER_BURST_MAX_PLANTS.getAsInt(), "burst exceeded its plant budget: " + plants.size());
+            helper.assertTrue(!GardenScan.isPlantBlock(arena.level.getBlockState(root)), "the planted flower should have settled after living its life");
+
+            for (BlockPos pos : plants) {
+                if (pos.equals(root)) {
+                    continue;
+                }
+                SpreadProfileBlockEntity plant = DiseasedPlantLogic.profileAt(arena.level, pos);
+                helper.assertTrue(plant != null, "child at " + pos + " has no block entity");
+                helper.assertTrue(plant.depth() == 1 && plant.profile().equals(bag.contents()), "a child of the planted flower should be generation 2, found depth " + plant.depth() + " at " + pos);
+            }
+            failOnProblems(arena.validate());
         } finally {
             arena.cleanup();
         }
         helper.succeed();
     }
 
-    private static void burst(GameTestHelper helper, Arena arena) {
-        Bag bag = new Bag().add(Items.POPPY, 3).add(Items.DANDELION, 2);
-        BlockPos root = arena.at(24, 1, 24);
+    // Bone Meal counts generations with the planted flower as the first, so one of it is exactly one flower.
+    @GameTest(template = TEMPLATE, batch = "gt_burst_one", timeoutTicks = 200)
+    public static void oneBoneMealPlantsOnlyOneFlower(GameTestHelper helper) {
+        Arena arena = new Arena(helper);
+        arena.prepare();
+        try {
+            Bag bag = new Bag().add(Items.POPPY, 1).add(Items.BONE_MEAL, 1).add(Items.RABBIT_FOOT, 1000);
+            BlockPos root = arena.at(24, 1, 24);
+            plantVia(helper, arena, bag, root);
+
+            helper.assertTrue(arena.countPlants() == 1, "expected exactly one flower, found " + arena.countPlants());
+            helper.assertTrue(!GardenScan.isPlantBlock(arena.level.getBlockState(root)), "the only generation there is should be settled, not still spreading");
+            failOnProblems(arena.validate());
+        } finally {
+            arena.cleanup();
+        }
+        helper.succeed();
+    }
+
+    // With two, the burst covers all the reproduction there will ever be: the children are the last generation, so
+    // nothing in the garden is still alive afterwards.
+    @GameTest(template = TEMPLATE, batch = "gt_burst_two", timeoutTicks = 200)
+    public static void twoBoneMealsMakeTheBurstEverything(GameTestHelper helper) {
+        Arena arena = new Arena(helper);
+        arena.prepare();
+        try {
+            Bag bag = new Bag().add(Items.POPPY, 3).add(Items.DANDELION, 2).add(Items.BONE_MEAL, 2).add(Items.RABBIT_FOOT, 1000);
+            BlockPos root = arena.at(24, 1, 24);
+            plantVia(helper, arena, bag, root);
+
+            log("burst with Bone Meal x2: " + arena.countPlants() + " flowers, " + arena.countDiseased() + " still spreading\n" + arena.map());
+            helper.assertTrue(arena.countPlants() >= 2, "expected children, found " + arena.countPlants() + " flowers");
+            helper.assertTrue(arena.countDiseased() == 0, arena.countDiseased() + " plants are still spreading; the burst should have been everything");
+            failOnProblems(arena.validate());
+        } finally {
+            arena.cleanup();
+        }
+        helper.succeed();
+    }
+
+    private static void plantVia(GameTestHelper helper, Arena arena, Bag bag, BlockPos root) {
         Component failure = GardenBagItem.plant(arena.level, root, bag.stack(), Direction.UP);
         helper.assertTrue(failure == null, "planting failed: " + failure);
-
-        List<BlockPos> plants = arena.plantPositions();
-        log("burst: " + plants.size() + " plants after planting\n" + arena.map());
-        helper.assertTrue(plants.size() >= 2, "expected the burst to create children, found " + plants.size() + " plants");
-        helper.assertTrue(plants.size() <= 1 + Config.FLOWER_BURST_MAX_PLANTS.getAsInt(), "burst exceeded its plant budget: " + plants.size());
-
-        GardenBagContents rootProfile = bag.contents();
-        for (BlockPos pos : plants) {
-            SpreadProfileBlockEntity plant = DiseasedPlantLogic.profileAt(arena.level, pos);
-            helper.assertTrue(plant != null, "plant at " + pos + " has no block entity");
-            helper.assertTrue(plant.profile().equals(rootProfile), "child profile differs from the root's at " + pos);
-            boolean isRoot = pos.equals(root);
-            helper.assertTrue(isRoot ? plant.depth() == 0 : plant.depth() >= 1 && plant.depth() <= Config.FLOWER_BURST_GENERATIONS.getAsInt(),
-                    "unexpected depth " + plant.depth() + " at " + pos);
-        }
-
-        failOnProblems(arena.validate());
     }
 
     @GameTest(template = TEMPLATE, batch = "gt_lifetime", timeoutTicks = 400)
@@ -143,11 +186,11 @@ public final class FlowerDiseaseGameTests {
     }
 
     private static void moss(GameTestHelper helper, Arena arena) {
-        // One generation of budget: the root reproduces, its children are born already settled, and with 64 Moss
-        // Blocks every settling plant converts the block it stands on.
+        // Two generations: the root reproduces, its children are born already settled, and with 64 Moss Blocks every
+        // settling plant converts the block it stands on.
         // Rabbit's Foot x1000 keeps the root from settling on its very first tick (a 1 in 9 chance at the default
         // lifetime), which would leave nothing to check.
-        Bag bag = new Bag().add(Items.POPPY, 1).add(Items.MOSS_BLOCK, 64).add(Items.BONE_MEAL, 1).add(Items.RABBIT_FOOT, 1000);
+        Bag bag = new Bag().add(Items.POPPY, 1).add(Items.MOSS_BLOCK, 64).add(Items.BONE_MEAL, 2).add(Items.RABBIT_FOOT, 1000);
         RandomSource random = arena.level.getRandom();
         BlockPos root = arena.at(24, 1, 24);
         placeRoot(arena.level, root, FlowerDisease.DISEASED_POPPY.get(), bag.contents());
@@ -282,7 +325,8 @@ public final class FlowerDiseaseGameTests {
         species.add(StringTag.valueOf("minecraft:poppy 3"));
         legacy.put("SpeciesWeights", species);
         GardenBagContents loaded = GardenBagContents.readFrom(legacy);
-        helper.assertTrue(loaded.generations() == 3 && loaded.spreadChance() == 0.5 && loaded.spreadDistance() == 7 && loaded.densityPer16x16() == 9
+        // (three generations remaining after the plant itself = a cap of four counting the plant as the first)
+        helper.assertTrue(loaded.generations() == 4 && loaded.spreadChance() == 0.5 && loaded.spreadDistance() == 7 && loaded.densityPer16x16() == 9
                         && !loaded.respectAllSpecies() && loaded.mossBlocks() == 1 && loaded.climbing() && loaded.speciesWeights().equals(List.of("minecraft:poppy 3")),
                 "legacy keys read as " + loaded);
 
@@ -617,6 +661,17 @@ public final class FlowerDiseaseGameTests {
 
         int countPlants() {
             return plantPositions().size();
+        }
+
+        // Plants that are still this mod's blocks (i.e. still spreading or settled in place), not plain vanilla flowers.
+        int countDiseased() {
+            int count = 0;
+            for (BlockPos pos : plantPositions()) {
+                if (GardenScan.isPlantBlock(level.getBlockState(pos))) {
+                    count++;
+                }
+            }
+            return count;
         }
 
         // Same as plantPositions() but over every loaded chunk instead of just the arena's box.

@@ -145,10 +145,11 @@ record GardenBagContents(
         }
     }
 
-    // Also understands the pre-lifecycle-rework key names, so worlds saved before it still load sensibly.
+    // Also understands the pre-lifecycle-rework key names, so worlds saved before it still load sensibly. The old
+    // "generations remaining" counted children only, so as a cap that counts the plant itself it is one higher.
     static GardenBagContents readFrom(CompoundTag tag) {
         long generations = tag.contains("Generations") ? tag.getLong("Generations")
-                : tag.contains("GenerationsRemaining") ? tag.getLong("GenerationsRemaining")
+                : tag.contains("GenerationsRemaining") ? legacyCap(tag.getLong("GenerationsRemaining"))
                 : SpreadProfileBlockEntity.NO_GENERATIONS_OVERRIDE;
         double spreadChance = tag.contains("SpreadChance") ? tag.getDouble("SpreadChance")
                 : tag.contains("SpreadChanceOverride") ? tag.getDouble("SpreadChanceOverride")
@@ -179,6 +180,10 @@ record GardenBagContents(
                 generations, spreadChance, spreadDistance, density, respectAll, tag.getBoolean("Climbing"), moss,
                 tag.getInt("DecayStrength"), tag.getBoolean("NoDecay"), tag.getInt("Lifetime"), species
         );
+    }
+
+    private static long legacyCap(long remaining) {
+        return remaining < 0 ? remaining : remaining + 1;
     }
 
     private static long countOf(List<ItemStack> slots, Item item) {

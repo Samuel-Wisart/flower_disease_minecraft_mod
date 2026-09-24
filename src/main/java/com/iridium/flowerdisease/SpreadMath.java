@@ -91,10 +91,12 @@ final class SpreadMath {
         return baseChance / (1.0 + depth / halfGenerations);
     }
 
-    // A negative cap means unlimited (reported as -1); otherwise how many more generations may still be born
-    // below this depth.
+    // `cap` counts generations the way a player does: the planted flower is generation 1, its children 2, and so on
+    // (so Bone Meal x1 is a single flower). `depth` is 0-based - 0 for the planted flower - which makes a plant's own
+    // generation depth + 1. A negative cap means unlimited (reported as -1); otherwise how many more generations may
+    // still be born below this plant.
     static long generationsLeft(long cap, long depth) {
-        return cap < 0 ? SpreadProfileBlockEntity.INFINITE_GENERATIONS : Math.max(0, cap - depth);
+        return cap < 0 ? SpreadProfileBlockEntity.INFINITE_GENERATIONS : Math.max(0, cap - depth - 1);
     }
 
     static int resolveLifetimeAttempts(int override) {
@@ -120,7 +122,9 @@ final class SpreadMath {
         return Math.pow(MIN_MOSS_CHANCE, (MAX_MOSS_BLOCKS - mossBlocks) / (MAX_MOSS_BLOCKS - 1.0));
     }
 
+    // A new Flower Block's own generation cap, in the same counting as everything else (the block itself is
+    // generation 1): between 1 (never spreads) and `flowerBlockMaxGenerations` + 1 (spreads that many generations).
     static int rollFlowerBlockGenerations(RandomSource random) {
-        return random.nextInt(Config.FLOWER_BLOCK_MAX_GENERATIONS.getAsInt() + 1);
+        return 1 + random.nextInt(Config.FLOWER_BLOCK_MAX_GENERATIONS.getAsInt() + 1);
     }
 }
