@@ -3,11 +3,15 @@ package com.iridium.flowerdisease;
 import java.io.ByteArrayOutputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 
+import it.unimi.dsi.fastutil.ints.Int2IntMap;
+import it.unimi.dsi.fastutil.ints.Int2IntOpenHashMap;
 import net.minecraft.core.BlockPos;
 import net.minecraft.nbt.CompoundTag;
+import net.minecraft.nbt.ListTag;
 import net.minecraft.nbt.NbtIo;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.level.ChunkPos;
@@ -34,6 +38,10 @@ final class GardenStats {
     int blockEntities;
     int sampledEntities;
     long sampledBytes;
+    // The first few block entities as they would be saved, kept to measure how well they compress together.
+    private final ListTag sampledTags = new ListTag();
+    // Active Diseased plants per garden id (see GardenRegistry), for the plants that belong to one.
+    final Int2IntOpenHashMap activePerGarden = new Int2IntOpenHashMap();
 
     static GardenStats collect(ServerLevel level, List<ChunkPos> chunks) {
         GardenStats stats = new GardenStats();
@@ -56,12 +64,17 @@ final class GardenStats {
             blockEntities++;
             if (sampledEntities < SIZE_SAMPLE) {
                 sampledEntities++;
-                sampledBytes += serializedSize(plant.saveWithFullMetadata(level.registryAccess()));
+                CompoundTag saved = plant.saveWithFullMetadata(level.registryAccess());
+                sampledBytes += serializedSize(saved);
+                sampledTags.add(saved);
             }
             if (!flowerBlock) {
                 plants++;
                 depthSum += plant.depth();
                 maxDepth = Math.max(maxDepth, plant.depth());
+                if (plant.garden() != GardenRegistry.NO_GARDEN && !settled) {
+                    activePerGarden.addTo(plant.garden(), 1);
+                }
             }
         }
 
@@ -103,17 +116,50 @@ final class GardenStats {
         return sampledEntities == 0 ? 0 : sampledBytes / sampledEntities;
     }
 
+    // What the sample takes once compressed together, per entity - closer to what a region file really holds, since
+    // chunk data is compressed and block entities are very repetitive. Sampled from the first entities found, which
+    // tend to sit next to each other, so a somewhat rosy figure.
+    long compressedBytesPerEntity() {
+        if (sampledEntities == 0) {
+            return 0;
+        }
+        try (ByteArrayOutputStream bytes = new ByteArrayOutputStream()) {
+            CompoundTag wrapper = new CompoundTag();
+            wrapper.put("Sample", sampledTags);
+            NbtIo.writeCompressed(wrapper, bytes);
+            return bytes.size() / sampledEntities;
+        } catch (IOException e) {
+            return bytesPerEntity();
+        }
+    }
+
+    // The gardens with the most active plants, biggest first, as "#id (n)".
+    private String biggestGardens(int limit) {
+        List<Int2IntMap.Entry> entries = new ArrayList<>(activePerGarden.int2IntEntrySet());
+        entries.sort((a, b) -> Integer.compare(b.getIntValue(), a.getIntValue()));
+        StringBuilder text = new StringBuilder();
+        for (int i = 0; i < Math.min(limit, entries.size()); i++) {
+            text.append(i == 0 ? "" : ", ").append('#').append(entries.get(i).getIntKey()).append(" (").append(entries.get(i).getIntValue()).append(')');
+        }
+        return text.toString();
+    }
+
     // Lines for chat; `before` (nullable) adds the change since then in brackets.
     List<String> describe(GardenStats before) {
-        return List.of(
+        List<String> lines = new ArrayList<>(List.of(
                 "  diseased plants: " + active + change(active, before == null ? null : before.active) + " active, "
                         + settledInPlace + change(settledInPlace, before == null ? null : before.settledInPlace)
                         + " settled in place (creeper pieces: " + creeperPieces + ")",
                 "  flower blocks: " + flowerBlocksActive + " active, " + flowerBlocksSettled + " settled",
                 "  lineage depth: mean " + String.format(Locale.ROOT, "%.1f", meanDepth()) + ", max " + maxDepth + " (over " + plants + " plants)",
-                "  block entities: " + blockEntities + ", about " + bytesPerEntity() + " bytes of NBT each (~"
-                        + (blockEntities * bytesPerEntity() / 1024) + " KB)"
-        );
+                "  block entities: " + blockEntities + " - one saves as about " + bytesPerEntity() + " bytes (~"
+                        + (blockEntities * bytesPerEntity() / 1024) + " KB in all), roughly " + compressedBytesPerEntity()
+                        + " once compressed on disk (~" + (blockEntities * compressedBytesPerEntity() / 1024) + " KB)"
+        ));
+        if (!activePerGarden.isEmpty()) {
+            lines.add("  gardens with active plants: " + activePerGarden.size() + " - most active: " + biggestGardens(3));
+        }
+        return lines;
     }
 
     private static String change(int now, Integer before) {

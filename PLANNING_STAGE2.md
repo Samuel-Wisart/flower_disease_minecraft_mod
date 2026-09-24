@@ -544,9 +544,30 @@ argumento de peso do registro compartilhado (bloco 3): 100 mil BEs seriam ~14 MB
   Todo teste termina checando invariantes: nenhuma planta que não sobrevive onde está, nenhuma metade de planta alta
   solta, todo bloco doente com BlockEntity. 10/10 passando, 0 exceções.
 
-### Ainda por fazer
+### Bloco 3 — registro de jardins (feito)
 
-- **Bloco 3 — registro compartilhado de perfis** (`SavedData` + `gardenId` no BE; BEs antigos migram no primeiro tick).
+Cada uso da bag é um **jardim**. O `GardenRegistry` (`SavedData` por dimensão, `flowerdisease_gardens`) guarda, por id, o
+perfil imutável (`GardenBagContents`), onde foi plantado e quando; o BlockEntity de uma planta guarda só o **id do
+jardim** e a profundidade. Antes, cada planta gravava uma cópia inteira do perfil (a lista de espécies incluída) e, ao
+carregar o chunk, ganhava uma cópia própria dela na RAM.
+
+- **`Lineage(garden, profile, depth)`** é o que uma planta lê do BE a cada ação (`SpreadProfileBlockEntity#lineage`); o
+  filho é `lineage.child()`. `DiseasedPlantLogic`/`FlowerBlockLogic` passam `Lineage` em vez de `profile`+`depth` soltos.
+- **Perfil lido pelo registro, mas em cache**: o BE guarda o perfil e o `version` do registro; só relê quando um perfil é
+  trocado (`replaceProfile` incrementa `version`). Fora disso é uma leitura de campo.
+- **Editar um jardim muda todas as plantas dele** no próximo tick — é o gancho pro futuro bone meal especial ("pula um
+  dia", "cura o jardim"...). `/diseasedflower profile set|clear` agora editam o jardim da planta que você olha (planta
+  sem jardim, colocada à mão, ganha um só pra ela); `profile show` mostra o jardim; `stats` lista os jardins mais ativos.
+- **Saves antigos migram sozinhos**: um BE com o perfil embutido (formato anterior) o guarda em espera e, na primeira vez
+  que alguém pede o perfil (com o nível disponível), o registra como jardim "legado" — perfis idênticos dividem o mesmo —
+  e passa a ser gravado no formato novo. `Generations` legado (`GenerationsRemaining`) vira teto+1 (ver geração 1).
+- **Só quem ainda tem o que fazer guarda BE**: a planta que assenta no lugar (`SETTLED`) chama `removeBlockEntity` e
+  `newBlockEntity` devolve `null` pra estado assentado; a metade de cima de uma planta alta nunca teve uso pra um. O flower
+  block guarda sempre (precisa do bloco que substituiu), mas ao assentar esquece profundidade e teto (`Cap`) e fica só com
+  o jardim e o chão.
+- Entradas do registro nunca são removidas (~200 bytes por plantio; saber se ainda há plantas exigiria varrer o mundo).
+
+### Ainda por fazer
 - **Bloco 4 — creeper em mancha**: energia da semente 0–5 (pesos 1,2,3,3,2,1), cresce via `MultifaceSpreader`
   ignorando densidade, peças estéreis. Vinhas pendentes e "corrosão de cavernas" ficam pra depois.
 

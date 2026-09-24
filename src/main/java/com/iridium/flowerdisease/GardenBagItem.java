@@ -139,8 +139,9 @@ public class GardenBagItem extends Item {
             level.setBlock(target, placementState, SettleTable.PLACEMENT_FLAGS);
         }
 
-        if (level.getBlockEntity(target) instanceof SpreadProfileBlockEntity profile) {
-            profile.configure(contents);
+        // Every planting is a garden of its own: the plant remembers just the garden's id (see GardenRegistry).
+        if (level.getBlockEntity(target) instanceof SpreadProfileBlockEntity root) {
+            root.startGarden(level, contents, target);
         }
 
         // The garden starts with its second generation already around the root instead of one lonely flower (or, with

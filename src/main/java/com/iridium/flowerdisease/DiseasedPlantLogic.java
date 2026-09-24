@@ -97,12 +97,13 @@ final class DiseasedPlantLogic {
         }
 
         SpreadProfileBlockEntity plant = profileAt(level, pos);
-        GardenBagContents profile = plant != null ? plant.profile() : GardenBagContents.DEFAULT;
-        long depth = plant != null ? plant.depth() : 0;
+        Lineage lineage = plant != null ? plant.lineage() : Lineage.NONE;
+        GardenBagContents profile = lineage.profile();
+        long depth = lineage.depth();
 
         int maxDepth = Config.FLOWER_MAX_DEPTH.getAsInt();
         if (maxDepth > 0 && depth >= maxDepth) {
-            settle(level, pos, self, fallbackBlock, selfShape, state, profile, random);
+            settle(level, pos, self, fallbackBlock, selfShape, state, lineage, random);
             return;
         }
 
@@ -121,15 +122,15 @@ final class DiseasedPlantLogic {
 
         int attempts = SpreadMath.resolveLifetimeAttempts(profile.lifetimeAttempts());
         if (random.nextDouble() >= SpreadMath.continueProbability(attempts)) {
-            settle(level, pos, self, fallbackBlock, selfShape, state, profile, random);
+            settle(level, pos, self, fallbackBlock, selfShape, state, lineage, random);
             return;
         }
 
         if (generationsLeft(profile, depth) == 0
-                || tryReproduce(level, pos, random, self, fallbackBlock, selfShape, profile, depth) == null) {
+                || tryReproduce(level, pos, random, self, fallbackBlock, selfShape, lineage) == null) {
             // Out of generation budget, or no valid target found anywhere: this plant settles for good, right
             // where it stands, as its own species.
-            settle(level, pos, self, fallbackBlock, selfShape, state, profile, random);
+            settle(level, pos, self, fallbackBlock, selfShape, state, lineage, random);
         }
     }
 
@@ -152,9 +153,9 @@ final class DiseasedPlantLogic {
             Block self,
             Block fallbackBlock,
             Shape selfShape,
-            GardenBagContents profile,
-            long depth
+            Lineage lineage
     ) {
+        GardenBagContents profile = lineage.profile();
         List<SettleTable.Option> pool = SettleTable.parse(profile.speciesWeights());
         List<SettleTable.Option> candidates = new ArrayList<>(spreadableOptions(pool));
 
@@ -194,7 +195,7 @@ final class DiseasedPlantLogic {
 
             SpreadSearch.Target target = SpreadSearch.find(level, pos, random, diseasedSpecies, childShape, startRing, maxDistance, verticalRange, climbing, crowd);
             if (target != null) {
-                return placeChild(level, target, diseasedSpecies, vanillaSpecies, childShape, profile, depth, random);
+                return placeChild(level, target, diseasedSpecies, vanillaSpecies, childShape, lineage.child(), random);
             }
 
             if (picked == null) {
@@ -226,17 +227,16 @@ final class DiseasedPlantLogic {
         return SettleTable.pickWeighted(candidates, random);
     }
 
+    // `child` is the newborn's own lineage: its parent's garden, one generation deeper.
     private static BlockPos placeChild(
             ServerLevel level,
             SpreadSearch.Target target,
             Block diseasedSpecies,
             Block vanillaSpecies,
             Shape childShape,
-            GardenBagContents profile,
-            long parentDepth,
+            Lineage child,
             RandomSource random
     ) {
-        long childDepth = parentDepth + 1;
         // See SpreadSearch.Target for what target.facing() means per shape.
         BlockState childState = switch (childShape) {
             case SINGLE -> diseasedSpecies.defaultBlockState().setValue(PlantSupport.FACING, target.facing());
@@ -244,11 +244,11 @@ final class DiseasedPlantLogic {
             case TALL -> diseasedSpecies.defaultBlockState();
         };
 
-        if (generationsLeft(profile, childDepth) == 0) {
+        if (generationsLeft(child.profile(), child.depth()) == 0) {
             // No budget left for the child to spread itself, so it settles the instant it's created instead of
             // existing as an active Diseased Flower even briefly - as its own (just-picked) species, same as any
             // other settle decision.
-            settle(level, target.pos(), diseasedSpecies, vanillaSpecies, childShape, childState, profile, random);
+            settle(level, target.pos(), diseasedSpecies, vanillaSpecies, childShape, childState, child, random);
             return target.pos();
         }
 
@@ -258,8 +258,8 @@ final class DiseasedPlantLogic {
             level.setBlock(target.pos(), childState, SettleTable.PLACEMENT_FLAGS);
         }
 
-        if (level.getBlockEntity(target.pos()) instanceof SpreadProfileBlockEntity child) {
-            child.inherit(profile, childDepth);
+        if (level.getBlockEntity(target.pos()) instanceof SpreadProfileBlockEntity newborn) {
+            newborn.inherit(child.garden(), child.depth());
         }
         return target.pos();
     }
@@ -270,7 +270,8 @@ final class DiseasedPlantLogic {
     // become something that can't exist at this position - this covers a species with no distinct vanilla form at
     // all (vanillaSpecies == diseasedSpecies, the creeping species) and a species whose vanilla form can't survive
     // exactly here (a flower climbing a tree trunk). No pool draw either way. Every plant gets exactly one shot at
-    // corrupting the block it grows on when it settles (see FlowerBlockLogic#onPlantSettled).
+    // corrupting the block it grows on when it settles (see FlowerBlockLogic#onPlantSettled). A plant that stays as
+    // one of this mod's blocks has nothing left to remember, so its block entity goes.
     private static void settle(
             ServerLevel level,
             BlockPos pos,
@@ -278,7 +279,7 @@ final class DiseasedPlantLogic {
             Block vanillaSpecies,
             Shape atShape,
             BlockState inPlaceState,
-            GardenBagContents profile,
+            Lineage lineage,
             RandomSource random
     ) {
         if (vanillaSpecies != diseasedSpecies && vanillaSpecies.defaultBlockState().canSurvive(level, pos)) {
@@ -301,9 +302,13 @@ final class DiseasedPlantLogic {
             } else {
                 level.setBlock(pos, settledState, SettleTable.PLACEMENT_FLAGS);
             }
+            level.removeBlockEntity(pos);
+            if (atShape == Shape.TALL) {
+                level.removeBlockEntity(pos.above());
+            }
         }
 
-        FlowerBlockLogic.onPlantSettled(level, pos, inPlaceState, atShape, profile, random);
+        FlowerBlockLogic.onPlantSettled(level, pos, inPlaceState, atShape, lineage, random);
     }
 
     // ---- Planting ------------------------------------------------------------------------------------
@@ -323,8 +328,9 @@ final class DiseasedPlantLogic {
             return;
         }
 
-        if (generationsLeft(plant.profile(), plant.depth()) == 0) {
-            settle(level, rootPos, state.getBlock(), fallback, shapeOf(state.getBlock()), state, plant.profile(), random);
+        Lineage lineage = plant.lineage();
+        if (generationsLeft(lineage.profile(), lineage.depth()) == 0) {
+            settle(level, rootPos, state.getBlock(), fallback, shapeOf(state.getBlock()), state, lineage, random);
             return;
         }
 
@@ -350,8 +356,9 @@ final class DiseasedPlantLogic {
             return;
         }
 
-        GardenBagContents profile = plant.profile();
-        long depth = plant.depth();
+        Lineage lineage = plant.lineage();
+        GardenBagContents profile = lineage.profile();
+        long depth = lineage.depth();
         if (!level.isAreaLoaded(pos, SpreadMath.searchReach(profile))) {
             return;
         }
@@ -369,7 +376,7 @@ final class DiseasedPlantLogic {
                 continue;
             }
 
-            BlockPos child = tryReproduce(level, pos, random, self, fallback, shape, profile, depth);
+            BlockPos child = tryReproduce(level, pos, random, self, fallback, shape, lineage);
             if (child == null) {
                 // Nowhere to put one.
                 finished = true;
@@ -380,7 +387,7 @@ final class DiseasedPlantLogic {
         }
 
         if (finished) {
-            settle(level, pos, self, fallback, shape, state, profile, random);
+            settle(level, pos, self, fallback, shape, state, lineage, random);
         }
         if (generation + 1 < burstGenerations) {
             for (BlockPos child : children) {

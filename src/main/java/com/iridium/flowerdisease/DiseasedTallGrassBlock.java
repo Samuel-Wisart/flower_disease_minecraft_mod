@@ -59,7 +59,7 @@ public class DiseasedTallGrassBlock extends DoublePlantBlock implements EntityBl
     @Nullable
     @Override
     public BlockEntity newBlockEntity(BlockPos pos, BlockState state) {
-        return new SpreadProfileBlockEntity(pos, state);
+        return SpreadProfileBlockEntity.create(pos, state);
     }
 
     @Override

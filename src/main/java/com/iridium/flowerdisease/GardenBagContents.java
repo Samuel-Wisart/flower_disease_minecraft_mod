@@ -17,16 +17,16 @@ import net.minecraft.world.item.Items;
 import net.minecraft.world.level.block.Block;
 
 // Reads the Garden Bag's "cauldron" inventory into actual spread parameters, and doubles as the shape of a
-// plant's whole configurable profile - SpreadProfileBlockEntity stores one of these directly, so there's exactly
-// one place that lists every knob. There are no dedicated bag slots (throw everything in together, like brewing
-// a potion): every stack anywhere in the bag is either one of the fixed MODIFIER items below (identified by
-// item, counted across however many stacks/slots it ends up split into) or a species item (see
-// FlowerDisease.bagOutcomeItems()); GardenBagMenu's slot filter keeps out anything else. Shared by
-// GardenBagItem (server, at planting time) and GardenBagScreen (client, for the live preview panel), so both
-// always agree on what a given pile of items means.
+// garden's whole configurable profile - the GardenRegistry stores one of these per planting, so there's exactly one
+// place that lists every knob. There are no dedicated bag slots (throw everything in together, like brewing a
+// potion): every stack anywhere in the bag is either one of the fixed MODIFIER items below (identified by item,
+// counted across however many stacks/slots it ends up split into) or a species item (see
+// FlowerDisease.bagOutcomeItems()); GardenBagMenu's slot filter keeps out anything else. Shared by GardenBagItem
+// (server, at planting time) and GardenBagScreen (client, for the live preview panel), so both always agree on what
+// a given pile of items means.
 //
-// Immutable on purpose: a child plant simply shares its parent's instance, and per-plant state (how deep in the
-// lineage it is) lives next to it in the block entity, never in here.
+// Immutable on purpose: every plant of a garden shares the one instance, and per-plant state (how deep in the
+// lineage it is) lives in the block entity, never in here.
 record GardenBagContents(
         long generations,
         double spreadChance,
@@ -40,8 +40,8 @@ record GardenBagContents(
         int lifetimeAttempts,
         List<String> speciesWeights
 ) {
-    // Bone Meal: caps how many generations a planting may spread. No Bone Meal means "whatever the server
-    // default is", which is unlimited.
+    // Bone Meal: how many generations a planting may have, counting the planted flower as the first (so x1 is a
+    // single flower). No Bone Meal means "whatever the server default is", which is unlimited.
     static final Item GENERATIONS_ITEM = Items.BONE_MEAL;
     // Sculk: how fast the reproduction chance decays with each generation (more = decays faster).
     static final Item DECAY_ITEM = Items.SCULK;
@@ -91,16 +91,6 @@ record GardenBagContents(
                 netherStar > 0,
                 (int) Math.min(rabbitFoot, 1000),
                 speciesWeights(slots)
-        );
-    }
-
-    // What a Flower Block needs from the plant that made it: the knobs it actually uses (spread pace, lifetime,
-    // reach) and its own generation budget, but no species pool and no Moss - it never draws species or
-    // corrupts anything itself, so copying the pool onto every block would only bloat the world.
-    GardenBagContents forFlowerBlock(long ownGenerations) {
-        return new GardenBagContents(
-                ownGenerations, spreadChance, spreadDistance, densityPer16x16, respectAllSpecies, climbing,
-                0, decayStrength, noDecay, lifetimeAttempts, List.of()
         );
     }
 

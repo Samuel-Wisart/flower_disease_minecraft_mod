@@ -85,7 +85,7 @@ public class DiseasedWitherRoseBlock extends WitherRoseBlock implements EntityBl
     @Nullable
     @Override
     public BlockEntity newBlockEntity(BlockPos pos, BlockState state) {
-        return new SpreadProfileBlockEntity(pos, state);
+        return SpreadProfileBlockEntity.create(pos, state);
     }
 
     @Override

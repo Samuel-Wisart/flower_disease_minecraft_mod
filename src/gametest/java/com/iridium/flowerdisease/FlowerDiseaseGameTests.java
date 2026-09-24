@@ -1,5 +1,11 @@
 package com.iridium.flowerdisease;
 
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
+import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -11,8 +17,11 @@ import net.minecraft.gametest.framework.GameTest;
 import net.minecraft.gametest.framework.GameTestHelper;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.ListTag;
+import net.minecraft.nbt.NbtIo;
 import net.minecraft.nbt.StringTag;
+import net.minecraft.network.RegistryFriendlyByteBuf;
 import net.minecraft.network.chat.Component;
+import net.minecraft.network.protocol.game.ClientboundLevelChunkWithLightPacket;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.util.RandomSource;
 import net.minecraft.world.item.Item;
@@ -28,6 +37,9 @@ import net.minecraft.world.level.block.DoublePlantBlock;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.properties.DoubleBlockHalf;
+import net.minecraft.world.level.chunk.LevelChunk;
+import net.minecraft.world.level.chunk.storage.ChunkSerializer;
+import io.netty.buffer.Unpooled;
 import net.neoforged.neoforge.gametest.GameTestHolder;
 import net.neoforged.neoforge.gametest.PrefixGameTestTemplate;
 
@@ -221,6 +233,9 @@ public final class FlowerDiseaseGameTests {
             FlowerMassBlockEntity entity = arena.level.getBlockEntity(pos) instanceof FlowerMassBlockEntity e ? e : null;
             helper.assertTrue(entity != null, "flower block at " + pos + " has no block entity");
             helper.assertTrue(entity.replacedState().is(Blocks.GRASS_BLOCK), "flower block at " + pos + " remembers " + entity.replacedState());
+            // Settled, all of them: what is left is where they came from and what they replaced.
+            helper.assertTrue(entity.garden() != GardenRegistry.NO_GARDEN && entity.depth() == 0 && entity.cap() == 0,
+                    "a settled flower block should keep only its garden and its ground: garden " + entity.garden() + ", depth " + entity.depth() + ", cap " + entity.cap());
         }
 
         failOnProblems(arena.validate());
@@ -338,14 +353,17 @@ public final class FlowerDiseaseGameTests {
             placeRoot(arena.level, pos, FlowerDisease.DISEASED_POPPY.get(), original);
             SpreadProfileBlockEntity plant = DiseasedPlantLogic.profileAt(arena.level, pos);
             helper.assertTrue(plant != null, "no block entity on the placed root");
-            plant.inherit(original, 42);
+            plant.inherit(plant.garden(), 42);
 
             CompoundTag saved = plant.saveWithFullMetadata(arena.level.registryAccess());
             BlockEntity reloaded = BlockEntity.loadStatic(pos, arena.level.getBlockState(pos), saved, arena.level.registryAccess());
             helper.assertTrue(reloaded instanceof SpreadProfileBlockEntity, "the block entity did not reload");
             SpreadProfileBlockEntity copy = (SpreadProfileBlockEntity) reloaded;
-            helper.assertTrue(copy.depth() == 42 && copy.profile().equals(original), "block entity reloaded as depth " + copy.depth() + ", " + copy.profile());
-            log("nbt: a plant with every modifier set saves as " + GardenStats.serializedSize(saved) + " bytes");
+            copy.setLevel(arena.level);
+            helper.assertTrue(copy.depth() == 42 && copy.garden() == plant.garden() && copy.profile().equals(original),
+                    "block entity reloaded as garden " + copy.garden() + " depth " + copy.depth() + ", " + copy.profile());
+            helper.assertTrue(!saved.contains("Species") && !saved.contains("Generations"), "the profile should live in the registry, not in the block entity: " + saved);
+            log("nbt: a plant with every modifier set saves as " + GardenStats.serializedSize(saved) + " bytes (the profile sits in the garden registry)");
         } finally {
             arena.cleanup();
         }
@@ -426,6 +444,218 @@ public final class FlowerDiseaseGameTests {
         });
     }
 
+    // A planting is one garden: every plant of it points at the same registry entry instead of carrying a copy of the
+    // profile.
+    @GameTest(template = TEMPLATE, batch = "gt_garden_shared", timeoutTicks = 200)
+    public static void plantsOfAPlantingShareOneGarden(GameTestHelper helper) {
+        Arena arena = new Arena(helper);
+        arena.prepare();
+        try {
+            Bag bag = new Bag().add(Items.POPPY, 3).add(Items.DANDELION, 2).add(Items.RABBIT_FOOT, 1000);
+            GardenRegistry registry = GardenRegistry.of(arena.level);
+            int before = registry.size();
+            BlockPos root = arena.at(24, 1, 24);
+            plantVia(helper, arena, bag, root);
+            helper.assertTrue(registry.size() == before + 1, "one planting should create exactly one garden, created " + (registry.size() - before));
+
+            int garden = GardenRegistry.NO_GARDEN;
+            int active = 0;
+            for (BlockPos pos : arena.plantPositions()) {
+                SpreadProfileBlockEntity plant = DiseasedPlantLogic.profileAt(arena.level, pos);
+                if (plant == null) {
+                    continue;
+                }
+                active++;
+                garden = garden == GardenRegistry.NO_GARDEN ? plant.garden() : garden;
+                helper.assertTrue(garden != GardenRegistry.NO_GARDEN && plant.garden() == garden, "plants of one planting should share a garden, found " + plant.garden() + " and " + garden);
+                CompoundTag saved = plant.saveWithFullMetadata(arena.level.registryAccess());
+                helper.assertTrue(!saved.contains("Species") && !saved.contains("Lifetime"), "a plant should not carry a copy of the profile: " + saved);
+            }
+            helper.assertTrue(active >= 1, "expected active children");
+
+            GardenRegistry.Garden entry = registry.get(garden);
+            helper.assertTrue(entry != null && !entry.legacy() && entry.profile().equals(bag.contents()) && entry.origin().equals(root),
+                    "the registry should remember the planting: " + entry);
+            failOnProblems(arena.validate());
+        } finally {
+            arena.cleanup();
+        }
+        helper.succeed();
+    }
+
+    // The point of a shared profile: replacing it changes every plant of the garden at once.
+    @GameTest(template = TEMPLATE, batch = "gt_garden_edit", timeoutTicks = 200)
+    public static void editingAGardenChangesEveryPlantOfIt(GameTestHelper helper) {
+        Arena arena = new Arena(helper);
+        arena.prepare();
+        try {
+            plantVia(helper, arena, new Bag().add(Items.POPPY, 3).add(Items.DANDELION, 2).add(Items.RABBIT_FOOT, 1000), arena.at(24, 1, 24));
+
+            List<SpreadProfileBlockEntity> plants = new ArrayList<>();
+            for (BlockPos pos : arena.plantPositions()) {
+                SpreadProfileBlockEntity plant = DiseasedPlantLogic.profileAt(arena.level, pos);
+                if (plant != null) {
+                    plants.add(plant);
+                }
+            }
+            helper.assertTrue(plants.size() >= 2, "expected several active plants, found " + plants.size());
+
+            GardenBagContents edited = new Bag().add(Items.POPPY, 3).add(Items.DANDELION, 2).add(Items.RABBIT_FOOT, 3).add(Items.SLIME_BALL, 4).contents();
+            GardenRegistry.of(arena.level).replaceProfile(plants.get(0).garden(), edited);
+            for (SpreadProfileBlockEntity plant : plants) {
+                helper.assertTrue(plant.profile().equals(edited), "a plant of the garden still sees the old profile: " + plant.profile());
+            }
+        } finally {
+            arena.cleanup();
+        }
+        helper.succeed();
+    }
+
+    // A block entity written before gardens existed carries its whole profile: it is folded into the registry the first
+    // time anything asks for it, identical profiles share one garden, and it is rewritten in the new form.
+    @GameTest(template = TEMPLATE, batch = "gt_garden_legacy", timeoutTicks = 200)
+    public static void oldSavesMigrateIntoTheRegistry(GameTestHelper helper) {
+        Arena arena = new Arena(helper);
+        arena.prepare();
+        try {
+            GardenBagContents oldProfile = new Bag().add(Items.POPPY, 2).add(Items.SCULK, 3).contents();
+            CompoundTag old = new CompoundTag();
+            oldProfile.writeTo(old);
+            old.putLong("Depth", 7);
+
+            SpreadProfileBlockEntity first = loadOldPlant(arena, arena.at(10, 1, 10), old);
+            SpreadProfileBlockEntity second = loadOldPlant(arena, arena.at(12, 1, 10), old);
+            helper.assertTrue(first.garden() == GardenRegistry.NO_GARDEN, "nothing has asked for the profile yet, so it should still be waiting");
+
+            helper.assertTrue(first.profile().equals(oldProfile), "the old profile was not preserved: " + first.profile());
+            helper.assertTrue(first.garden() != GardenRegistry.NO_GARDEN && first.depth() == 7, "expected a garden and the old depth, found garden " + first.garden() + " depth " + first.depth());
+            second.profile();
+            helper.assertTrue(second.garden() == first.garden(), "identical old profiles should share one legacy garden");
+            GardenRegistry.Garden entry = GardenRegistry.of(arena.level).get(first.garden());
+            helper.assertTrue(entry != null && entry.legacy(), "the garden should be marked as folded in from an older save: " + entry);
+
+            CompoundTag resaved = first.saveWithFullMetadata(arena.level.registryAccess());
+            helper.assertTrue(resaved.contains("Garden") && !resaved.contains("Species") && !resaved.contains("DecayStrength"), "the plant should be rewritten in the new form: " + resaved);
+        } finally {
+            arena.cleanup();
+        }
+        helper.succeed();
+    }
+
+    private static SpreadProfileBlockEntity loadOldPlant(Arena arena, BlockPos pos, CompoundTag data) {
+        SpreadProfileBlockEntity plant = new SpreadProfileBlockEntity(pos, FlowerDisease.DISEASED_POPPY.get().defaultBlockState());
+        plant.loadWithComponents(data.copy(), arena.level.registryAccess());
+        plant.setLevel(arena.level);
+        return plant;
+    }
+
+    @GameTest(template = TEMPLATE, batch = "gt_registry_nbt", timeoutTicks = 100)
+    public static void theRegistrySurvivesSaving(GameTestHelper helper) {
+        ServerLevel level = helper.getLevel();
+        GardenBagContents planted = new Bag().add(Items.POPPY, 3).add(Items.MOSS_BLOCK, 9).contents();
+        GardenBagContents folded = new Bag().add(Items.DANDELION, 1).add(Items.FEATHER, 6).contents();
+
+        GardenRegistry registry = new GardenRegistry();
+        int first = registry.create(planted, new BlockPos(1, 2, 3), 500);
+        int legacy = registry.intern(folded);
+        helper.assertTrue(registry.intern(folded) == legacy, "the same old profile should not create a second garden");
+
+        GardenRegistry loaded = GardenRegistry.load(registry.save(new CompoundTag(), level.registryAccess()), level.registryAccess());
+        GardenRegistry.Garden entry = loaded.get(first);
+        helper.assertTrue(loaded.size() == 2, "expected two gardens after reloading, found " + loaded.size());
+        helper.assertTrue(entry != null && entry.profile().equals(planted) && entry.origin().equals(new BlockPos(1, 2, 3)) && entry.plantedAt() == 500 && !entry.legacy(),
+                "a planting did not survive: " + entry);
+        helper.assertTrue(loaded.profileOf(legacy).equals(folded) && loaded.get(legacy).legacy(), "a folded-in garden did not survive");
+        helper.assertTrue(loaded.intern(folded) == legacy, "after reloading, the same old profile should still find its garden");
+        helper.assertTrue(loaded.create(planted, BlockPos.ZERO, 0) > legacy, "new gardens must not reuse an old id");
+        helper.succeed();
+    }
+
+    // Only a plant that still has something to do keeps a block entity: a creeper has no vanilla form, so settling it
+    // leaves it in place - as one of our blocks, but without data - and the upper half of a tall plant never had one.
+    @GameTest(template = TEMPLATE, batch = "gt_settled_entities", timeoutTicks = 200)
+    public static void settledPlantsKeepNoBlockEntity(GameTestHelper helper) {
+        Arena arena = new Arena(helper);
+        arena.prepare();
+        try {
+            BlockPos creeper = arena.at(10, 1, 10);
+            plantVia(helper, arena, new Bag().add(FlowerDisease.SUNFLOWER_CREEPER_ITEM.get(), 1).add(Items.BONE_MEAL, 1), creeper);
+            BlockState creeperState = arena.level.getBlockState(creeper);
+            helper.assertTrue(creeperState.getBlock() instanceof CreepingFlowerBlock && DiseasedPlantLogic.isSettled(creeperState), "expected a settled creeper, found " + creeperState);
+            helper.assertTrue(arena.level.getBlockEntity(creeper) == null, "a settled creeper should keep no block entity");
+
+            BlockPos tall = arena.at(20, 1, 20);
+            DoublePlantBlock.placeAt(arena.level, FlowerDisease.DISEASED_SUNFLOWER.get().defaultBlockState(), tall, SettleTable.PLACEMENT_FLAGS);
+            helper.assertTrue(arena.level.getBlockEntity(tall) instanceof SpreadProfileBlockEntity, "the lower half of an active tall plant should have a block entity");
+            helper.assertTrue(arena.level.getBlockEntity(tall.above()) == null, "the upper half should never have one");
+
+            failOnProblems(arena.validate());
+        } finally {
+            arena.cleanup();
+        }
+        helper.succeed();
+    }
+
+    // What a pile of block entities costs, per entity: on disk (raw and compressed, the way a chunk holds them), on the
+    // wire (the chunk packet a client receives), in memory once loaded from disk, and in time to load them. Logged for
+    // the record; the asserts only catch a blow-up. Flower blocks and Diseased plants are measured separately since
+    // they carry different data.
+    @GameTest(template = TEMPLATE, batch = "gt_footprint", timeoutTicks = 1200)
+    public static void blockEntityFootprint(GameTestHelper helper) {
+        Arena arena = new Arena(helper);
+        arena.prepare();
+        try {
+            RandomSource random = arena.level.getRandom();
+            GardenBagContents profile = new Bag().add(Items.POPPY, 3).add(Items.DANDELION, 2).add(Items.MOSS_BLOCK, 20).contents();
+            // One garden for everything, like one big planting - what every block entity below points at.
+            int garden = GardenRegistry.of(arena.level).create(profile, arena.at(0, 1, 0), 0);
+
+            // Scattered cells and varied contents, like a real garden - a solid grid of identical entities would
+            // compress far better than anything the game produces.
+            List<BlockPos> flowerBlocks = arena.scatter(20_000, pos -> placeFlowerBlock(arena.level, pos, garden, random));
+            Footprint flowerFootprint = Footprint.measure(arena, flowerBlocks, "flower blocks");
+            arena.replaceWithStone(flowerBlocks);
+
+            List<BlockPos> plants = arena.scatter(10_000, pos -> placePlant(arena.level, pos, garden, random));
+            Footprint plantFootprint = Footprint.measure(arena, plants, "diseased plants");
+            arena.replaceWithStone(plants);
+
+            for (Footprint footprint : List.of(flowerFootprint, plantFootprint)) {
+                log(footprint.describe());
+                helper.assertTrue(footprint.gzipPerEntity() < 200, footprint.label + " take " + footprint.gzipPerEntity() + " compressed bytes each");
+            }
+        } finally {
+            arena.cleanup();
+        }
+        helper.succeed();
+    }
+
+    private static final BlockState[] REPLACED_GROUND = {
+            Blocks.GRASS_BLOCK.defaultBlockState(), Blocks.DIRT.defaultBlockState(), Blocks.STONE.defaultBlockState(), Blocks.SAND.defaultBlockState()
+    };
+
+    // A Flower Block the way the game leaves one: it remembers the ground it replaced and its garden, and while it is
+    // still spreading also how deep it is and how far it may go.
+    private static void placeFlowerBlock(ServerLevel level, BlockPos pos, int garden, RandomSource random) {
+        boolean settled = random.nextBoolean();
+        level.setBlock(pos, FlowerDisease.FLOWER_BLOCK.get().defaultBlockState().setValue(SettleTable.SETTLED, settled), SettleTable.PLACEMENT_FLAGS);
+        if (level.getBlockEntity(pos) instanceof FlowerMassBlockEntity flowerBlock) {
+            flowerBlock.setReplacedState(REPLACED_GROUND[random.nextInt(REPLACED_GROUND.length)]);
+            flowerBlock.inheritFlowerBlock(garden, 1 + random.nextInt(5), random.nextInt(5));
+            if (settled) {
+                flowerBlock.settled();
+            }
+        }
+    }
+
+    // An active Diseased plant somewhere in a garden, a few generations deep.
+    private static void placePlant(ServerLevel level, BlockPos pos, int garden, RandomSource random) {
+        level.setBlock(pos, FlowerDisease.DISEASED_POPPY.get().defaultBlockState(), SettleTable.PLACEMENT_FLAGS);
+        if (level.getBlockEntity(pos) instanceof SpreadProfileBlockEntity plant) {
+            plant.inherit(garden, random.nextInt(60));
+        }
+    }
+
     // ---- Shared scenarios ----------------------------------------------------------------------------
 
     private static void growth(GameTestHelper helper, String label, Bag bag, int days, int density) {
@@ -483,7 +713,7 @@ public final class FlowerDiseaseGameTests {
     private static void placeRoot(ServerLevel level, BlockPos pos, Block block, GardenBagContents contents) {
         level.setBlock(pos, block.defaultBlockState(), SettleTable.PLACEMENT_FLAGS);
         if (level.getBlockEntity(pos) instanceof SpreadProfileBlockEntity plant) {
-            plant.configure(contents);
+            plant.startGarden(level, contents, pos);
         }
     }
 
@@ -496,6 +726,130 @@ public final class FlowerDiseaseGameTests {
     }
 
     // ---- Helpers -------------------------------------------------------------------------------------
+
+    // Sizes and costs of a set of block entities, see blockEntityFootprint.
+    private static final class Footprint {
+        private static final int HEAP_SAMPLES = 50_000;
+
+        final String label;
+        int entities;
+        long rawWith, rawWithout, gzipWith, gzipWithout, packetWith, packetWithout;
+        long heapBytesPerEntity;
+        double loadMicrosPerEntity;
+        int saveTagBytes;
+
+        Footprint(String label) {
+            this.label = label;
+        }
+
+        // `positions` are the block entities to measure; they're swapped for stone in the middle of the measurement (so
+        // the caller must not rely on them afterwards) to get the "without" side of each comparison.
+        static Footprint measure(Arena arena, List<BlockPos> positions, String label) {
+            Footprint footprint = new Footprint(label);
+            ServerLevel level = arena.level;
+            footprint.entities = positions.size();
+
+            try {
+                for (ChunkPos chunkPos : arena.chunks) {
+                    LevelChunk chunk = level.getChunk(chunkPos.x, chunkPos.z);
+                    CompoundTag with = ChunkSerializer.write(level, chunk);
+                    CompoundTag without = with.copy();
+                    without.remove("block_entities");
+                    footprint.rawWith += rawSize(with);
+                    footprint.rawWithout += rawSize(without);
+                    footprint.gzipWith += gzipSize(with);
+                    footprint.gzipWithout += gzipSize(without);
+                    footprint.packetWith += packetSize(level, chunk);
+                }
+            } catch (IOException e) {
+                throw new UncheckedIOException(e);
+            }
+
+            BlockPos sample = positions.get(0);
+            BlockEntity sampleEntity = level.getBlockEntity(sample);
+            BlockState sampleState = level.getBlockState(sample);
+            CompoundTag saved = sampleEntity.saveWithFullMetadata(level.registryAccess());
+            footprint.saveTagBytes = GardenStats.serializedSize(saved);
+
+            // The same chunks with those blocks as plain stone: no block entities left to send.
+            arena.replaceWithStone(positions);
+            for (ChunkPos chunkPos : arena.chunks) {
+                footprint.packetWithout += packetSize(level, level.getChunk(chunkPos.x, chunkPos.z));
+            }
+
+            // Loading them back from disk into memory, each with its own copy of whatever it stores.
+            byte[] savedBytes;
+            try {
+                ByteArrayOutputStream out = new ByteArrayOutputStream();
+                NbtIo.write(saved, new DataOutputStream(out));
+                savedBytes = out.toByteArray();
+            } catch (IOException e) {
+                throw new UncheckedIOException(e);
+            }
+
+            // A fresh tag per entity, parsed from bytes like a chunk load does, so nothing is shared between them.
+            long before = usedHeap();
+            long start = System.nanoTime();
+            List<BlockEntity> loaded = new ArrayList<>(HEAP_SAMPLES);
+            try {
+                for (int i = 0; i < HEAP_SAMPLES; i++) {
+                    CompoundTag fresh = NbtIo.read(new DataInputStream(new ByteArrayInputStream(savedBytes)));
+                    loaded.add(BlockEntity.loadStatic(new BlockPos(i, 64, 0), sampleState, fresh, level.registryAccess()));
+                }
+            } catch (IOException e) {
+                throw new UncheckedIOException(e);
+            }
+            double micros = (System.nanoTime() - start) / 1000.0;
+            long after = usedHeap();
+            footprint.loadMicrosPerEntity = micros / HEAP_SAMPLES;
+            footprint.heapBytesPerEntity = Math.max(0, (after - before) / HEAP_SAMPLES);
+            if (loaded.size() != HEAP_SAMPLES) {
+                throw new IllegalStateException("keeps the list alive across the measurement");
+            }
+            return footprint;
+        }
+
+        long gzipPerEntity() {
+            return (gzipWith - gzipWithout) / Math.max(1, entities);
+        }
+
+        String describe() {
+            return String.format(Locale.ROOT,
+                    "footprint [%s]: %d entities | one saves as %d bytes | in chunk data: %d bytes each raw, %d compressed | in the chunk packet: %d bytes each"
+                            + " | loaded into memory: ~%d bytes each, %.1f us each to load",
+                    label, entities, saveTagBytes, (rawWith - rawWithout) / Math.max(1, entities), gzipPerEntity(),
+                    (packetWith - packetWithout) / Math.max(1, entities), heapBytesPerEntity, loadMicrosPerEntity);
+        }
+
+        private static long usedHeap() {
+            System.gc();
+            System.gc();
+            Runtime runtime = Runtime.getRuntime();
+            return runtime.totalMemory() - runtime.freeMemory();
+        }
+
+        private static long rawSize(CompoundTag tag) throws IOException {
+            ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+            NbtIo.write(tag, new DataOutputStream(bytes));
+            return bytes.size();
+        }
+
+        private static long gzipSize(CompoundTag tag) throws IOException {
+            ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+            NbtIo.writeCompressed(tag, bytes);
+            return bytes.size();
+        }
+
+        private static long packetSize(ServerLevel level, LevelChunk chunk) {
+            RegistryFriendlyByteBuf buffer = new RegistryFriendlyByteBuf(Unpooled.buffer(), level.registryAccess());
+            try {
+                ClientboundLevelChunkWithLightPacket.STREAM_CODEC.encode(buffer, new ClientboundLevelChunkWithLightPacket(chunk, level.getLightEngine(), null, null));
+                return buffer.writerIndex();
+            } finally {
+                buffer.release();
+            }
+        }
+    }
 
     // A day simulation over the whole arena, with its outcome filled in by DayAdvance's listener.
     private static final class Simulation {
@@ -672,6 +1026,36 @@ public final class FlowerDiseaseGameTests {
                 }
             }
             return count;
+        }
+
+        // Puts `count` blocks at distinct random cells of the arena's box (above the floor), one per cell, with whatever
+        // `placer` makes of each; returns where. For measurements that need thousands of block entities without
+        // growing them.
+        List<BlockPos> scatter(int count, java.util.function.Consumer<BlockPos> placer) {
+            List<BlockPos> cells = new ArrayList<>();
+            for (int y = 1; y < HEIGHT; y++) {
+                for (int x = 0; x < SIZE; x++) {
+                    for (int z = 0; z < SIZE; z++) {
+                        cells.add(at(x, y, z));
+                    }
+                }
+            }
+            java.util.Collections.shuffle(cells, new java.util.Random(1234));
+
+            List<BlockPos> placed = new ArrayList<>(cells.subList(0, Math.min(count, cells.size())));
+            for (BlockPos pos : placed) {
+                placer.accept(pos);
+            }
+            return placed;
+        }
+
+        void replaceWithStone(List<BlockPos> positions) {
+            for (BlockPos pos : positions) {
+                level.setBlock(pos, Blocks.STONE.defaultBlockState(), SettleTable.PLACEMENT_FLAGS);
+                if (level.getBlockEntity(pos) != null) {
+                    level.removeBlockEntity(pos);
+                }
+            }
         }
 
         // Same as plantPositions() but over every loaded chunk instead of just the arena's box.
@@ -890,8 +1274,16 @@ public final class FlowerDiseaseGameTests {
                             if (!state.canSurvive(level, pos)) {
                                 problems.add("Diseased plant that cannot survive at " + pos + ": " + state);
                             }
-                            if (!(level.getBlockEntity(pos) instanceof SpreadProfileBlockEntity)) {
-                                problems.add("Diseased plant without block entity at " + pos + ": " + state);
+                            // Only a plant with something left to do keeps a block entity: not one that has settled in
+                            // place, and not the upper half of a tall plant.
+                            boolean upperHalf = state.hasProperty(DoublePlantBlock.HALF) && state.getValue(DoublePlantBlock.HALF) == DoubleBlockHalf.UPPER;
+                            boolean needsEntity = !upperHalf && !DiseasedPlantLogic.isSettled(state);
+                            boolean hasEntity = level.getBlockEntity(pos) instanceof SpreadProfileBlockEntity;
+                            if (needsEntity && !hasEntity) {
+                                problems.add("active Diseased plant without block entity at " + pos + ": " + state);
+                            }
+                            if (!needsEntity && hasEntity) {
+                                problems.add("settled or upper-half plant still holding a block entity at " + pos + ": " + state);
                             }
                         } else if (block instanceof BushBlock && !state.canSurvive(level, pos)) {
                             problems.add("vanilla plant that cannot survive at " + pos + ": " + state);

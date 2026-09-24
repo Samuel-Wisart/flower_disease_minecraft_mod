@@ -29,19 +29,20 @@ final class FlowerBlockLogic {
     // Every plant rolls exactly once, when it settles - whether that's the lifetime test failing, the search
     // finding no room, or being born already out of generations. What gets converted is the block the plant is
     // actually leaning on: below for a standing one, behind for a tilted one, the block of an active face for a
-    // creeper. The Flower Block draws its own small generation budget instead of inheriting the plant's.
+    // creeper. The Flower Block draws its own small generation cap instead of inheriting the plant's.
     static void onPlantSettled(
             ServerLevel level,
             BlockPos plantPos,
             BlockState plantState,
             DiseasedPlantLogic.Shape shape,
-            GardenBagContents profile,
+            Lineage lineage,
             RandomSource random
     ) {
-        if (profile.mossBlocks() <= 0 || !Config.FLOWER_BLOCK_CONVERSION.getAsBoolean()) {
+        int mossBlocks = lineage.profile().mossBlocks();
+        if (mossBlocks <= 0 || !Config.FLOWER_BLOCK_CONVERSION.getAsBoolean()) {
             return;
         }
-        if (random.nextDouble() >= SpreadMath.flowerBlockChance(profile.mossBlocks())) {
+        if (random.nextDouble() >= SpreadMath.flowerBlockChance(mossBlocks)) {
             return;
         }
 
@@ -55,7 +56,7 @@ final class FlowerBlockLogic {
             return;
         }
 
-        place(level, support, supportState, profile.forFlowerBlock(SpreadMath.rollFlowerBlockGenerations(random)), 0);
+        place(level, support, supportState, lineage.garden(), SpreadMath.rollFlowerBlockGenerations(random), 0);
     }
 
     @Nullable
@@ -79,8 +80,10 @@ final class FlowerBlockLogic {
             return;
         }
 
-        SpreadProfileBlockEntity block = DiseasedPlantLogic.profileAt(level, pos);
+        FlowerMassBlockEntity block = level.getBlockEntity(pos) instanceof FlowerMassBlockEntity flowerBlock ? flowerBlock : null;
         GardenBagContents profile = block != null ? block.profile() : GardenBagContents.DEFAULT;
+        int garden = block != null ? block.garden() : GardenRegistry.NO_GARDEN;
+        int cap = block != null ? block.cap() : 0;
         long depth = block != null ? block.depth() : 0;
 
         double baseChance = profile.spreadChance() >= 0 ? profile.spreadChance() : Config.FLOWER_SPREAD_CHANCE.getAsDouble();
@@ -94,7 +97,7 @@ final class FlowerBlockLogic {
             return;
         }
 
-        if (generationsLeft(profile, depth) != 0) {
+        if (generationsLeft(cap, depth) != 0) {
             int startIndex = random.nextInt(DIRECTIONS.length);
             for (int i = 0; i < DIRECTIONS.length; i++) {
                 BlockPos neighborPos = pos.relative(DIRECTIONS[(startIndex + i) % DIRECTIONS.length]);
@@ -104,7 +107,7 @@ final class FlowerBlockLogic {
                 // non-full block (flowers, slabs, stairs...) on at least one OTHER side, so it stays somewhere a
                 // player could actually find it instead of sinking.
                 if (PlantSupport.isConvertible(level, neighborPos, neighborState) && hasExposedFace(level, neighborPos)) {
-                    place(level, neighborPos, neighborState, profile, depth + 1);
+                    place(level, neighborPos, neighborState, garden, cap, depth + 1);
                     return;
                 }
             }
@@ -115,13 +118,11 @@ final class FlowerBlockLogic {
         settle(level, pos, state);
     }
 
-    // A Flower Block's budget is the cap its plant drew for it (see SpreadMath#rollFlowerBlockGenerations), never
-    // unlimited; one placed by hand, with no profile, gets the most the server allows.
-    private static long generationsLeft(GardenBagContents profile, long depth) {
-        long cap = profile.generations() == SpreadProfileBlockEntity.NO_GENERATIONS_OVERRIDE
-                ? Config.FLOWER_BLOCK_MAX_GENERATIONS.getAsInt() + 1
-                : profile.generations();
-        return SpreadMath.generationsLeft(cap, depth);
+    // A Flower Block's budget is the cap it drew (see SpreadMath#rollFlowerBlockGenerations), never unlimited; one
+    // placed by hand, with none, gets the most the server allows.
+    private static long generationsLeft(int cap, long depth) {
+        long total = cap > 0 ? cap : Config.FLOWER_BLOCK_MAX_GENERATIONS.getAsInt() + 1;
+        return SpreadMath.generationsLeft(total, depth);
     }
 
     // "Exposed" means at least one of the 6 neighbors isn't a full cube - open air, or a non-full block like a
@@ -138,22 +139,26 @@ final class FlowerBlockLogic {
         return false;
     }
 
-    private static void place(ServerLevel level, BlockPos pos, BlockState replaced, GardenBagContents profile, long depth) {
+    private static void place(ServerLevel level, BlockPos pos, BlockState replaced, int garden, int cap, long depth) {
         level.setBlock(pos, FlowerDisease.FLOWER_BLOCK.get().defaultBlockState(), SettleTable.PLACEMENT_FLAGS);
 
         if (level.getBlockEntity(pos) instanceof FlowerMassBlockEntity flowerBlock) {
             flowerBlock.setReplacedState(replaced);
-            flowerBlock.inherit(profile, depth);
+            flowerBlock.inheritFlowerBlock(garden, cap, depth);
         }
 
-        if (generationsLeft(profile, depth) == 0) {
+        if (generationsLeft(cap, depth) == 0) {
             // No budget left for the block to spread itself - settles the instant it's created instead of existing
             // as an active Flower Block even briefly, same as a Diseased Flower child born out of generations.
             settle(level, pos, level.getBlockState(pos));
         }
     }
 
+    // Stops the block for good; it keeps only its garden and what it replaced.
     private static void settle(ServerLevel level, BlockPos pos, BlockState state) {
         level.setBlock(pos, state.setValue(SettleTable.SETTLED, true), SettleTable.PLACEMENT_FLAGS);
+        if (level.getBlockEntity(pos) instanceof FlowerMassBlockEntity flowerBlock) {
+            flowerBlock.settled();
+        }
     }
 }

@@ -175,16 +175,19 @@ final class FlowerDiseaseCommands {
         source.sendSuccess(() -> Component.literal("Flower Disease: cleared " + cleared + " plant blocks"), false);
     }
 
-    // /diseasedflower profile set <key> <value> changes ONE field of the plant you're looking at (see
-    // PROFILE_KEYS for the names; the values mean what they do in GardenBagContents - "-1"/"-2" for generations,
-    // "-1" for density and distance meaning "automatic"). species takes a comma-separated list of
-    // "<block id> <weight>" entries - a vanilla species id (e.g. "minecraft:rose_bush") or one of the Top/Bottom
-    // block ids (e.g. "flowerdisease:rose_bush_top", its own independent species) both work the same way, same as
-    // the Garden Bag's species grid.
+    private static final String NOT_LOOKING = "Flower Disease: not looking at an active Diseased Flower or Flower Block (a plant that has settled keeps no data)";
+
+    // /diseasedflower profile set <key> <value> changes ONE field of the garden the plant you're looking at belongs to
+    // - and so, from their next tick on, of every plant of that garden (see GardenRegistry). See PROFILE_KEYS for the
+    // names; the values mean what they do in GardenBagContents - "-1"/"-2" for generations, "-1" for density and
+    // distance meaning "automatic". species takes a comma-separated list of "<block id> <weight>" entries - a vanilla
+    // species id (e.g. "minecraft:rose_bush") or one of the Top/Bottom block ids (e.g. "flowerdisease:rose_bush_top",
+    // its own independent species) both work the same way, same as the Garden Bag's species grid.
     private static int setProfile(CommandContext<CommandSourceStack> context) throws CommandSyntaxException {
-        SpreadProfileBlockEntity plant = profileLookedAt(context.getSource());
+        CommandSourceStack source = context.getSource();
+        SpreadProfileBlockEntity plant = profileLookedAt(source);
         if (plant == null) {
-            context.getSource().sendFailure(Component.literal("Flower Disease: not looking at a Diseased Flower"));
+            source.sendFailure(Component.literal(NOT_LOOKING));
             return 0;
         }
 
@@ -195,25 +198,39 @@ final class FlowerDiseaseCommands {
         try {
             fields.apply(key, value);
         } catch (IllegalArgumentException e) {
-            context.getSource().sendFailure(Component.literal("Flower Disease: " + e.getMessage()));
+            source.sendFailure(Component.literal("Flower Disease: " + e.getMessage()));
             return 0;
         }
 
-        plant.configure(fields.build());
-        context.getSource().sendSuccess(() -> Component.literal("Flower Disease: " + key + " set on the flower you're looking at"), false);
+        String changed = changeProfile(source.getLevel(), plant, fields.build());
+        source.sendSuccess(() -> Component.literal("Flower Disease: " + key + " set on " + changed), false);
         return 1;
     }
 
     private static int clearProfile(CommandContext<CommandSourceStack> context) throws CommandSyntaxException {
-        SpreadProfileBlockEntity plant = profileLookedAt(context.getSource());
+        CommandSourceStack source = context.getSource();
+        SpreadProfileBlockEntity plant = profileLookedAt(source);
         if (plant == null) {
-            context.getSource().sendFailure(Component.literal("Flower Disease: not looking at a Diseased Flower"));
+            source.sendFailure(Component.literal(NOT_LOOKING));
             return 0;
         }
 
-        plant.configure(GardenBagContents.DEFAULT);
-        context.getSource().sendSuccess(() -> Component.literal("Flower Disease: profile cleared, back to the server defaults"), false);
+        plant.profile();
+        String changed = changeProfile(source.getLevel(), plant, GardenBagContents.DEFAULT);
+        source.sendSuccess(() -> Component.literal("Flower Disease: profile of " + changed + " cleared, back to the server defaults"), false);
         return 1;
+    }
+
+    // A garden's profile is shared by all its plants, so replacing it changes them all; a plant that belongs to none
+    // (hand-placed) gets a garden of its own to hold the profile.
+    private static String changeProfile(ServerLevel level, SpreadProfileBlockEntity plant, GardenBagContents updated) {
+        if (plant.garden() == GardenRegistry.NO_GARDEN) {
+            plant.startGarden(level, updated, plant.getBlockPos());
+            return "this flower (a new garden of its own, #" + plant.garden() + ")";
+        }
+
+        GardenRegistry.of(level).replaceProfile(plant.garden(), updated);
+        return "garden #" + plant.garden() + " (every plant of it)";
     }
 
     // Everything this plant's next random tick would be working with, resolved the same way the mod itself does -
@@ -222,12 +239,18 @@ final class FlowerDiseaseCommands {
         CommandSourceStack source = context.getSource();
         SpreadProfileBlockEntity plant = profileLookedAt(source);
         if (plant == null) {
-            source.sendFailure(Component.literal("Flower Disease: not looking at a Diseased Flower"));
+            source.sendFailure(Component.literal(NOT_LOOKING));
             return 0;
         }
 
         GardenBagContents profile = plant.profile();
         long depth = plant.depth();
+        GardenRegistry.Garden garden = plant.garden() == GardenRegistry.NO_GARDEN ? null : GardenRegistry.of(source.getLevel()).get(plant.garden());
+        String gardenLine = garden == null
+                ? "no garden (hand-placed, server defaults)"
+                : garden.legacy()
+                        ? "garden #" + plant.garden() + " (folded in from an older save)"
+                        : "garden #" + plant.garden() + " (planted at " + garden.origin().toShortString() + ", game tick " + garden.plantedAt() + ")";
         long left = DiseasedPlantLogic.generationsLeft(profile, depth);
 
         double baseChance = profile.spreadChance() >= 0 ? profile.spreadChance() : Config.FLOWER_SPREAD_CHANCE.getAsDouble();
@@ -239,7 +262,8 @@ final class FlowerDiseaseCommands {
         int window = 2 * radius + 1;
 
         List<String> lines = List.of(
-                "Flower Disease: generation " + (depth + 1) + " (depth " + depth + "), generations left " + (left < 0 ? "unlimited" : String.valueOf(left)),
+                "Flower Disease: " + gardenLine,
+                "  generation " + (depth + 1) + " (depth " + depth + "), generations left " + (left < 0 ? "unlimited" : String.valueOf(left)),
                 "  reproduction chance now " + percent(chance) + " (base " + percent(baseChance) + ", "
                         + (profile.noDecay() ? "no decay" : "halves at gen " + String.format(Locale.ROOT, "%.1f", half))
                         + "), lifetime ~" + SpreadMath.resolveLifetimeAttempts(profile.lifetimeAttempts()) + " attempts",
