@@ -26,6 +26,17 @@ sourceSets.main.resources {
     exclude("src/generated/**/.cache") // datagen cache files
 }
 
+// Headless game tests (FlowerDiseaseGameTests, run with ./gradlew runGameTestServer) live in their own source set, so
+// neither the test classes nor their structure template ship in the mod jar - the jar only packages main. They use the
+// same Java package as the mod on purpose, to reach its package-private internals; that works at runtime because both
+// source sets are loaded as the one mod (see the mods block below).
+sourceSets {
+    gametest {
+        compileClasspath += sourceSets.main.output
+        runtimeClasspath += sourceSets.main.output
+    }
+}
+
 repositories {
     // Jade is only published on Modrinth's own Maven - scoped with exclusiveContent so this repository is
     // never consulted for anything but the "maven.modrinth" group (avoids it shadowing/slowing down
@@ -110,12 +121,17 @@ neoForge {
         }
     }
 
+    // The game tests need the game on their compile classpath too.
+    addModdingDependenciesTo(sourceSets.gametest)
+
     mods {
         // define mod <-> source bindings
         // these are used to tell the game which sources are for which mod
         // multi mod projects should define one per mod
         "${mod_id}" {
             sourceSet(sourceSets.main)
+            // Dev runs only: the jar task never packages this.
+            sourceSet(sourceSets.gametest)
         }
     }
 }
