@@ -596,6 +596,32 @@ public final class FlowerDiseaseGameTests {
         helper.succeed();
     }
 
+    // A chunk that unloads and loads again rebuilds each block entity from its saved tag through the block entity TYPE
+    // (BlockEntity#loadStatic), not through the block - so the type has to build the right class for every block that
+    // uses it, or a Flower Block comes back as a plain plant entity that has forgotten the ground it replaced.
+    @GameTest(template = TEMPLATE, batch = "gt_reload", timeoutTicks = 100)
+    public static void blockEntitiesComeBackAsTheRightClassAfterAReload(GameTestHelper helper) {
+        Arena arena = new Arena(helper);
+        arena.prepare();
+        try {
+            ServerLevel level = arena.level;
+
+            BlockPos flowerBlock = arena.at(10, 1, 10);
+            level.setBlock(flowerBlock, FlowerDisease.FLOWER_BLOCK.get().defaultBlockState(), SettleTable.PLACEMENT_FLAGS);
+            FlowerMassBlockEntity original = (FlowerMassBlockEntity) level.getBlockEntity(flowerBlock);
+            original.setReplacedState(Blocks.STONE.defaultBlockState());
+            original.inheritFlowerBlock(5, 3, 1);
+            BlockEntity reloaded = BlockEntity.loadStatic(flowerBlock, level.getBlockState(flowerBlock), original.saveWithFullMetadata(level.registryAccess()), level.registryAccess());
+            helper.assertTrue(reloaded instanceof FlowerMassBlockEntity, "a Flower Block came back as " + (reloaded == null ? "nothing" : reloaded.getClass().getSimpleName()));
+            FlowerMassBlockEntity copy = (FlowerMassBlockEntity) reloaded;
+            helper.assertTrue(copy.replacedState().is(Blocks.STONE) && copy.cap() == 3 && copy.garden() == 5 && copy.depth() == 1,
+                    "a Flower Block forgot its data across a reload: " + copy.replacedState() + ", cap " + copy.cap() + ", garden " + copy.garden() + ", depth " + copy.depth());
+        } finally {
+            arena.cleanup();
+        }
+        helper.succeed();
+    }
+
     // What a pile of block entities costs, per entity: on disk (raw and compressed, the way a chunk holds them), on the
     // wire (the chunk packet a client receives), in memory once loaded from disk, and in time to load them. Logged for
     // the record; the asserts only catch a blow-up. Flower blocks and Diseased plants are measured separately since

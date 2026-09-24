@@ -43,7 +43,7 @@ public class FlowerMassBlock extends Block implements EntityBlock {
     @Nullable
     @Override
     public BlockEntity newBlockEntity(BlockPos pos, BlockState state) {
-        return new FlowerMassBlockEntity(pos, state);
+        return SpreadProfileBlockEntity.forBlock(pos, state);
     }
 
     @Override

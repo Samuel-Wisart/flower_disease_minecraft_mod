@@ -303,7 +303,7 @@ public class FlowerDisease {
     public static final DeferredHolder<BlockEntityType<?>, BlockEntityType<SpreadProfileBlockEntity>> SPREAD_PROFILE_BLOCK_ENTITY = BLOCK_ENTITY_TYPES.register(
             "spread_profile",
             () -> BlockEntityType.Builder.of(
-                    SpreadProfileBlockEntity::new,
+                    SpreadProfileBlockEntity::forBlock,
                     DISEASED_DANDELION.get(), DISEASED_POPPY.get(), DISEASED_BLUE_ORCHID.get(), DISEASED_ALLIUM.get(),
                     DISEASED_AZURE_BLUET.get(), DISEASED_RED_TULIP.get(), DISEASED_ORANGE_TULIP.get(), DISEASED_WHITE_TULIP.get(),
                     DISEASED_PINK_TULIP.get(), DISEASED_OXEYE_DAISY.get(), DISEASED_CORNFLOWER.get(), DISEASED_LILY_OF_THE_VALLEY.get(),

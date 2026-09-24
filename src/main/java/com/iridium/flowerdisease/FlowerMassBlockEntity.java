@@ -16,9 +16,8 @@ import net.minecraft.world.level.block.state.BlockState;
 //
 // Kept off the shared base class since every other Diseased plant has nothing to restore - there was never a
 // non-diseased block here to begin with. Reuses SpreadProfileBlockEntity's own BlockEntityType (see FlowerDisease#
-// SPREAD_PROFILE_BLOCK_ENTITY) rather than registering a new one - the type's own factory is never actually used for
-// construction (every block here builds its BlockEntity itself via EntityBlock#newBlockEntity, see FlowerMassBlock),
-// only for the block-to-type compatibility check, which a subclass satisfies the same way the base class does.
+// SPREAD_PROFILE_BLOCK_ENTITY) rather than registering a new one, whose factory (SpreadProfileBlockEntity#forBlock)
+// picks this class for the Flower Block - that factory is what rebuilds the entity when a chunk loads, so it must.
 public class FlowerMassBlockEntity extends SpreadProfileBlockEntity {
     private BlockState replacedState = Blocks.AIR.defaultBlockState();
     // 0 = not set (a hand-placed one, or an old save): the server default applies.

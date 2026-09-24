@@ -39,6 +39,16 @@ public class SpreadProfileBlockEntity extends BlockEntity {
         super(FlowerDisease.SPREAD_PROFILE_BLOCK_ENTITY.get(), pos, state);
     }
 
+    // The factory of the block entity TYPE, which every block that shares it goes through when a chunk loads: a saved
+    // block entity is rebuilt from its tag by BlockEntity#loadStatic, which asks the type - never the block - to make
+    // the empty one. So this has to produce the right class for each of them, or a Flower Block would come back as a
+    // plain plant entity that has forgotten the ground it replaced.
+    static SpreadProfileBlockEntity forBlock(BlockPos pos, BlockState state) {
+        return state.getBlock() instanceof FlowerMassBlock
+                ? new FlowerMassBlockEntity(pos, state)
+                : new SpreadProfileBlockEntity(pos, state);
+    }
+
     // What EntityBlock#newBlockEntity of every Diseased block returns: nothing for a plant that has settled, and
     // nothing for the upper half of a tall one (only the lower half ever acts).
     @Nullable
@@ -47,7 +57,7 @@ public class SpreadProfileBlockEntity extends BlockEntity {
         if (upperHalf || DiseasedPlantLogic.isSettled(state)) {
             return null;
         }
-        return new SpreadProfileBlockEntity(pos, state);
+        return forBlock(pos, state);
     }
 
     int garden() {
