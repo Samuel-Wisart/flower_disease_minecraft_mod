@@ -397,30 +397,33 @@ sorteio" e a velocidade do Sculk. **Onde este texto contradiz o `PLANNING.md` (t
 "Assentar" sempre mantém a espécie da própria planta (vira a versão vanilla se sobrevive ali, senão só trava no
 lugar) — nunca sorteia outra. `maxDepth` (config, 0 = sem limite) é uma válvula: profundidade ≥ ele assenta na hora.
 
-### Densidade, janela e alcance máximo
+### Densidade: espaçamento mínimo, e alcance máximo
 
-`D` = Slime Ball na bag (padrão `defaultDensity` = 16), em flores por 16×16.
+**Revisado em 2026-09-24** (o modelo "janela + limite K" saturava a 1,5–2,4× o valor configurado, então "D por 16×16" não
+era previsível). `D` = Slime Ball na bag (padrão `defaultDensity` = 16), em flores por 16×16. Agora a regra é uma
+**distância mínima entre plantas** `s = 0,88 · 16/√D` blocos (`SpreadMath#minSpacing`): uma rede quadrada de lado `16/√D`
+tem exatamente `D` plantas por 16×16, e o jardim, que enche pondo cada filho no lugar mais próximo que respeita `s`, fecha
+numa fração estável (~0,8–0,9) dessa rede — o `0,88` compensa. **Nenhum par de plantas fica mais perto que `s`**
+(verificado em todo teste de crescimento).
 
-| D | alcance máx. (auto) | janela | limite `K` |
+| D | espaçamento `s` | alcance máx. (auto) | medido (por 16×16) |
 |---|---|---|---|
-| 1 | 16 | 17×17 | 1 |
-| 2 | 16 | 17×17 | 2 |
-| 4 | 12 | 17×17 | 5 |
-| 8 | 9 | 13×13 | 5 |
-| 16 | 6 | 9×9 | 5 |
-| 32 | 5 | 7×7 | 6 |
-| 64 | 3 | 5×5 | 6 |
-| 128 | 2 | 5×5 | 13 |
+| 1 | 14,1 | 22 | — |
+| 4 | 7,0 | 11 | 3,9 (0,98×) |
+| 16 | 3,5 | 6 | 15,0 (0,94×) |
+| 64 | 1,8 | 3 | 52,6 (0,82×) |
+| 256 | 0,9 | 2 | (cada bloco) |
 
-- Alcance máx. automático `= clamp(ceil(autoSpreadReach · 16/√D), 2, spreadDistance)` (reach 1.5, teto 16). Feather
-  na bag **substitui** o automático (1..32) — vira o "alcance máximo" manual, não um salto fixo.
-- Janela `R = clamp(round((16·√(6/D) − 1)/2), 2, 8)` (ou `densityCheckRadius` manual ≠ 0) — cresce quando a
-  densidade cai, pra o limite continuar estatisticamente significativo (~6 flores) em vez de virar "1" pra qualquer
-  densidade baixa. `K = max(1, round(D·(2R+1)²/256))`.
-- A densidade é avaliada **no destino** (no candidato), não no pai: um pai numa área cheia ainda pode saltar por
-  cima da multidão. Caso especial: se `contagem(pai)+1 ≥ K`, nenhum anel dentro da janela serve — a busca começa no
-  anel `R+1` (ou desiste se o alcance ≤ `R`).
-- Território (padrão; Fermented Spider Eye desliga): qualquer planta conta como vizinha, não só da mesma família.
+- Alcance máx. automático `= max(ceil(autoSpreadReach · s), ceil(s) + 1)`, limitado por `spreadDistance` (agora padrão 32
+  pra D=1 caber). Feather na bag **substitui** o automático (1..32); um Feather menor que `s` não deixa espaço pra filho
+  nenhum, e o preview da bag avisa "(too short!)".
+- A distância ao **pai** é filtrada de graça antes de qualquer varredura (o pai é uma das plantas que o filho tem que
+  respeitar), então a busca começa no anel `ceil(s − 0,5)`; cada candidato que sobra custa uma varredura do cubo de raio
+  `ceil(s)` (no máx. 8 por busca). A checagem é no **destino**, então um pai numa área cheia ainda pode saltar por cima.
+- Território (padrão; Fermented Spider Eye desliga): qualquer planta conta como vizinha, não só da mesma família. Peças de
+  mancha de creeper contam como plantas pra isso.
+- `densityCheckRadius` deixou de existir. A medição por tamanho de amostra: com o padrão a variação é ±15%; em D pequeno
+  (poucas plantas no interior) o acaso sozinho move a contagem.
 
 ### Busca em anéis (`SpreadSearch`)
 
@@ -452,6 +455,9 @@ com no máx. `plantingBurstMaxPlants` (32) plantas extras no total. Ignora a cha
 uma tentativa acontece); respeita o teste de vida útil, o teto de gerações, a densidade e o terreno. A última geração
 da explosão continua ativa e segue normalmente ao longo do tempo, a menos que o teto já a encerre.
 
+- **Sempre pelo menos um filho** (2026-09-24): o teste de vida útil só passa a valer depois do primeiro filho — sem isso a
+  raiz ficava sem nenhum em 1 de cada N+1 plantios (1 em 9 no padrão), o que parecia bug. Só o teto de gerações (ou a
+  falta de espaço) impede.
 - **Bone Meal ×1** = uma flor só: nasce assentada, sem explosão.
 - **Bone Meal ×2** = a explosão É toda a reprodução esperada: os filhos são a última geração, nascem assentados, e a
   planta plantada assenta — nada no jardim continua vivo depois.
@@ -484,9 +490,12 @@ foi apagado (autorizado) — o jogo regenera com os novos padrões.
 
 ### Comandos de debug (agora exigem op nível 2)
 
-`/cleargarden`, `/diseasedflower debug`, `/diseasedflower profile show` (profundidade, chance atual, janela, alcance…
-da planta que você está olhando), `/diseasedflower profile set <chave> <valor>` (um campo por vez: generations,
-density, distance, decay, nodecay, lifetime, ignoreothers, climbing, moss, species) e `/diseasedflower profile clear`.
+`/cleargarden`, `/diseasedflower debug`, `/diseasedflower profile show` (jardim, profundidade, chance atual, espaçamento,
+alcance… da planta que você está olhando), `/diseasedflower profile set <chave> <valor>` (um campo por vez: generations,
+density, distance, decay, nodecay, lifetime, ignoreothers, climbing, moss, species), `/diseasedflower profile clear`,
+`/diseasedflower stats`, `/diseasedflower day [n|stop]` e — novo — `/diseasedflower spreadchance [0.0-1.0]`, que mostra ou
+troca **ao vivo** a chance-base de reprodução (`spreadChance` do config; nenhum item da bag mexe nela) e grava no arquivo,
+pra ir testando o quão rápido um jardim começa sem reiniciar.
 
 ### Ritmo (medido com os testes headless, ver "Bloco 2" abaixo)
 
@@ -497,22 +506,18 @@ chão que nunca acaba, 1 "dia" = 20 min reais de random ticks:
 
 | dia | plantas | raio da frente | ainda ativas | profundidade média (das ativas) |
 |---|---|---|---|---|
-| 1 | 1002 | 65 | 328 | 14 |
-| 2 | 2876 | 112 | 550 | 25 |
-| 3 | 5029 | 143 | 749 | 33 |
-| 4 | 6424 | 161 | 441 | 41 |
-| 5 | 6864 | 180 | 155 | 49 |
+| 1 | 269 | 52 | 89 | 12 |
+| 2 | 790 | 86 | 168 | 21 |
+| 3 | 1417 | 116 | 201 | 29 |
+| 5 | 2733 | 158 | 238 | 41 |
 
-(a região de teste acabou por volta do dia 6–7, então o fim da tabela é limite da região, não do mecanismo). Cada geração
-avança ~4 blocos (o filho vai pro anel livre mais próximo, que na borda do jardim é o 5º–6º); o tempo por geração cresce
-linearmente com a profundidade (`c(g)`), então a velocidade cai, mas devagar. O botão pra desacelerar é `spreadChance`
-(`c0`) no config e o Sculk na bag.
+(números do modelo de espaçamento mínimo, de 2026-09-24; com o modelo antigo de janela eram ~1000 plantas e raio 65 no dia
+1 — o jardim agora é mais ralo, então tem menos plantas e a frente anda um pouco menos; a região de teste acabou por volta
+do dia 6–7, então o fim é limite da região, não do mecanismo). Ainda é rápido no começo — o botão pra desacelerar é
+`/diseasedflower spreadchance` (`spreadChance`, `c0`) e o Sculk na bag. Cada geração avança ~4 blocos; o tempo por geração
+cresce linearmente com a profundidade (`c(g)`), então a velocidade cai, mas devagar.
 
-**Densidade efetiva**: o limite `K` só protege a janela do candidato NO MOMENTO da colocação, então o campo satura acima
-do alvo — medido: D=4 → ~2,4× (≈10 por 16×16), D=16 → ~1,9× (≈30, média de 5,5 vizinhos na janela 9×9 contra o limite 5),
-D=64 → ~1,5×. É o mesmo comportamento do mecanismo antigo (`maxNearbyFlowers`), só com a janela agora escalando com D.
-Não foi recalibrado (seria mudar o visual que já foi aprovado em jogo); se quiser que "D por 16×16" seja literal, o
-caminho é escalar `K` por ~0,5.
+**Densidade efetiva**: resolvida no modelo novo (ver "Densidade: espaçamento mínimo") — antes saturava a 1,5–2,4× o alvo.
 
 **Tamanho em disco** (NBT serializado, sem compressão): planta comum ~136 bytes, com todos os modificadores ~284 bytes,
 flower block ~184. `CompoundTag#sizeInBytes` (contabilidade em memória) dá ~6× isso — não confundir. Como uma planta que
@@ -530,8 +535,8 @@ argumento de peso do registro compartilhado (bloco 3): 100 mil BEs seriam ~14 MB
   com o antes/depois no fim; partículas de debug ficam desligadas enquanto roda; `/diseasedflower day stop` cancela; para
   sozinho depois de 20 exceções. Um job por vez, estado descartado em `ServerStoppedEvent`. É o motor reaproveitável pro
   futuro bone meal "pula um dia". Alt e não Ctrl+D porque Ctrl+D é sprint+strafe.
-- **Guarda de chunks não carregados** (achado ao medir o alcance): a busca chega a `alcance + janela` blocos (até 24 por
-  padrão, 40 com Feather), o que passa do anel de chunks que o vanilla garante carregado ao redor de um chunk que tica —
+- **Guarda de chunks não carregados** (achado ao medir o alcance): a busca chega a `alcance + espaçamento + 1` blocos (`SpreadMath#searchReach`;
+  era "alcance + janela" no modelo antigo), o que passa do anel de chunks que o vanilla garante carregado ao redor de um chunk que tica —
   ler um bloco lá forçaria o servidor a carregar/gerar chunks dentro do random tick. Agora `randomTick` e a explosão de
   plantio pulam o tick (sem assentar — assentar congelaria pra sempre toda planta na borda) quando
   `level.isAreaLoaded(pos, SpreadMath.searchReach(perfil))` é falso.
@@ -595,6 +600,42 @@ nasce já assentada. **Ignora a densidade** (é o corpo de um creeper, não uma 
 - `stats` mostra "still growing"; peças de mancha ficam fora da estatística de profundidade. `patchMaxEnergy = 0` desliga
   tudo (o creeper volta a ser uma peça solta). Ficam pra depois: vinhas pendentes (suportadas só pela peça de cima) e a
   "corrosão de cavernas".
+- **As peças herdam o jardim da semente** (2026-09-24): `CreeperBlockEntity#startPiece(energy, garden)` guarda o id do
+  jardim na peça, pra o `/cleargarden`, o `profile show` e o Disease Powder alcançarem a mancha inteira — a peça só guarda
+  o id do jardim (profundidade 0), não o perfil.
+
+### Disease Powder (feito, 2026-09-24)
+
+O "Bone Meal" do mod: em vez de crescer uma planta, faz um jardim **viver dias de uma vez** — o mesmo avanço rápido do
+`/diseasedflower day` (`DayAdvance`), só que apontado. Item `flowerdisease:disease_powder`, na aba "Tools & Utilities", por
+enquanto com a textura do Bone Meal (`models/item/disease_powder.json` aponta pra `minecraft:item/bone_meal`).
+
+- **Usado em** uma planta em crescimento, um creeper ou um Flower Block (ou no chão logo embaixo/em cima de uma): avança
+  **o jardim daquela planta** — só as plantas e mantas de creeper dele dentro de `diseasePowderRadius` blocos. Usado em
+  qualquer outra coisa: avança **toda planta em crescimento** dentro do raio, de qualquer jardim. Planta que já assentou
+  numa flor comum não guarda o id do jardim (bloco 3), por isso clicar nela cai no caso "área toda".
+- Só gasta o item se havia algo pra avançar (senão "nothing here is still growing" na action bar, item intacto), e só roda um
+  avanço por vez (`Outcome.BUSY`), pra não empilhar. Criativo não consome. Mostra "step n/N" na action bar e um resumo no
+  chat (quantas plantas ativas a mais).
+- Configs: `diseasePowderDays` (1, 1..10) e `diseasePowderRadius` (48, 8..128).
+- `DayAdvance.Scope(center, radius, garden)` é o filtro (`ALL` é o do comando); a contagem `countActive` e a varredura usam o
+  mesmo `accepts`.
+- **Não tem receita de crafting** ainda — o dono do projeto só definiu nome e textura. Pendente perguntar qual receita.
+
+### Outras mudanças de 2026-09-24
+
+- **Oxeye Daisy Creeper** (`flowerdisease:oxeye_daisy_creeper`): quinta espécie creeping, mesma estrutura das outras
+  (blockstate, 3 modelos filhos de `flowerdisease:block/creeping_flower`, loot table, item, entrada no mapa de espécies e na
+  aba criativa depois da Oxeye Daisy). As texturas `oxeye_daisy_creeper_{top,side,bottom}.png` que estão no repositório são
+  **placeholders gerados** — trocar pelos PNGs de verdade (mesmos nomes). O item do **Rose Bush Creeper** agora usa
+  `rose_bush_creeper_side` como ícone.
+- **Tooltip dos itens na mochila**: a `GardenBagScreen` não desenhava o tooltip do slot sob o mouse (o
+  `AbstractContainerScreen` só desenha se a subclasse chama `renderTooltip`). Agora desenha o nome + a linha do efeito de
+  cada item (`effectKey`).
+- **Explosão com a garantia de filho** e **densidade por espaçamento**: ver as seções respectivas acima.
+- **Configs**: `densityCheckRadius` removido; `spreadDistance` padrão 16 → 32 (a D=1 precisa de alcance 22); `autoSpreadReach`
+  agora 1,1–5,0; `diseasePowderDays`, `diseasePowderRadius` novos. **`run/config/flowerdisease-common.toml` guarda o valor
+  antigo depois que o padrão muda** — apagar o arquivo (ou editar) pra pegar os padrões novos.
 
 ### Custo dos block entities (medido)
 
@@ -628,8 +669,8 @@ save; `/cleargarden` deixava buraco em vez de restaurar o terreno). A factory do
 
 - Vinhas pendentes e "corrosão de cavernas" (mutação de flower block por scheduled tick), ruído de baixa frequência nos
   pesos de espécie — adiados de propósito.
-- Opcional: flower block sem BE (chão numa propriedade do blockstate) se a contagem de BEs incomodar; recalibrar a
-  densidade efetiva (escalar `K` por ~0,5) se "D por 16×16" tiver que ser literal.
+- Opcional: flower block sem BE (chão numa propriedade do blockstate) se a contagem de BEs incomodar.
+- Receita de crafting do Disease Powder; arte de verdade do Oxeye Daisy Creeper e do Disease Powder.
 
 ## Decisão nova (durante a implementação, não estava no plano original)
 

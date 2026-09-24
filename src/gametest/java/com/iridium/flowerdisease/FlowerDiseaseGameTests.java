@@ -9,6 +9,7 @@ import java.io.UncheckedIOException;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Locale;
 import java.util.Set;
 
@@ -704,8 +705,8 @@ public final class FlowerDiseaseGameTests {
                         continue;
                     }
                     if (arena.level.getBlockEntity(pos) instanceof CreeperBlockEntity piece) {
-                        if (!piece.lineageDone() || piece.garden() != GardenRegistry.NO_GARDEN) {
-                            failNow(helper, "a patch piece at " + pos + " is a lineage member: done " + piece.lineageDone() + ", garden " + piece.garden());
+                        if (!piece.isPiece() || !piece.lineageDone() || piece.garden() == GardenRegistry.NO_GARDEN) {
+                            failNow(helper, "a piece at " + pos + " is not a sterile piece of its seed's garden: piece " + piece.isPiece() + ", done " + piece.lineageDone() + ", garden " + piece.garden());
                         }
                         if (piece.energy() < 0 || piece.energy() >= energy) {
                             failNow(helper, "a patch piece at " + pos + " has energy " + piece.energy() + ", the seeds had " + energy);
@@ -774,7 +775,7 @@ public final class FlowerDiseaseGameTests {
 
             int seeds = 0;
             for (BlockPos pos : arena.creeperPositions()) {
-                if (arena.level.getBlockEntity(pos) instanceof CreeperBlockEntity creeper && !creeper.lineageDone() && creeper.garden() != GardenRegistry.NO_GARDEN) {
+                if (arena.level.getBlockEntity(pos) instanceof CreeperBlockEntity creeper && !creeper.isPiece() && !creeper.lineageDone() && creeper.garden() != GardenRegistry.NO_GARDEN) {
                     seeds++;
                 }
             }
@@ -785,6 +786,114 @@ public final class FlowerDiseaseGameTests {
             arena.cleanup();
         }
         helper.succeed();
+    }
+
+    // ---- Disease Powder -----------------------------------------------------------------------------
+
+    // Used on a plant of a garden, it lives its day and the garden next door - well within reach - does not.
+    @GameTest(template = TEMPLATE, batch = "gt_powder_garden", timeoutTicks = LONG_TIMEOUT)
+    public static void diseasePowderAdvancesOnlyTheClickedGarden(GameTestHelper helper) {
+        Arena arena = new Arena(helper);
+        arena.prepare();
+        ensureRandomTickSpeed(arena.level);
+        Bag bag = new Bag().add(Items.POPPY, 3).add(Items.DANDELION, 2).add(Items.RABBIT_FOOT, 50);
+        plantVia(helper, arena, bag, arena.at(8, 1, 24));
+        plantVia(helper, arena, bag, arena.at(40, 1, 24));
+
+        Map<BlockPos, int[]> before = arena.growingPlants();
+        Set<Integer> gardens = new java.util.TreeSet<>();
+        before.values().forEach(entry -> gardens.add(entry[0]));
+        helper.assertTrue(gardens.size() == 2, "expected growing plants of two gardens, found " + gardens);
+
+        BlockPos clicked = null;
+        int clickedGarden = 0;
+        for (Map.Entry<BlockPos, int[]> entry : before.entrySet()) {
+            if (clicked == null || entry.getKey().getX() < clicked.getX()) {
+                clicked = entry.getKey();
+                clickedGarden = entry.getValue()[0];
+            }
+        }
+        helper.assertTrue(DiseasePowderItem.advance(arena.level, clicked, null) == DiseasePowderItem.Outcome.STARTED, "the powder did not start");
+        int untouched = 0;
+        for (int garden : gardens) {
+            untouched = garden != clickedGarden ? garden : untouched;
+        }
+        int clickedId = clickedGarden;
+        int untouchedId = untouched;
+
+        helper.succeedWhen(() -> {
+            helper.assertTrue(!DayAdvance.isRunning(), "the powder is still working");
+            Map<BlockPos, int[]> after = arena.growingPlants();
+            if (!sameGarden(before, untouchedId, after)) {
+                failNow(helper, "the garden that was not clicked changed");
+            }
+            if (sameGarden(before, clickedId, after)) {
+                failNow(helper, "the garden that was clicked did not live its day");
+            }
+            arena.cleanup();
+        });
+    }
+
+    // Used on plain ground - or on a flower that has settled and so remembers no garden - it advances everything growing
+    // within reach.
+    @GameTest(template = TEMPLATE, batch = "gt_powder_area", timeoutTicks = LONG_TIMEOUT)
+    public static void diseasePowderOnAnythingElseAdvancesEveryGardenNearby(GameTestHelper helper) {
+        Arena arena = new Arena(helper);
+        arena.prepare();
+        ensureRandomTickSpeed(arena.level);
+        Bag bag = new Bag().add(Items.POPPY, 3).add(Items.DANDELION, 2).add(Items.RABBIT_FOOT, 50);
+        plantVia(helper, arena, bag, arena.at(8, 1, 24));
+        plantVia(helper, arena, bag, arena.at(40, 1, 24));
+
+        Map<BlockPos, int[]> before = arena.growingPlants();
+        Set<Integer> gardens = new java.util.TreeSet<>();
+        before.values().forEach(entry -> gardens.add(entry[0]));
+        helper.assertTrue(gardens.size() == 2, "expected growing plants of two gardens, found " + gardens);
+
+        // Bare ground in the middle, with nothing growing on or above it.
+        BlockPos ground = arena.at(24, 0, 44);
+        helper.assertTrue(DiseasePowderItem.gardenAt(arena.level, ground) == GardenRegistry.NO_GARDEN, "the ground should belong to no garden");
+        helper.assertTrue(DiseasePowderItem.advance(arena.level, ground, null) == DiseasePowderItem.Outcome.STARTED, "the powder did not start");
+
+        helper.succeedWhen(() -> {
+            helper.assertTrue(!DayAdvance.isRunning(), "the powder is still working");
+            Map<BlockPos, int[]> after = arena.growingPlants();
+            for (int garden : gardens) {
+                if (sameGarden(before, garden, after)) {
+                    failNow(helper, "garden #" + garden + " did not advance");
+                }
+            }
+            arena.cleanup();
+        });
+    }
+
+    // With nothing growing nearby it says so and is not used up (the item only shrinks when the outcome is STARTED).
+    @GameTest(template = TEMPLATE, batch = "gt_powder_none", timeoutTicks = 200)
+    public static void diseasePowderWithNothingGrowingDoesNothing(GameTestHelper helper) {
+        Arena arena = new Arena(helper);
+        arena.prepare();
+        try {
+            helper.assertTrue(DiseasePowderItem.advance(arena.level, arena.at(24, 0, 24), null) == DiseasePowderItem.Outcome.NOTHING_TO_ADVANCE, "expected nothing to advance");
+            helper.assertTrue(!DayAdvance.isRunning(), "no simulation should have started");
+        } finally {
+            arena.cleanup();
+        }
+        helper.succeed();
+    }
+
+    // Whether the growing plants of one garden are exactly what they were: the same places, at the same depth.
+    private static boolean sameGarden(Map<BlockPos, int[]> before, int garden, Map<BlockPos, int[]> after) {
+        return gardenOf(before, garden).equals(gardenOf(after, garden));
+    }
+
+    private static Map<BlockPos, Integer> gardenOf(Map<BlockPos, int[]> plants, int garden) {
+        Map<BlockPos, Integer> result = new java.util.HashMap<>();
+        plants.forEach((pos, entry) -> {
+            if (entry[0] == garden) {
+                result.put(pos, entry[1]);
+            }
+        });
+        return result;
     }
 
     // Every creeper species can be picked in the bag, planted, and grows its own block.
@@ -1429,6 +1538,19 @@ public final class FlowerDiseaseGameTests {
                     }
                 }
             }
+        }
+
+        // The plants of the arena that still keep a block entity with a garden - i.e. that are still growing - as
+        // {garden, depth} by position.
+        Map<BlockPos, int[]> growingPlants() {
+            Map<BlockPos, int[]> result = new java.util.HashMap<>();
+            for (BlockPos pos : plantPositions()) {
+                SpreadProfileBlockEntity plant = DiseasedPlantLogic.profileAt(level, pos);
+                if (plant != null && plant.garden() != GardenRegistry.NO_GARDEN) {
+                    result.put(pos.immutable(), new int[]{plant.garden(), (int) plant.depth()});
+                }
+            }
+            return result;
         }
 
         // Every creeper block (patch pieces included) in the arena's box.

@@ -57,7 +57,7 @@ final class PatchGrowth {
             return;
         }
 
-        MultifaceSpreader spreader = new MultifaceSpreader(new Spreader((MultifaceBlock) state.getBlock(), piece.energy() - 1));
+        MultifaceSpreader spreader = new MultifaceSpreader(new Spreader((MultifaceBlock) state.getBlock(), piece.energy() - 1, piece.garden()));
         boolean grew = spreader.spreadFromRandomFaceTowardRandomDirection(state, level, pos, random).isPresent();
         if (!grew || random.nextDouble() >= Config.PATCH_FILL.getAsDouble()) {
             piece.setEnergy(0);
@@ -68,10 +68,12 @@ final class PatchGrowth {
     // the new piece is given its energy - or, with none left, is born already settled and never gets a block entity.
     private static final class Spreader extends MultifaceSpreader.DefaultSpreaderConfig {
         private final int childEnergy;
+        private final int garden;
 
-        Spreader(MultifaceBlock block, int childEnergy) {
+        Spreader(MultifaceBlock block, int childEnergy, int garden) {
             super(block);
             this.childEnergy = childEnergy;
+            this.garden = garden;
         }
 
         // `current` is what is at the destination now (air, or a creeper block that lacks this face) - the state to place
@@ -91,7 +93,7 @@ final class PatchGrowth {
             }
 
             if (newPiece && childEnergy > 0 && level.getBlockEntity(pos.pos()) instanceof CreeperBlockEntity piece) {
-                piece.startPiece(childEnergy);
+                piece.startPiece(childEnergy, garden);
             }
             return true;
         }

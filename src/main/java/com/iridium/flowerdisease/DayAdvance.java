@@ -11,6 +11,7 @@ import net.minecraft.util.RandomSource;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.GameRules;
 import net.minecraft.world.level.block.DoublePlantBlock;
+import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.properties.DoubleBlockHalf;
 
@@ -42,6 +43,20 @@ final class DayAdvance {
     record Result(GardenStats before, GardenStats after, int days, long plantTicks, int errors, long workMillis, boolean cancelled) {
     }
 
+    // Which of the plants in the chunks actually get ticked: every one (ALL), or only those within `radius` blocks of
+    // `center`, and - when `garden` is not NO_GARDEN - only those of that garden (see GardenRegistry). Blocks that keep
+    // no block entity (a plant that has settled) are never ticking anyway, so a garden filter never has to place them.
+    record Scope(@Nullable BlockPos center, int radius, int garden) {
+        static final Scope ALL = new Scope(null, 0, GardenRegistry.NO_GARDEN);
+
+        boolean accepts(BlockPos pos, @Nullable BlockEntity entity) {
+            if (center != null && (Math.abs(pos.getX() - center.getX()) > radius || Math.abs(pos.getZ() - center.getZ()) > radius)) {
+                return false;
+            }
+            return garden == GardenRegistry.NO_GARDEN || (entity instanceof SpreadProfileBlockEntity plant && plant.garden() == garden);
+        }
+    }
+
     @Nullable
     private static Job job;
 
@@ -55,11 +70,34 @@ final class DayAdvance {
     // Returns false when another fast-forward is still in progress. `chunks` is where plants get ticked (unloaded ones
     // are skipped), so callers choose between "around the players" and an explicit area.
     static boolean start(ServerLevel level, List<ChunkPos> chunks, int days, Listener listener) {
+        return start(level, chunks, days, listener, Scope.ALL);
+    }
+
+    static boolean start(ServerLevel level, List<ChunkPos> chunks, int days, Listener listener, Scope scope) {
         if (job != null) {
             return false;
         }
-        job = new Job(level, chunks, days, listener);
+        job = new Job(level, chunks, days, listener, scope);
         return true;
+    }
+
+    // How many plants a fast-forward with this scope would tick - to tell "nothing to advance" from a real run.
+    static int countActive(ServerLevel level, List<ChunkPos> chunks, Scope scope) {
+        int[] count = {0};
+        for (ChunkPos chunk : chunks) {
+            GardenScan.forEachPlantBlock(level, chunk, (pos, state) -> {
+                if (isTickable(state) && scope.accepts(pos, level.getBlockEntity(pos))) {
+                    count[0]++;
+                }
+            });
+        }
+        return count[0];
+    }
+
+    // Random-ticking, and not the upper half of a tall plant (which never acts on its own).
+    private static boolean isTickable(BlockState state) {
+        boolean upperHalf = state.hasProperty(DoublePlantBlock.HALF) && state.getValue(DoublePlantBlock.HALF) == DoubleBlockHalf.UPPER;
+        return state.isRandomlyTicking() && !upperHalf;
     }
 
     static void cancel() {
@@ -90,6 +128,7 @@ final class DayAdvance {
         private final double ticksPerStep;
         private final double poissonLimit;
         private final GardenStats before;
+        private final Scope scope;
         private final List<BlockPos> active = new ArrayList<>();
 
         private int step;
@@ -101,10 +140,11 @@ final class DayAdvance {
         private int errors;
         private long workNanos;
 
-        Job(ServerLevel level, List<ChunkPos> chunks, int days, Listener listener) {
+        Job(ServerLevel level, List<ChunkPos> chunks, int days, Listener listener, Scope scope) {
             this.level = level;
             this.chunks = chunks;
             this.listener = listener;
+            this.scope = scope;
             this.days = days;
             this.totalSteps = days * STEPS_PER_DAY;
 
@@ -170,8 +210,7 @@ final class DayAdvance {
 
         private void scan(ChunkPos chunk) {
             GardenScan.forEachPlantBlock(level, chunk, (pos, state) -> {
-                boolean upperHalf = state.hasProperty(DoublePlantBlock.HALF) && state.getValue(DoublePlantBlock.HALF) == DoubleBlockHalf.UPPER;
-                if (state.isRandomlyTicking() && !upperHalf) {
+                if (isTickable(state) && scope.accepts(pos, level.getBlockEntity(pos))) {
                     active.add(pos.immutable());
                 }
             });

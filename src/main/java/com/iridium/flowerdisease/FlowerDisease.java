@@ -337,6 +337,12 @@ public class FlowerDisease {
             () -> new GardenBagItem(new Item.Properties().stacksTo(1))
     );
 
+    // Bone Meal for gardens: lets one live a day at once (see DiseasePowderItem). Same texture as Bone Meal for now.
+    public static final DeferredItem<DiseasePowderItem> DISEASE_POWDER = ITEMS.register(
+            "disease_powder",
+            () -> new DiseasePowderItem(new Item.Properties())
+    );
+
     public static final DeferredItem<BlockItem> SUNFLOWER_TOP_ITEM = ITEMS.registerSimpleBlockItem("sunflower_top", SUNFLOWER_TOP);
     public static final DeferredItem<BlockItem> SUNFLOWER_BOTTOM_ITEM = ITEMS.registerSimpleBlockItem("sunflower_bottom", SUNFLOWER_BOTTOM);
     public static final DeferredItem<BlockItem> LILAC_TOP_ITEM = ITEMS.registerSimpleBlockItem("lilac_top", LILAC_TOP);
@@ -601,6 +607,7 @@ public class FlowerDisease {
     private void addCreative(BuildCreativeModeTabContentsEvent event) {
         if (event.getTabKey() == CreativeModeTabs.TOOLS_AND_UTILITIES) {
             event.accept(GARDEN_BAG);
+            event.accept(DISEASE_POWDER);
             return;
         }
 

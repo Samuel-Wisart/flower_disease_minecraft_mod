@@ -70,7 +70,7 @@ final class GardenStats {
                 sampledBytes += serializedSize(saved);
                 sampledTags.add(saved);
             }
-            boolean patchPiece = plant instanceof CreeperBlockEntity creeper && creeper.lineageDone() && plant.garden() == GardenRegistry.NO_GARDEN;
+            boolean patchPiece = plant instanceof CreeperBlockEntity creeper && creeper.isPiece();
             if (!flowerBlock && !patchPiece) {
                 plants++;
                 depthSum += plant.depth();

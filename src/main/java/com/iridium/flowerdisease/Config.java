@@ -107,6 +107,19 @@ public class Config {
             .comment("Upper bound on how many extra plants a single planting burst may create.")
             .defineInRange("plantingBurstMaxPlants", 32, 0, 256);
 
+    // ---- Disease Powder -------------------------------------------------------------------------------
+
+    public static final ModConfigSpec.IntValue POWDER_DAYS = BUILDER
+            .comment("How many in-game days of growth one Disease Powder gives the plants it reaches, all at once.")
+            .defineInRange("diseasePowderDays", 1, 1, 10);
+
+    public static final ModConfigSpec.IntValue POWDER_RADIUS = BUILDER
+            .comment(
+                    "How far (in blocks, horizontally) from the block it is used on a Disease Powder reaches. Used on a plant of a",
+                    "garden it only advances that garden; used on anything else it advances every growing plant within this radius."
+            )
+            .defineInRange("diseasePowderRadius", 48, 8, 128);
+
     // ---- Creeper patches ------------------------------------------------------------------------------
 
     public static final ModConfigSpec.IntValue PATCH_MAX_ENERGY = BUILDER

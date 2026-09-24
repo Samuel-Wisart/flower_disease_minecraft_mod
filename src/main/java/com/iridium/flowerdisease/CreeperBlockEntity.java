@@ -16,6 +16,9 @@ import net.minecraft.world.level.block.state.BlockState;
 public class CreeperBlockEntity extends SpreadProfileBlockEntity {
     private int energy;
     private boolean lineageDone;
+    // Grown by a patch rather than planted or born: sterile, and it belongs to the garden of the seed it grew from
+    // (which is what lets a garden-wide action reach its patches too) without being one of its plants.
+    private boolean piece;
 
     public CreeperBlockEntity(BlockPos pos, BlockState state) {
         super(pos, state);
@@ -46,10 +49,16 @@ public class CreeperBlockEntity extends SpreadProfileBlockEntity {
         }
     }
 
-    // A piece grown by a patch: no lineage to continue, just its share of the energy.
-    void startPiece(int energy) {
+    boolean isPiece() {
+        return piece;
+    }
+
+    // A piece grown by a patch: no lineage to continue, just its share of the energy - and the garden it came from.
+    void startPiece(int energy, int garden) {
         this.energy = energy;
         this.lineageDone = true;
+        this.piece = true;
+        inherit(garden, 0);
         setChanged();
     }
 
@@ -62,6 +71,9 @@ public class CreeperBlockEntity extends SpreadProfileBlockEntity {
         if (lineageDone) {
             tag.putBoolean("LineageDone", true);
         }
+        if (piece) {
+            tag.putBoolean("Piece", true);
+        }
     }
 
     @Override
@@ -69,5 +81,6 @@ public class CreeperBlockEntity extends SpreadProfileBlockEntity {
         super.loadAdditional(tag, registries);
         energy = tag.getByte("Energy");
         lineageDone = tag.getBoolean("LineageDone");
+        piece = tag.getBoolean("Piece");
     }
 }
