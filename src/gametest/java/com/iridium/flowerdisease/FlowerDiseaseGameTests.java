@@ -1090,6 +1090,47 @@ public final class FlowerDiseaseGameTests {
         helper.succeed();
     }
 
+    // The watching itself: a tick that does not end (the test thread sleeps in the middle of one, as far as the watchdog can tell) is
+    // noticed from another thread, and reported.
+    @GameTest(template = TEMPLATE, batch = "gt_stall_watch", timeoutTicks = 200)
+    public static void theWatchdogNoticesATickThatDoesNotEnd(GameTestHelper helper) throws Exception {
+        net.minecraft.server.MinecraftServer server = helper.getLevel().getServer();
+        java.nio.file.Path logs = net.neoforged.fml.loading.FMLPaths.GAMEDIR.get().resolve("logs");
+        List<java.nio.file.Path> before = stallReports(logs);
+        try {
+            StallWatchdog.start(server, 1);
+            StallWatchdog.tickStarted();
+            Thread.sleep(4500L);
+        } finally {
+            StallWatchdog.tickFinished();
+            StallWatchdog.start(server);
+        }
+
+        List<java.nio.file.Path> reports = new ArrayList<>(stallReports(logs));
+        reports.removeAll(before);
+        try {
+            helper.assertTrue(!reports.isEmpty() && reports.size() <= 3, "expected one to three reports of the stalled tick, found " + reports.size());
+            String threads = java.nio.file.Files.readString(reports.get(0).resolve("threads.txt"));
+            helper.assertTrue(threads.startsWith("Flower Disease stall report: one server tick has been running for"), "the report should say what stalled: " + threads.lines().findFirst().orElse(""));
+        } finally {
+            for (java.nio.file.Path report : reports) {
+                try (var files = java.nio.file.Files.walk(report)) {
+                    files.sorted(java.util.Comparator.reverseOrder()).forEach(path -> path.toFile().delete());
+                }
+            }
+        }
+        helper.succeed();
+    }
+
+    private static List<java.nio.file.Path> stallReports(java.nio.file.Path logs) throws IOException {
+        if (!java.nio.file.Files.isDirectory(logs)) {
+            return List.of();
+        }
+        try (var entries = java.nio.file.Files.list(logs)) {
+            return entries.filter(path -> path.getFileName().toString().startsWith("flowerdisease-stall-")).toList();
+        }
+    }
+
     // ---- Creeper patches ----------------------------------------------------------------------------
 
     // The knobs the patch tests pin (see PatchGrowth.Settings), so that they hold whatever the config says. No hanging: the ground

@@ -672,7 +672,7 @@ public class FlowerDisease {
 
     @SubscribeEvent
     public void onServerStopped(ServerStoppedEvent event) {
-        StallWatchdog.finish();
+        StallWatchdog.stopped();
         DayAdvance.reset();
     }
 }

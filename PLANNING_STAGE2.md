@@ -641,7 +641,8 @@ sobe a parede que encontrou, desce o lado que contornou) e recusa lugares com `p
 blocos em volta, o que impede as manchas de virarem tapete. Cada peça nova custa 1 do orçamento, então **o tamanho é limitado
 pelo teto**, por mais sorte que a semente tenha. **Ignora a densidade** (é o corpo de um creeper, não uma população) e tem chance
 própria de crescer (`patchGrowthChance`, 0,33 por random tick, ~1 dia pra encher no `randomTickSpeed` padrão). O algoritmo
-completo, os números medidos e os parâmetros estão em **`docs/manchas-creeper.md`**.
+completo, os números medidos e os parâmetros estão em **`docs/manchas-creeper.md`**, e o modelo 2D dele é o explorador
+interativo `tools/patch-explorer.html` (parâmetros deslizantes, comparação com a inundação antiga sobre as mesmas sementes).
 
 Por que refazer: a versão anterior sorteava uma **energia** 0–5 e inundava: cada peça crescia numa direção qualquer com uma
 energia a menos (difusão ⇒ disco, e a energia era o raio). Medido num modelo 2D, os discos tinham 12–14 peças em média, 90% até
@@ -690,8 +691,9 @@ mancha de um jardim de creeper. Um filho de duas alturas pode nascer sobre uma p
 
 ### Segurança: relatório de travamento (2026-09-26)
 
-Diagnóstico permanente (`StallWatchdog`, `stallReportSeconds` = 30, 0 desliga): se **um tick do servidor**, ou o **encerramento do
-mundo**, passa de N segundos, uma thread daemon escreve `logs/flowerdisease-stall-<hora>/` — `threads.txt` (o que cada thread
+Diagnóstico permanente (`StallWatchdog`, `stallReportSeconds` = 30, 0 desliga): se **um tick do servidor**, o **encerramento do
+mundo** ou os **últimos momentos da thread do servidor depois de o mundo parar** (é nela que o cliente espera no "Saving world")
+passam de N segundos, uma thread daemon (só lê o que o servidor diz de si mesmo, então funciona seja onde ele estiver preso) escreve `logs/flowerdisease-stall-<hora>/` — `threads.txt` (o que cada thread
 está fazendo, com a do servidor primeiro, memória e coletor de lixo, deadlocks, e o estado do sistema de chunks de cada
 dimensão) mais o `saveDebugReport` do vanilla de cada dimensão (`chunks.csv` diz que chunk não está pronto pra ser salvo).
 Existe porque "Saving world" que nunca acaba **não foi reproduzido** (5 execuções com um mundo de ~100 mil plantas assentadas e
@@ -765,7 +767,6 @@ save; `/cleargarden` deixava buraco em vez de restaurar o terreno). A factory do
 
 - "Corrosão de cavernas" (mutação de flower block por scheduled tick) — adiada de propósito. (Vinhas pendentes foram feitas
   em 2026-09-26, ver Bloco 4; o ruído de baixa frequência nos pesos de espécie virou a "Variação natural".)
-- Um explorador interativo das manchas (como o `tools/variation-explorer.html`, mas dos tentáculos), se ajudar a ajustar.
 - Um governador global de trabalho por tick (limite de plant ticks/ms por tick do servidor) e/ou, se a contagem de BEs
   incomodar, BEs por chunk em vez de por planta — discutido, ainda não decidido.
 - Opcional: flower block sem BE (chão numa propriedade do blockstate) se a contagem de BEs incomodar.

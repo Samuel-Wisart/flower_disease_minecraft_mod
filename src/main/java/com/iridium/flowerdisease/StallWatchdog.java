@@ -20,8 +20,9 @@ import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.neoforged.fml.loading.FMLPaths;
 
-// A safety net for a game that seems frozen - "Saving world" that never ends when leaving a world, say. If one server tick, or the
-// stopping of the world, takes longer than `stallReportSeconds`, a report is written to the logs folder: what every thread is doing
+// A safety net for a game that seems frozen - "Saving world" that never ends when leaving a world, say. If one server tick, the
+// stopping of the world, or the server thread's last moments after that take longer than `stallReportSeconds`, a report is written to
+// the logs folder: what every thread is doing
 // (which shows where the server thread is stuck and whether any thread is deadlocked), how much memory is used and what the garbage
 // collector has been up to, and the state of the chunk system of each dimension (vanilla's own level debug report, whose chunk list
 // says which chunk is not ready to be saved). It is meant for the one thing a bug report cannot say: where a game that will not go on
@@ -35,10 +36,12 @@ final class StallWatchdog {
     private static final int MAX_REPORTS_PER_STALL = 3;
     private static final DateTimeFormatter STAMP = DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss", Locale.ROOT);
 
-    // System.nanoTime() when the tick in progress began, and when the world began to stop; 0 when neither is going on. (A paused
-    // integrated server runs no ticks at all, which is why a tick is measured from its start instead of from the last one.)
+    // System.nanoTime() when the tick in progress began, when the world began to stop and when it finished stopping (the server thread
+    // is not done until it has closed everything, and a client leaving the world waits for it); 0 when none of those is going on. (A
+    // paused integrated server runs no ticks at all, which is why a tick is measured from its start instead of from the last one.)
     private static volatile long tickStartedAt;
     private static volatile long stopStartedAt;
+    private static volatile long stoppedAt;
     @Nullable
     private static volatile Thread watcher;
 
@@ -46,14 +49,19 @@ final class StallWatchdog {
     }
 
     static void start(MinecraftServer server) {
+        start(server, Config.STALL_REPORT_SECONDS.getAsInt());
+    }
+
+    // `seconds` is how long a stall has to last before it is reported (0 = never); the game tests use a short one.
+    static void start(MinecraftServer server, int seconds) {
         finish();
-        int seconds = Config.STALL_REPORT_SECONDS.getAsInt();
         if (seconds <= 0) {
             return;
         }
 
         tickStartedAt = 0L;
         stopStartedAt = 0L;
+        stoppedAt = 0L;
         Thread thread = new Thread(() -> watch(server, seconds * 1_000_000_000L), "flowerdisease-stall-watchdog");
         thread.setDaemon(true);
         watcher = thread;
@@ -72,12 +80,18 @@ final class StallWatchdog {
         stopStartedAt = System.nanoTime();
     }
 
-    // The server is gone: the thread ends with it.
+    // The world has stopped: the watcher stays until the server thread has ended too, in case that is what never happens.
+    static void stopped() {
+        stoppedAt = System.nanoTime();
+    }
+
+    // Ends the watching (a new server, or nothing left to watch).
     static void finish() {
         Thread thread = watcher;
         watcher = null;
         tickStartedAt = 0L;
         stopStartedAt = 0L;
+        stoppedAt = 0L;
         if (thread != null) {
             thread.interrupt();
         }
@@ -93,11 +107,20 @@ final class StallWatchdog {
                 return;
             }
 
+            if (stoppedAt != 0L && server.isShutdown()) {
+                // Everything is over, the server thread included.
+                finish();
+                return;
+            }
+
             long now = System.nanoTime();
+            long stopped = stoppedAt;
             long stopping = stopStartedAt;
             long ticking = tickStartedAt;
             String what = null;
-            if (stopping != 0L && now - stopping > limitNanos) {
+            if (stopped != 0L && now - stopped > limitNanos) {
+                what = "the server thread is still running " + (now - stopped) / 1_000_000_000L + " s after the world stopped";
+            } else if (stopping != 0L && now - stopping > limitNanos) {
                 what = "the world has been stopping for " + (now - stopping) / 1_000_000_000L + " s";
             } else if (ticking != 0L && now - ticking > limitNanos) {
                 what = "one server tick has been running for " + (now - ticking) / 1_000_000_000L + " s";
