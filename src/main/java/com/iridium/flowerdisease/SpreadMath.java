@@ -15,8 +15,9 @@ final class SpreadMath {
     private static final double CHUNK_SIDE = 16.0;
     // A garden never fills its lattice completely - every plant lives only so many attempts, and the gaps its parents
     // leave behind stay gaps - so the spacing is a little tighter than the lattice that would hold exactly `density`.
-    // Measured with the game tests (default lifetime): at the plain lattice spacing a garden reached 0.72-0.83 of its density;
-    // with this scale it lands at 0.85-0.9 at densities 16 and 64 (the grid of blocks makes it step rather than slide).
+    // Measured with the game tests at a lifetime of 8 (the game tests pin it; the default is lower now, which leaves a garden sparser
+    // still): at the plain lattice spacing a garden reached 0.72-0.83 of its density; with this scale it lands at 0.85-0.9 at
+    // densities 16 and 64 (the grid of blocks makes it step rather than slide).
     private static final double SPACING_SCALE = 0.88;
     // The widest the spacing may get where the spacing field stretches it (see spacing()).
     private static final double MAX_LOCAL_SPACING = 20.0;
@@ -111,7 +112,7 @@ final class SpreadMath {
     }
 
     static int resolveLifetimeAttempts(int override) {
-        return override > 0 ? override : Config.FLOWER_DEFAULT_LIFETIME.getAsInt();
+        return override > 0 ? override : Config.FLOWER_LIFETIME.getAsInt();
     }
 
     // Each reproduction attempt lets the plant keep going with probability N / (N + 1), so it makes N attempts on

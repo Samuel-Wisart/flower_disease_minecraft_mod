@@ -27,6 +27,10 @@ import net.minecraft.world.level.block.Block;
 //
 // Immutable on purpose: every plant of a garden shares the one instance, and per-plant state (how deep in the
 // lineage it is) lives in the block entity, never in here.
+//
+// `lifetimeAttempts` is no bag item any more (the Rabbit's Foot is gone): 0 means the server's lifetimeAttempts setting, and
+// only a garden edited with /diseasedflower profile set lifetime - or saved by an older version, when the bag still had the
+// item - carries a value of its own.
 record GardenBagContents(
         long generations,
         double spreadChance,
@@ -60,8 +64,6 @@ record GardenBagContents(
     // Moss Block: the COUNT sets the chance that a plant corrupts the block it grows on into a flower block
     // when it settles (see SpreadMath#flowerBlockChance).
     static final Item FLOWER_BLOCK_ITEM = Items.MOSS_BLOCK;
-    // Rabbit's Foot: the average number of times a plant tries to reproduce before it settles.
-    static final Item LIFETIME_ITEM = Items.RABBIT_FOOT;
 
     // What a hand-placed plant, or one whose bag said nothing, behaves like: every knob at "use the default".
     static final GardenBagContents DEFAULT = new GardenBagContents(
@@ -77,7 +79,6 @@ record GardenBagContents(
         long fermentedSpiderEye = countOf(slots, IGNORE_OTHERS_ITEM);
         long twistingVines = countOf(slots, CLIMBING_ITEM);
         long mossBlock = countOf(slots, FLOWER_BLOCK_ITEM);
-        long rabbitFoot = countOf(slots, LIFETIME_ITEM);
 
         return new GardenBagContents(
                 boneMeal == 0 ? SpreadProfileBlockEntity.NO_GENERATIONS_OVERRIDE : boneMeal,
@@ -89,8 +90,16 @@ record GardenBagContents(
                 (int) Math.min(mossBlock, SpreadMath.MAX_MOSS_BLOCKS),
                 (int) Math.min(sculk, 1000),
                 netherStar > 0,
-                (int) Math.min(rabbitFoot, 1000),
+                0,
                 speciesWeights(slots)
+        );
+    }
+
+    // The same profile with a lifetime of its own (0 = the server's), for the debug command and the game tests.
+    GardenBagContents withLifetimeAttempts(int attempts) {
+        return new GardenBagContents(
+                generations, spreadChance, spreadDistance, densityPer16x16, respectAllSpecies, climbing,
+                mossBlocks, decayStrength, noDecay, attempts, speciesWeights
         );
     }
 

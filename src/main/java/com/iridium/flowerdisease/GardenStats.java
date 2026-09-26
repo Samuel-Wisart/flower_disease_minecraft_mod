@@ -9,13 +9,16 @@ import java.util.Locale;
 
 import it.unimi.dsi.fastutil.ints.Int2IntMap;
 import it.unimi.dsi.fastutil.ints.Int2IntOpenHashMap;
+import it.unimi.dsi.fastutil.longs.LongArrayList;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.ListTag;
 import net.minecraft.nbt.NbtIo;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.block.DoublePlantBlock;
+import net.minecraft.world.level.block.MultifaceBlock;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.properties.DoubleBlockHalf;
@@ -31,6 +34,10 @@ final class GardenStats {
     int creeperPieces;
     // Creeper blocks whose patch is still growing (they still tick and hold a block entity).
     int growingPieces;
+    // Creeper blocks held (on some side face) only by the piece above them - the hanging strands of the patches.
+    int hangingPieces;
+    // Where every creeper block is, to tell the patches apart (see PatchStats).
+    private final LongArrayList creeperCells = new LongArrayList();
     int flowerBlocksActive;
     int flowerBlocksSettled;
     // Diseased plants (not flower blocks) - the ones whose lineage depth means something.
@@ -92,8 +99,12 @@ final class GardenStats {
 
         if (state.getBlock() instanceof CreepingFlowerBlock) {
             creeperPieces++;
+            creeperCells.add(pos.asLong());
             if (!settled) {
                 growingPieces++;
+            }
+            if (isHanging(level, pos, state)) {
+                hangingPieces++;
             }
         }
         if (settled) {
@@ -101,6 +112,28 @@ final class GardenStats {
         } else {
             active++;
         }
+    }
+
+    // Whether one of the piece's side faces has no block behind it, and is held by the piece above instead (see CreepingFlowerBlock).
+    private static boolean isHanging(ServerLevel level, BlockPos pos, BlockState state) {
+        for (Direction face : Direction.Plane.HORIZONTAL) {
+            if (MultifaceBlock.hasFace(state, face)) {
+                BlockPos support = pos.relative(face);
+                if (!MultifaceBlock.canAttachTo(level, face, support, level.getBlockState(support))) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    // The size and shape of the creeper patches counted (see PatchStats), plus how many pieces hang.
+    List<String> patchLines() {
+        List<String> lines = new ArrayList<>(PatchStats.of(creeperCells).describe());
+        if (hangingPieces > 0) {
+            lines.add("  hanging strands: " + hangingPieces + " pieces held only by the piece above");
+        }
+        return lines;
     }
 
     // What the tag costs on disk, uncompressed - CompoundTag#sizeInBytes is an in-memory accounting figure that runs
@@ -165,6 +198,7 @@ final class GardenStats {
         if (!activePerGarden.isEmpty()) {
             lines.add("  gardens with active plants: " + activePerGarden.size() + " - most active: " + biggestGardens(3));
         }
+        lines.addAll(patchLines());
         return lines;
     }
 

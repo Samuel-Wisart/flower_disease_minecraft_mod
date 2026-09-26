@@ -15,7 +15,7 @@ import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.component.ItemContainerContents;
 
 // The Garden Bag's configuration screen: one big "cauldron" inventory (27 slots, chest-sized) where every
-// item - modifiers (Bone Meal/Sculk/Nether Star/Rabbit's Foot/Slime Ball/Feather/Fermented Spider Eye/
+// item - modifiers (Bone Meal/Sculk/Nether Star/Slime Ball/Feather/Fermented Spider Eye/
 // Twisting Vines/Moss Block, see GardenBagContents) and species alike - gets thrown in together, no
 // dedicated slot per role. Backed by the bag ItemStack's own CONTAINER component (same one vanilla's Bundle
 // uses) instead of a block entity - the bag is the inventory. GardenBagContents reads whatever ends up in
@@ -64,7 +64,6 @@ public class GardenBagMenu extends AbstractContainerMenu {
         return stack.is(GardenBagContents.GENERATIONS_ITEM)
                 || stack.is(GardenBagContents.DECAY_ITEM)
                 || stack.is(GardenBagContents.NO_DECAY_ITEM)
-                || stack.is(GardenBagContents.LIFETIME_ITEM)
                 || stack.is(GardenBagContents.DENSITY_ITEM)
                 || stack.is(GardenBagContents.RANGE_ITEM)
                 || stack.is(GardenBagContents.IGNORE_OTHERS_ITEM)

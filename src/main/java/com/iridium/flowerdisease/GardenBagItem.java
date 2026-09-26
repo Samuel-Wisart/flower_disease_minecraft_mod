@@ -44,7 +44,6 @@ public class GardenBagItem extends Item {
         tooltip.add(Component.translatable("item.flowerdisease.garden_bag.tooltip.generations"));
         tooltip.add(Component.translatable("item.flowerdisease.garden_bag.tooltip.decay"));
         tooltip.add(Component.translatable("item.flowerdisease.garden_bag.tooltip.no_decay"));
-        tooltip.add(Component.translatable("item.flowerdisease.garden_bag.tooltip.lifetime"));
         tooltip.add(Component.translatable("item.flowerdisease.garden_bag.tooltip.density"));
         tooltip.add(Component.translatable("item.flowerdisease.garden_bag.tooltip.range"));
         tooltip.add(Component.translatable("item.flowerdisease.garden_bag.tooltip.ignore_others"));
@@ -93,13 +92,19 @@ public class GardenBagItem extends Item {
     // can plant exactly the way a right-click does.
     @Nullable
     static Component plant(ServerLevel level, BlockPos target, ItemStack bagStack, Direction clickedFace) {
-        GardenBagContents contents = GardenBagContents.read(readSlots(bagStack));
+        return plant(level, target, GardenBagContents.read(readSlots(bagStack)), clickedFace);
+    }
 
+    // The same, for a profile that is already worked out - which is what the game tests use, to plant gardens with a lifetime the
+    // bag has no item for.
+    @Nullable
+    static Component plant(ServerLevel level, BlockPos target, GardenBagContents contents, Direction clickedFace) {
         // The root must be an actual growing plant, so only entries with a spreadable Diseased
         // counterpart are eligible here - a bag with nothing but modifier items has nothing plantable,
         // same as an empty bag. Drawn from the whole pool regardless of shape, same as every child/settle
         // draw - see DiseasedPlantLogic.
-        List<SettleTable.Option> spreadable = DiseasedPlantLogic.spreadableOptions(SettleTable.parse(contents.speciesWeights()));
+        List<SettleTable.Option> pool = SettleTable.parse(contents.speciesWeights());
+        List<SettleTable.Option> spreadable = DiseasedPlantLogic.spreadableOptions(pool);
         // Where the bag is used, the species fields (see Variation) may favour one of the pool over the others.
         SettleTable.Option chosen = SettleTable.pickWeighted(spreadable, Variation.weights(level, target, spreadable), level.getRandom());
         if (chosen == null) {
@@ -121,11 +126,19 @@ public class GardenBagItem extends Item {
             case SINGLE -> block.defaultBlockState();
         };
 
-        if (!level.isEmptyBlock(target) || (shape == DiseasedPlantLogic.Shape.TALL && !level.isEmptyBlock(target.above()))) {
+        // With a Fermented Spider Eye in the bag the planting grows over a plant that is not of its pool, like every child does.
+        SpreadSearch.Crowd overgrowth = new SpreadSearch.Crowd(0.0, 0, block, chosen.block(), pool, contents.respectAllSpecies());
+        if (!SpreadSearch.isFree(level, target, overgrowth) || (shape == DiseasedPlantLogic.Shape.TALL && !SpreadSearch.isFreeAbove(level, target, overgrowth))) {
             return Component.translatable("item.flowerdisease.garden_bag.error.occupied");
         }
         if (!placementState.canSurvive(level, target)) {
             return Component.translatable("item.flowerdisease.garden_bag.error.bad_ground");
+        }
+        if (!level.isEmptyBlock(target)) {
+            SettleTable.clearPlant(level, target);
+        }
+        if (shape == DiseasedPlantLogic.Shape.TALL && !level.isEmptyBlock(target.above())) {
+            SettleTable.clearPlant(level, target.above());
         }
 
         // Same placement flags every other piece of this mod's own world-editing uses (DiseasedPlantLogic/
@@ -144,7 +157,8 @@ public class GardenBagItem extends Item {
         if (level.getBlockEntity(target) instanceof SpreadProfileBlockEntity root) {
             root.startGarden(level, contents, target);
             if (root instanceof CreeperBlockEntity creeper) {
-                creeper.setEnergy(PatchGrowth.rollEnergy(level.getRandom()));
+                // The face it clings to is the one facing the block that was clicked.
+                PatchGrowth.begin(creeper, PatchGrowth.roll(level.getRandom()), clickedFace.getOpposite(), level.getRandom());
             }
         }
 

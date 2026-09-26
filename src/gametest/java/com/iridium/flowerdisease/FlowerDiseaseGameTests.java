@@ -7,6 +7,7 @@ import java.io.DataOutputStream;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -28,6 +29,7 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.network.protocol.game.ClientboundLevelChunkWithLightPacket;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.util.RandomSource;
+import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
@@ -44,7 +46,9 @@ import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.properties.DoubleBlockHalf;
 import net.minecraft.world.level.chunk.LevelChunk;
 import net.minecraft.world.level.chunk.storage.ChunkSerializer;
+import net.minecraft.world.phys.AABB;
 import io.netty.buffer.Unpooled;
+import it.unimi.dsi.fastutil.longs.LongArrayList;
 import net.neoforged.neoforge.gametest.GameTestHolder;
 import net.neoforged.neoforge.gametest.PrefixGameTestTemplate;
 
@@ -67,6 +71,9 @@ public final class FlowerDiseaseGameTests {
     private static final int LONG_TIMEOUT = 12000;
     // How many chunks beyond the ones kept loaded are swept for leftovers, before and after each test.
     private static final int SWEEP_RING = 3;
+    // The lifetime the density of a garden was calibrated at (SpreadMath's spacing scale), which the growth measurements pin: at the
+    // server's default of 2 half of all lineages die out on their own, and a garden fills the arena only when it is lucky.
+    private static final int MEASURED_LIFETIME = 8;
 
     private FlowerDiseaseGameTests() {
     }
@@ -75,14 +82,14 @@ public final class FlowerDiseaseGameTests {
 
     // The planted flower is generation 1; the burst is generation 2 - everything the planted flower would have spawned
     // over its whole life, all at once. It then has nothing left to do, so it settles, and only its children (still
-    // generation 2, the burst's last) stay active. Rabbit's Foot x1000 keeps the lifetime test from ending the root's
-    // life before it has a single child (1 in 9 at the default), so what limits it is the room around it.
+    // generation 2, the burst's last) stay active. A lifetime of 1000 keeps the lifetime test from ending the root's
+    // life before it has a single child, so what limits it is the room around it.
     @GameTest(template = TEMPLATE, batch = "gt_burst", timeoutTicks = 200)
     public static void plantingBurstIsTheWholeSecondGeneration(GameTestHelper helper) {
         Arena arena = new Arena(helper);
         arena.prepare();
         try {
-            Bag bag = new Bag().add(Items.POPPY, 3).add(Items.DANDELION, 2).add(Items.RABBIT_FOOT, 1000);
+            Bag bag = new Bag().add(Items.POPPY, 3).add(Items.DANDELION, 2).lifetime(1000);
             BlockPos root = arena.at(24, 1, 24);
             plantVia(helper, arena, bag, root);
 
@@ -107,8 +114,8 @@ public final class FlowerDiseaseGameTests {
         helper.succeed();
     }
 
-    // With the default lifetime the root would come up empty 1 time in 9 if the lifetime test applied to its first child;
-    // the burst never leaves a planting without one. Forty-eight plantings, so that the 1 in 9 would show up.
+    // With the default lifetime the root would come up empty 1 time in 3 if the lifetime test applied to its first child;
+    // the burst never leaves a planting without one. Forty-eight plantings, so that the 1 in 3 would show up.
     @GameTest(template = TEMPLATE, batch = "gt_burst_child", timeoutTicks = 400)
     public static void plantingBurstAlwaysHasAChild(GameTestHelper helper) {
         Arena arena = new Arena(helper);
@@ -141,7 +148,7 @@ public final class FlowerDiseaseGameTests {
         Arena arena = new Arena(helper);
         arena.prepare();
         try {
-            Bag bag = new Bag().add(Items.POPPY, 1).add(Items.BONE_MEAL, 1).add(Items.RABBIT_FOOT, 1000);
+            Bag bag = new Bag().add(Items.POPPY, 1).add(Items.BONE_MEAL, 1).lifetime(1000);
             BlockPos root = arena.at(24, 1, 24);
             plantVia(helper, arena, bag, root);
 
@@ -161,7 +168,7 @@ public final class FlowerDiseaseGameTests {
         Arena arena = new Arena(helper);
         arena.prepare();
         try {
-            Bag bag = new Bag().add(Items.POPPY, 3).add(Items.DANDELION, 2).add(Items.BONE_MEAL, 2).add(Items.RABBIT_FOOT, 1000);
+            Bag bag = new Bag().add(Items.POPPY, 3).add(Items.DANDELION, 2).add(Items.BONE_MEAL, 2).lifetime(1000);
             BlockPos root = arena.at(24, 1, 24);
             plantVia(helper, arena, bag, root);
 
@@ -176,27 +183,48 @@ public final class FlowerDiseaseGameTests {
     }
 
     private static void plantVia(GameTestHelper helper, Arena arena, Bag bag, BlockPos root) {
-        Component failure = GardenBagItem.plant(arena.level, root, bag.stack(), Direction.UP);
+        plantVia(helper, arena, bag, root, Direction.UP);
+    }
+
+    // `clickedFace` is the face of the block that was clicked: a creeper clings to that block, the plants grow away from it.
+    private static void plantVia(GameTestHelper helper, Arena arena, Bag bag, BlockPos root, Direction clickedFace) {
+        Component failure = GardenBagItem.plant(arena.level, root, bag.contents(), clickedFace);
         helper.assertTrue(failure == null, "planting failed: " + failure);
     }
 
     @GameTest(template = TEMPLATE, batch = "gt_lifetime", timeoutTicks = 400)
-    public static void lifetimeMatchesTheRabbitsFootCount(GameTestHelper helper) {
+    public static void lifetimeMatchesTheProfilesAttempts(GameTestHelper helper) {
         Arena arena = new Arena(helper);
         arena.prepare();
         try {
-            lifetime(helper, arena);
+            lifetime(helper, arena, 4);
         } finally {
             arena.cleanup();
         }
         helper.succeed();
     }
 
-    private static void lifetime(GameTestHelper helper, Arena arena) {
+    // With nothing said about it - no bag item, no profile edit - a plant has two children on average, which is what the
+    // setting's default is; the setting is what the plant reads.
+    @GameTest(template = TEMPLATE, batch = "gt_lifetime_default", timeoutTicks = 400)
+    public static void plantsHaveTwoChildrenOnAverageByDefault(GameTestHelper helper) {
+        helper.assertTrue(Config.FLOWER_LIFETIME.getDefault() == 2, "the lifetime should default to 2, it is " + Config.FLOWER_LIFETIME.getDefault());
+        Arena arena = new Arena(helper);
+        arena.prepare();
+        try {
+            lifetime(helper, arena, 0);
+        } finally {
+            arena.cleanup();
+        }
+        helper.succeed();
+    }
+
+    // `attempts` 0 leaves the lifetime to the server's setting.
+    private static void lifetime(GameTestHelper helper, Arena arena, int attempts) {
         // Slime x256 makes the density so high that room is never the limit, so what ends each plant's life is
         // the lifetime test alone.
-        int lifetime = 4;
-        Bag bag = new Bag().add(Items.POPPY, 1).add(Items.RABBIT_FOOT, lifetime).add(Items.SLIME_BALL, 256);
+        int lifetime = attempts > 0 ? attempts : Config.FLOWER_LIFETIME.getAsInt();
+        Bag bag = new Bag().add(Items.POPPY, 1).lifetime(attempts).add(Items.SLIME_BALL, 256);
         GardenBagContents contents = bag.contents();
         RandomSource random = arena.level.getRandom();
 
@@ -216,7 +244,7 @@ public final class FlowerDiseaseGameTests {
         }
 
         double mean = (double) children / trials;
-        log(String.format(Locale.ROOT, "lifetime: %d trials, mean children %.2f (Rabbit's Foot x%d)", trials, mean, lifetime));
+        log(String.format(Locale.ROOT, "lifetime: %d trials, mean children %.2f (%d attempts)", trials, mean, lifetime));
         helper.assertTrue(mean > lifetime * 0.8 && mean < lifetime * 1.2, "mean children " + mean + " is far from " + lifetime);
     }
 
@@ -235,9 +263,9 @@ public final class FlowerDiseaseGameTests {
     private static void moss(GameTestHelper helper, Arena arena) {
         // Two generations: the root reproduces, its children are born already settled, and with 64 Moss Blocks every
         // settling plant converts the block it stands on.
-        // Rabbit's Foot x1000 keeps the root from settling on its very first tick (a 1 in 9 chance at the default
-        // lifetime), which would leave nothing to check.
-        Bag bag = new Bag().add(Items.POPPY, 1).add(Items.MOSS_BLOCK, 64).add(Items.BONE_MEAL, 2).add(Items.RABBIT_FOOT, 1000);
+        // A lifetime of 1000 keeps the root from settling on its very first tick (a 1 in 3 chance at the default), which would
+        // leave nothing to check.
+        Bag bag = new Bag().add(Items.POPPY, 1).add(Items.MOSS_BLOCK, 64).add(Items.BONE_MEAL, 2).lifetime(1000);
         RandomSource random = arena.level.getRandom();
         BlockPos root = arena.at(24, 1, 24);
         placeRoot(arena.level, root, FlowerDisease.DISEASED_POPPY.get(), bag.contents());
@@ -278,17 +306,25 @@ public final class FlowerDiseaseGameTests {
 
     @GameTest(template = TEMPLATE, batch = "gt_growth_default", timeoutTicks = LONG_TIMEOUT)
     public static void defaultGardenGrowsOverThreeDays(GameTestHelper helper) {
-        growth(helper, "default", new Bag().add(Items.POPPY, 3).add(Items.DANDELION, 2), 3, 16);
+        growth(helper, "default", new Bag().add(Items.POPPY, 3).add(Items.DANDELION, 2).lifetime(MEASURED_LIFETIME), 3, 16);
+    }
+
+    // What the server's default lifetime does to a garden (a lifetime of 2, unless the config says otherwise): half of the lineages
+    // die out on their own, so five plantings leave a garden that is patchy and far short of its density. Logged for the record - the
+    // asserts are the spacing and the structural invariants, which hold whatever survives.
+    @GameTest(template = TEMPLATE, batch = "gt_growth_default_lifetime", timeoutTicks = LONG_TIMEOUT)
+    public static void defaultLifetimeGardenGrowsOverThreeDays(GameTestHelper helper) {
+        growth(helper, "the server's lifetime of " + Config.FLOWER_LIFETIME.getAsInt(), new Bag().add(Items.POPPY, 3).add(Items.DANDELION, 2), 3, 16, false);
     }
 
     @GameTest(template = TEMPLATE, batch = "gt_growth_sparse", timeoutTicks = LONG_TIMEOUT)
     public static void sparseGardenGrowsOverThreeDays(GameTestHelper helper) {
-        growth(helper, "sparse (Slime x4)", new Bag().add(Items.POPPY, 3).add(Items.DANDELION, 2).add(Items.SLIME_BALL, 4), 3, 4);
+        growth(helper, "sparse (Slime x4)", new Bag().add(Items.POPPY, 3).add(Items.DANDELION, 2).add(Items.SLIME_BALL, 4).lifetime(MEASURED_LIFETIME), 3, 4);
     }
 
     @GameTest(template = TEMPLATE, batch = "gt_growth_dense", timeoutTicks = LONG_TIMEOUT)
     public static void denseGardenGrowsOverThreeDays(GameTestHelper helper) {
-        growth(helper, "dense (Slime x64)", new Bag().add(Items.POPPY, 3).add(Items.DANDELION, 2).add(Items.SLIME_BALL, 64), 3, 64);
+        growth(helper, "dense (Slime x64)", new Bag().add(Items.POPPY, 3).add(Items.DANDELION, 2).add(Items.SLIME_BALL, 64).lifetime(MEASURED_LIFETIME), 3, 64);
     }
 
     // ---- Natural variation (see Variation) ------------------------------------------------------------
@@ -618,7 +654,7 @@ public final class FlowerDiseaseGameTests {
         }
         helper.assertTrue(found, "no seed gave a field with enough contrast over the arena");
 
-        Bag bag = new Bag().add(Items.POPPY, 3).add(Items.DANDELION, 2);
+        Bag bag = new Bag().add(Items.POPPY, 3).add(Items.DANDELION, 2).lifetime(MEASURED_LIFETIME);
         BlockPos root = arena.at(24, 1, 24);
         plantVia(helper, arena, bag, root);
         for (BlockPos extra : List.of(arena.at(12, 1, 12), arena.at(36, 1, 12), arena.at(12, 1, 36), arena.at(36, 1, 36))) {
@@ -713,7 +749,7 @@ public final class FlowerDiseaseGameTests {
         ensureRandomTickSpeed(arena.level);
         // Plants a few blocks from both the wall and the trunks.
         BlockPos root = arena.at(24, 1, 21);
-        Component failure = GardenBagItem.plant(arena.level, root, bag.stack(), Direction.UP);
+        Component failure = GardenBagItem.plant(arena.level, root, bag.contents(), Direction.UP);
         helper.assertTrue(failure == null, "planting failed: " + failure);
 
         Simulation simulation = Simulation.start(arena, 3);
@@ -738,7 +774,7 @@ public final class FlowerDiseaseGameTests {
     @GameTest(template = TEMPLATE, batch = "gt_nbt", timeoutTicks = 100)
     public static void profilesSurviveSavingAndOldKeysStillLoad(GameTestHelper helper) {
         Bag bag = new Bag()
-                .add(Items.POPPY, 3).add(Items.DANDELION, 1).add(Items.SCULK, 5).add(Items.NETHER_STAR, 1).add(Items.RABBIT_FOOT, 6)
+                .add(Items.POPPY, 3).add(Items.DANDELION, 1).add(Items.SCULK, 5).add(Items.NETHER_STAR, 1).lifetime(6)
                 .add(Items.SLIME_BALL, 8).add(Items.FEATHER, 9).add(Items.FERMENTED_SPIDER_EYE, 1).add(Items.TWISTING_VINES, 1)
                 .add(Items.MOSS_BLOCK, 12).add(Items.BONE_MEAL, 7);
         GardenBagContents original = bag.contents();
@@ -804,19 +840,19 @@ public final class FlowerDiseaseGameTests {
 
             // Clicking the top of the ground: the creeper grabs the block below it.
             BlockPos onGround = arena.at(10, 1, 10);
-            helper.assertTrue(GardenBagItem.plant(arena.level, onGround, bag.stack(), Direction.UP) == null, "a creeper could not be planted on the ground");
+            helper.assertTrue(GardenBagItem.plant(arena.level, onGround, bag.contents(), Direction.UP) == null, "a creeper could not be planted on the ground");
             helper.assertTrue(arena.level.getBlockState(onGround).getBlock() instanceof CreepingFlowerBlock, "no creeper at " + onGround);
 
             // Clicking the west face of a wall: the creeper grabs the wall behind it.
             arena.level.setBlock(arena.at(30, 1, 24), Blocks.STONE.defaultBlockState(), Block.UPDATE_CLIENTS);
             BlockPos besideWall = arena.at(29, 1, 24);
-            helper.assertTrue(GardenBagItem.plant(arena.level, besideWall, bag.stack(), Direction.WEST) == null, "a creeper could not be planted on a wall");
+            helper.assertTrue(GardenBagItem.plant(arena.level, besideWall, bag.contents(), Direction.WEST) == null, "a creeper could not be planted on a wall");
             helper.assertTrue(arena.level.getBlockState(besideWall).getBlock() instanceof CreepingFlowerBlock, "no creeper at " + besideWall);
 
             // Clicking the underside of a ceiling: hangs from it.
             arena.level.setBlock(arena.at(20, 5, 20), Blocks.STONE.defaultBlockState(), Block.UPDATE_CLIENTS);
             BlockPos underCeiling = arena.at(20, 4, 20);
-            helper.assertTrue(GardenBagItem.plant(arena.level, underCeiling, bag.stack(), Direction.DOWN) == null, "a creeper could not be planted on a ceiling");
+            helper.assertTrue(GardenBagItem.plant(arena.level, underCeiling, bag.contents(), Direction.DOWN) == null, "a creeper could not be planted on a ceiling");
 
             failOnProblems(helper, arena.validate());
         } finally {
@@ -836,8 +872,8 @@ public final class FlowerDiseaseGameTests {
         ensureRandomTickSpeed(arena.level);
 
         BlockPos root = arena.at(24, 1, 24);
-        Bag bag = new Bag().add(Items.POPPY, 3).add(Items.DANDELION, 2);
-        Component failure = GardenBagItem.plant(arena.level, root, bag.stack(), Direction.UP);
+        Bag bag = new Bag().add(Items.POPPY, 3).add(Items.DANDELION, 2).lifetime(MEASURED_LIFETIME);
+        Component failure = GardenBagItem.plant(arena.level, root, bag.contents(), Direction.UP);
         helper.assertTrue(failure == null, "planting failed: " + failure);
 
         int totalDays = 8;
@@ -876,7 +912,7 @@ public final class FlowerDiseaseGameTests {
         Arena arena = new Arena(helper);
         arena.prepare();
         try {
-            Bag bag = new Bag().add(Items.POPPY, 3).add(Items.DANDELION, 2).add(Items.RABBIT_FOOT, 1000);
+            Bag bag = new Bag().add(Items.POPPY, 3).add(Items.DANDELION, 2).lifetime(1000);
             GardenRegistry registry = GardenRegistry.of(arena.level);
             int before = registry.size();
             BlockPos root = arena.at(24, 1, 24);
@@ -914,7 +950,7 @@ public final class FlowerDiseaseGameTests {
         Arena arena = new Arena(helper);
         arena.prepare();
         try {
-            plantVia(helper, arena, new Bag().add(Items.POPPY, 3).add(Items.DANDELION, 2).add(Items.RABBIT_FOOT, 1000), arena.at(24, 1, 24));
+            plantVia(helper, arena, new Bag().add(Items.POPPY, 3).add(Items.DANDELION, 2).lifetime(1000), arena.at(24, 1, 24));
 
             List<SpreadProfileBlockEntity> plants = new ArrayList<>();
             for (BlockPos pos : arena.plantPositions()) {
@@ -925,7 +961,7 @@ public final class FlowerDiseaseGameTests {
             }
             helper.assertTrue(plants.size() >= 2, "expected several active plants, found " + plants.size());
 
-            GardenBagContents edited = new Bag().add(Items.POPPY, 3).add(Items.DANDELION, 2).add(Items.RABBIT_FOOT, 3).add(Items.SLIME_BALL, 4).contents();
+            GardenBagContents edited = new Bag().add(Items.POPPY, 3).add(Items.DANDELION, 2).lifetime(3).add(Items.SLIME_BALL, 4).contents();
             GardenRegistry.of(arena.level).replaceProfile(plants.get(0).garden(), edited);
             for (SpreadProfileBlockEntity plant : plants) {
                 helper.assertTrue(plant.profile().equals(edited), "a plant of the garden still sees the old profile: " + plant.profile());
@@ -1027,44 +1063,151 @@ public final class FlowerDiseaseGameTests {
         helper.succeed();
     }
 
-    // ---- Creeper patches ----------------------------------------------------------------------------
+    // ---- Stall report -------------------------------------------------------------------------------
 
-    // Energy 0 to 5 with weights 1, 2, 3, 3, 2, 1: most patches are middling and a lone piece is rare (1 in 12).
-    @GameTest(template = TEMPLATE, batch = "gt_patch_energy", timeoutTicks = 100)
-    public static void creeperEnergyFollowsTheBellCurve(GameTestHelper helper) {
-        RandomSource random = helper.getLevel().getRandom();
-        int max = Config.PATCH_MAX_ENERGY.getAsInt();
-        int[] counts = new int[max + 1];
-        int samples = 24_000;
-        for (int i = 0; i < samples; i++) {
-            counts[PatchGrowth.rollEnergy(random)]++;
+    // The report a stalled game writes (see StallWatchdog), made on demand: the summary with the server thread first, and vanilla's
+    // level dump of each dimension - the file that says which chunk is not ready to be saved.
+    @GameTest(template = TEMPLATE, batch = "gt_stall_report", timeoutTicks = 200)
+    public static void aStallReportSaysWhereTheGameIsWaiting(GameTestHelper helper) throws IOException {
+        java.nio.file.Path folder = StallWatchdog.report(helper.getLevel().getServer(), "test: pretending the world has been stopping for 99 s");
+        helper.assertTrue(folder != null, "the report could not be written");
+        try {
+            String threads = java.nio.file.Files.readString(folder.resolve("threads.txt"));
+            log("stall report, first lines:\n" + threads.lines().limit(12).collect(java.util.stream.Collectors.joining("\n")));
+            helper.assertTrue(threads.startsWith("Flower Disease stall report: test"), "the report should start with what it is about");
+            helper.assertTrue(threads.contains("chunk system has work:") && threads.contains("no deadlocked threads"), "the report should say how the chunk system is and whether anything is deadlocked");
+            int server = threads.indexOf("=== Server thread");
+            int others = threads.indexOf("=== ", server + 1);
+            helper.assertTrue(server >= 0 && (others < 0 || threads.indexOf("=== Server thread") < others), "the server thread should come first");
+            for (String file : List.of("stats.txt", "chunks.csv", "entities.csv", "block_entities.csv")) {
+                helper.assertTrue(java.nio.file.Files.exists(folder.resolve("overworld").resolve(file)), "the level dump lacks " + file);
+            }
+        } finally {
+            try (var files = java.nio.file.Files.walk(folder)) {
+                files.sorted(java.util.Comparator.reverseOrder()).forEach(path -> path.toFile().delete());
+            }
         }
-
-        int totalWeight = 0;
-        for (int energy = 0; energy <= max; energy++) {
-            totalWeight += PatchGrowth.weight(energy, max);
-        }
-        StringBuilder report = new StringBuilder("patch energy over " + samples + " rolls:");
-        for (int energy = 0; energy <= max; energy++) {
-            double expected = (double) PatchGrowth.weight(energy, max) / totalWeight;
-            double seen = (double) counts[energy] / samples;
-            report.append(String.format(Locale.ROOT, " %d=%.1f%% (expected %.1f%%)", energy, seen * 100, expected * 100));
-            helper.assertTrue(Math.abs(seen - expected) < 0.015, "energy " + energy + " came up " + seen + " of the time, expected " + expected);
-        }
-        log(report.toString());
         helper.succeed();
     }
 
-    // Seeds with energy 3 grow patches at most 3 pieces out, in about a day, made of pieces that never reproduce or
-    // corrupt anything; when they are done every piece has settled and the whole thing costs no block entities. Sixteen
-    // seeds, spread out so their patches stay apart, because a single ragged patch says little.
+    // ---- Creeper patches ----------------------------------------------------------------------------
+
+    // The knobs the patch tests pin (see PatchGrowth.Settings), so that they hold whatever the config says. No hanging: the ground
+    // has no wall to hang from.
+    private static final PatchGrowth.Settings PATCHES = new PatchGrowth.Settings(12, 0.33, 1.0, 1.0, 1.0, 3, 1.0, 0.0, 6);
+
+    // A seed's budget goes from 0 up to its style's cap with the middle values the most likely (a lone piece is rare); the three
+    // styles share the seeds 3:4:3 and have caps of 12, 10 and 6 pieces at patchMaxPieces 12; with the variety at 0 they are all
+    // alike.
+    @GameTest(template = TEMPLATE, batch = "gt_patch_budget", timeoutTicks = 100)
+    public static void creeperBudgetsFollowTheBellCurveAndTheStyles(GameTestHelper helper) {
+        RandomSource random = helper.getLevel().getRandom();
+        int max = 12;
+        int[] counts = new int[max + 1];
+        int samples = 24_000;
+        for (int i = 0; i < samples; i++) {
+            counts[PatchGrowth.rollBudget(random, max)]++;
+        }
+
+        int totalWeight = 0;
+        for (int budget = 0; budget <= max; budget++) {
+            totalWeight += PatchGrowth.weight(budget, max);
+        }
+        StringBuilder report = new StringBuilder("patch budget over " + samples + " rolls:");
+        for (int budget = 0; budget <= max; budget++) {
+            double expected = (double) PatchGrowth.weight(budget, max) / totalWeight;
+            double seen = (double) counts[budget] / samples;
+            report.append(String.format(Locale.ROOT, " %d=%.1f%%", budget, seen * 100));
+            helper.assertTrue(Math.abs(seen - expected) < 0.012, "a budget of " + budget + " came up " + seen + " of the time, expected " + expected);
+        }
+        log(report.toString());
+
+        try {
+            PatchGrowth.override(PATCHES);
+            helper.assertTrue(PatchGrowth.traits(PATCHES, PatchGrowth.Style.STREAK).cap() == 12 && PatchGrowth.traits(PATCHES, PatchGrowth.Style.BRANCHY).cap() == 10
+                    && PatchGrowth.traits(PATCHES, PatchGrowth.Style.TUFT).cap() == 6, "the styles' caps should be 12, 10 and 6 pieces");
+
+            int[] styles = new int[3];
+            int[] biggest = new int[3];
+            for (int i = 0; i < 20_000; i++) {
+                PatchGrowth.Plan plan = PatchGrowth.roll(random);
+                styles[plan.style().ordinal()]++;
+                biggest[plan.style().ordinal()] = Math.max(biggest[plan.style().ordinal()], plan.budget());
+            }
+            log("patch styles over 20000 seeds: " + Arrays.toString(styles) + ", biggest budgets " + Arrays.toString(biggest));
+            helper.assertTrue(Math.abs(styles[0] / 20_000.0 - 0.3) < 0.02 && Math.abs(styles[1] / 20_000.0 - 0.4) < 0.02 && Math.abs(styles[2] / 20_000.0 - 0.3) < 0.02,
+                    "the styles should share the seeds 3:4:3, got " + Arrays.toString(styles));
+            helper.assertTrue(biggest[0] >= 10 && biggest[0] <= 12 && biggest[1] >= 8 && biggest[1] <= 10 && biggest[2] >= 4 && biggest[2] <= 6,
+                    "the biggest budgets should reach (but not pass) the styles' caps 12, 10 and 6, got " + Arrays.toString(biggest));
+
+            PatchGrowth.Settings alike = new PatchGrowth.Settings(12, 0.33, 1.0, 1.0, 1.0, 3, 0.0, 0.0, 6);
+            helper.assertTrue(PatchGrowth.traits(alike, PatchGrowth.Style.STREAK).equals(PatchGrowth.traits(alike, PatchGrowth.Style.TUFT)),
+                    "with a variety of 0 every style should be the same");
+            helper.assertTrue(PatchGrowth.roll(random).budget() >= 0 && PatchGrowth.traits(new PatchGrowth.Settings(0, 0.33, 1.0, 1.0, 1.0, 3, 1.0, 0.0, 6), PatchGrowth.Style.STREAK).cap() == 0,
+                    "patchMaxPieces 0 should leave every seed without a patch");
+        } finally {
+            PatchGrowth.override(null);
+        }
+        helper.succeed();
+    }
+
+    // The numbers PatchStats reads a patch by: pieces that touch (corners included) are one patch, a line is far more elongated
+    // than a square, and the eigenvalues it is built on come out right.
+    @GameTest(template = TEMPLATE, batch = "gt_patch_stats", timeoutTicks = 100)
+    public static void patchStatsTellPatchesApartAndMeasureTheirShape(GameTestHelper helper) {
+        LongArrayList cells = new LongArrayList();
+        // A line of ten, a 5x5 square far from it, and a lone piece; a diagonal neighbour of the lone piece joins it.
+        for (int x = 0; x < 10; x++) {
+            cells.add(new BlockPos(x, 0, 0).asLong());
+        }
+        for (int x = 0; x < 5; x++) {
+            for (int z = 0; z < 5; z++) {
+                cells.add(new BlockPos(30 + x, 0, 30 + z).asLong());
+            }
+        }
+        cells.add(new BlockPos(60, 0, 60).asLong());
+        PatchStats three = PatchStats.of(cells);
+        helper.assertTrue(three.patches == 3 && three.pieces == 36 && three.biggest() == 25, "expected 3 patches of 36 pieces, the biggest 25: " + three.patches + " / " + three.pieces + " / " + three.biggest());
+
+        cells.add(new BlockPos(61, 1, 60).asLong());
+        helper.assertTrue(PatchStats.of(cells).patches == 3 && PatchStats.of(cells).pieces == 37, "a piece touching another at a corner is part of its patch");
+        cells.add(new BlockPos(63, 0, 60).asLong());
+        helper.assertTrue(PatchStats.of(cells).patches == 4, "a piece two blocks away is a patch of its own");
+
+        LongArrayList line = new LongArrayList();
+        LongArrayList square = new LongArrayList();
+        for (int x = 0; x < 10; x++) {
+            line.add(new BlockPos(x, 0, 0).asLong());
+        }
+        for (int x = 0; x < 5; x++) {
+            for (int z = 0; z < 5; z++) {
+                square.add(new BlockPos(x, 0, z).asLong());
+            }
+        }
+        double lineAspect = PatchStats.aspect(line);
+        double squareAspect = PatchStats.aspect(square);
+        log(String.format(Locale.ROOT, "patch shape: a line of ten has an elongation of %.2f, a 5x5 square %.2f", lineAspect, squareAspect));
+        helper.assertTrue(lineAspect > 5.0 && squareAspect < 1.05, "a line should be far more elongated than a square: " + lineAspect + " / " + squareAspect);
+
+        double[] eigenvalues = PatchStats.eigenvalues(2.0, 3.0, 4.0, 0.5, 0.25, 0.75);
+        helper.assertTrue(Math.abs(eigenvalues[0] + eigenvalues[1] + eigenvalues[2] - 9.0) < 1e-9 && eigenvalues[0] >= eigenvalues[1] && eigenvalues[1] >= eigenvalues[2],
+                "the eigenvalues should sum to the trace, largest first: " + Arrays.toString(eigenvalues));
+        double[] diagonal = PatchStats.eigenvalues(1.0, 5.0, 3.0, 0.0, 0.0, 0.0);
+        helper.assertTrue(diagonal[0] == 5.0 && diagonal[1] == 3.0 && diagonal[2] == 1.0, "a diagonal matrix's eigenvalues are its diagonal: " + Arrays.toString(diagonal));
+        helper.succeed();
+    }
+
+    // Seeds with a budget of 3 grow patches of at most 3 pieces beyond themselves, at most 3 blocks out, in about a day, made of
+    // pieces that never reproduce or corrupt anything; when they are done every piece has settled and the whole thing costs no
+    // block entities. Sixteen seeds, spread out so their patches stay apart, because a single ragged patch says little.
     @GameTest(template = TEMPLATE, batch = "gt_patch_growth", timeoutTicks = LONG_TIMEOUT)
     public static void creeperSeedsGrowBoundedSterilePatches(GameTestHelper helper) {
         Arena arena = new Arena(helper);
         arena.prepare();
         ensureRandomTickSpeed(arena.level);
+        PatchGrowth.override(PATCHES);
 
-        int energy = 3;
+        int budget = 3;
         // Moss x64 so that any piece that DID roll for corrupting terrain would show as a Flower Block; Bone Meal x1 and the
         // seeds marked done so that they have no lineage left to roll with either.
         GardenBagContents contents = new Bag().add(FlowerDisease.SUNFLOWER_CREEPER_ITEM.get(), 1).add(Items.BONE_MEAL, 1).add(Items.MOSS_BLOCK, 64).contents();
@@ -1072,7 +1215,7 @@ public final class FlowerDiseaseGameTests {
         for (int gx = 0; gx < 4; gx++) {
             for (int gz = 0; gz < 4; gz++) {
                 BlockPos seed = arena.at(4 + gx * 10, 1, 4 + gz * 10);
-                placeSeed(arena.level, seed, contents, energy);
+                placeSeed(arena.level, seed, contents, budget);
                 seeds.add(seed);
             }
         }
@@ -1098,8 +1241,8 @@ public final class FlowerDiseaseGameTests {
                         if (!piece.isPiece() || !piece.lineageDone() || piece.garden() == GardenRegistry.NO_GARDEN) {
                             failNow(helper, "a piece at " + pos + " is not a sterile piece of its seed's garden: piece " + piece.isPiece() + ", done " + piece.lineageDone() + ", garden " + piece.garden());
                         }
-                        if (piece.energy() < 0 || piece.energy() >= energy) {
-                            failNow(helper, "a patch piece at " + pos + " has energy " + piece.energy() + ", the seeds had " + energy);
+                        if (piece.energy() <= 0 || piece.energy() >= budget) {
+                            failNow(helper, "the growing end of a patch at " + pos + " has a budget of " + piece.energy() + ", the seeds had " + budget);
                         }
                     }
                 }
@@ -1108,9 +1251,9 @@ public final class FlowerDiseaseGameTests {
                 helper.assertTrue(false, "the patches have a few more days to finish");
             }
 
-            // Finished: everything settled, nothing left holding data, all within the energy's reach of a seed.
+            // Finished: everything settled, nothing left holding data, all within the budget's reach of a seed.
             double average = (double) pieces.size() / seeds.size();
-            log(String.format(Locale.ROOT, "patches: %d pieces from %d seeds with energy %d (%.1f each)%n%s", pieces.size(), seeds.size(), energy, average, arena.map()));
+            log(String.format(Locale.ROOT, "patches: %d pieces from %d seeds with a budget of %d (%.1f each)%n%s", pieces.size(), seeds.size(), budget, average, arena.map()));
             int reach = 0;
             for (BlockPos pos : pieces) {
                 int nearest = Integer.MAX_VALUE;
@@ -1123,17 +1266,285 @@ public final class FlowerDiseaseGameTests {
                     failNow(helper, "a creeper at " + pos + " never finished: " + state);
                 }
             }
-            helper.assertTrue(average >= 6 && average <= 25, "a patch of energy " + energy + " should average between 6 and 25 pieces, averaged " + average);
-            helper.assertTrue(reach <= energy, "a patch reaches " + reach + " blocks from its seed, which had energy " + energy);
+            helper.assertTrue(average >= 2.0 && average <= 1 + budget, "a patch with a budget of " + budget + " should average between 2 and " + (1 + budget) + " pieces with its seed, averaged " + average);
+            helper.assertTrue(pieces.size() <= seeds.size() * (1 + budget), "a patch grew past its budget: " + pieces.size() + " pieces from " + seeds.size() + " seeds");
+            helper.assertTrue(reach <= budget, "a patch reaches " + reach + " blocks from its seed, which had a budget of " + budget);
             helper.assertTrue(arena.countFlowerBlocks() == 0, "patch pieces must not corrupt terrain, found " + arena.countFlowerBlocks() + " Flower Blocks");
             failOnProblems(helper, arena.validate());
+            PatchGrowth.override(null);
             arena.cleanup();
         });
     }
 
+    // What the patches look like: 108 seeds on flat ground, each with its own style and budget from the bell curve, grown to the end
+    // (four at a time and far apart, so that no two patches meet). The old flood fill made round blobs of very different sizes; a
+    // patch here is bounded by its budget, and most are clearly elongated.
+    @GameTest(template = TEMPLATE, batch = "gt_patch_shape", timeoutTicks = LONG_TIMEOUT)
+    public static void creeperPatchesAreBoundedAndMostlyElongated(GameTestHelper helper) {
+        Arena arena = new Arena(helper);
+        arena.prepare();
+        try {
+            PatchGrowth.override(PATCHES);
+            GardenBagContents contents = new Bag().add(FlowerDisease.SUNFLOWER_CREEPER_ITEM.get(), 1).add(Items.BONE_MEAL, 1).contents();
+            RandomSource random = arena.level.getRandom();
+
+            int patches = 0;
+            int pieces = 0;
+            int biggest = 0;
+            int shaped = 0;
+            int roundOnes = 0;
+            int[] histogram = new int[PATCHES.maxPieces() + 2];
+            String firstMap = "";
+            for (int round = 0; round < 27; round++) {
+                for (int gx = 0; gx < 2; gx++) {
+                    for (int gz = 0; gz < 2; gz++) {
+                        placeSeed(arena.level, arena.at(12 + gx * 24, 1, 12 + gz * 24), contents, PatchGrowth.roll(random), true);
+                    }
+                }
+                growPatches(arena);
+
+                PatchStats stats = PatchStats.of(arena.creeperCells());
+                patches += stats.patches;
+                pieces += stats.pieces;
+                biggest = Math.max(biggest, stats.biggest());
+                shaped += stats.shaped;
+                roundOnes += stats.round;
+                for (int size : stats.sizes) {
+                    histogram[Math.min(size, histogram.length - 1)]++;
+                }
+                if (round == 0) {
+                    firstMap = arena.map();
+                }
+                failOnProblems(helper, arena.validate());
+                arena.clearCreepers();
+            }
+
+            double mean = (double) pieces / patches;
+            log(String.format(Locale.ROOT, "patch shapes: %d patches, %.1f pieces on average, biggest %d, %d of %d patches of 4 pieces or more are round%nsizes 1..%d+: %s%n%s",
+                    patches, mean, biggest, roundOnes, shaped, histogram.length - 1, Arrays.toString(Arrays.copyOfRange(histogram, 1, histogram.length)), firstMap));
+            helper.assertTrue(biggest <= PATCHES.maxPieces() + 1, "a patch has " + biggest + " pieces; the budget caps it at " + (PATCHES.maxPieces() + 1) + " with its seed");
+            helper.assertTrue(mean >= 3.0 && mean <= 9.0, "patches should average between 3 and 9 pieces, averaged " + mean);
+            helper.assertTrue(shaped >= 40 && roundOnes < shaped * 0.35, roundOnes + " of " + shaped + " patches are round - most should be clearly elongated");
+        } finally {
+            PatchGrowth.override(null);
+            arena.cleanup();
+        }
+        helper.succeed();
+    }
+
+    // A tendril turns away from where it would be crowded: with a crowding of 1 patches keep apart, with 8 nothing holds them off and
+    // seeds only five blocks apart run into one another. Sixty-four seeds each way, on the same arena.
+    @GameTest(template = TEMPLATE, batch = "gt_patch_crowding", timeoutTicks = LONG_TIMEOUT)
+    public static void crowdingKeepsPatchesApart(GameTestHelper helper) {
+        Arena arena = new Arena(helper);
+        arena.prepare();
+        try {
+            GardenBagContents contents = new Bag().add(FlowerDisease.SUNFLOWER_CREEPER_ITEM.get(), 1).add(Items.BONE_MEAL, 1).contents();
+            RandomSource random = arena.level.getRandom();
+            int[] biggest = new int[2];
+            int[] touching = new int[2];
+            for (int variant = 0; variant < 2; variant++) {
+                PatchGrowth.override(new PatchGrowth.Settings(12, 0.33, 1.0, 1.0, 1.0, variant == 0 ? 1 : 8, 1.0, 0.0, 6));
+                for (int gx = 0; gx < 8; gx++) {
+                    for (int gz = 0; gz < 8; gz++) {
+                        placeSeed(arena.level, arena.at(4 + gx * 5, 1, 4 + gz * 5), contents, PatchGrowth.roll(random), true);
+                    }
+                }
+                growPatches(arena);
+                PatchStats stats = PatchStats.of(arena.creeperCells());
+                biggest[variant] = stats.biggest();
+                touching[variant] = 64 - stats.patches;
+                log(String.format(Locale.ROOT, "patch crowding %d: 64 seeds five blocks apart made %d separate patches, the biggest of %d pieces (%d pieces in all)",
+                        variant == 0 ? 1 : 8, stats.patches, stats.biggest(), stats.pieces));
+                arena.clearCreepers();
+            }
+            helper.assertTrue(touching[1] > touching[0] + 8 && biggest[1] > biggest[0], "with a crowding of 8 the patches should run into one another far more than with 1: merged seeds "
+                    + touching[1] + " against " + touching[0] + ", biggest patch " + biggest[1] + " against " + biggest[0]);
+        } finally {
+            PatchGrowth.override(null);
+            arena.cleanup();
+        }
+        helper.succeed();
+    }
+
+    // Going down a wall to its lower edge, a tendril may hang a strand of pieces straight down, held only by the piece above like a
+    // vine; take away what holds the top of the strand and it all comes down. Here the wall is a single block, so the piece clinging to
+    // it is the top of the strand.
+    @GameTest(template = TEMPLATE, batch = "gt_patch_hang", timeoutTicks = 200)
+    public static void tendrilsHangStrandsAndTheyFallWhenTheirHoldIsGone(GameTestHelper helper) {
+        Arena arena = new Arena(helper);
+        arena.prepare();
+        try {
+            // Always grows, never turns, hangs at once at the edge, and strands are at most four pieces.
+            PatchGrowth.override(new PatchGrowth.Settings(12, 1.0, 0.0, 0.0, 0.0, 8, 1.0, 1.0, 4));
+            BlockPos wall = arena.at(24, 6, 24);
+            arena.level.setBlock(wall, Blocks.STONE.defaultBlockState(), Block.UPDATE_CLIENTS);
+            BlockPos top = wall.south();
+            GardenBagContents contents = new Bag().add(FlowerDisease.SUNFLOWER_CREEPER_ITEM.get(), 1).add(Items.BONE_MEAL, 1).contents();
+            arena.level.setBlock(top, FlowerDisease.SUNFLOWER_CREEPER.get().defaultBlockState().setValue(MultifaceBlock.getFaceProperty(Direction.NORTH), true), SettleTable.PLACEMENT_FLAGS);
+            CreeperBlockEntity seed = (CreeperBlockEntity) arena.level.getBlockEntity(top);
+            seed.startGarden(arena.level, contents, top);
+            seed.startPatch(10, 0, Direction.NORTH, Direction.DOWN);
+            seed.markLineageDone();
+
+            growPatches(arena);
+
+            List<BlockPos> strand = new ArrayList<>();
+            for (BlockPos pos : arena.creeperPositions()) {
+                if (!pos.equals(top)) {
+                    strand.add(pos);
+                }
+            }
+            log("hanging strand: " + strand.size() + " pieces under the piece on the wall block\n" + arena.map());
+            helper.assertTrue(strand.size() >= 1 && strand.size() <= 4, "expected a strand of 1 to 4 pieces, found " + strand.size());
+            for (BlockPos pos : strand) {
+                BlockState state = arena.level.getBlockState(pos);
+                helper.assertTrue(pos.getX() == top.getX() && pos.getZ() == top.getZ() && pos.getY() < top.getY(), "a hanging piece at " + pos + " is not straight under the top one");
+                helper.assertTrue(MultifaceBlock.hasFace(state, Direction.NORTH) && MultifaceBlock.availableFaces(state).size() == 1, "a hanging piece should have just the wall's face: " + state);
+                helper.assertTrue(arena.level.getBlockState(pos.north()).isAir(), "a hanging piece at " + pos + " has something behind it, it is not hanging");
+                helper.assertTrue(state.canSurvive(arena.level, pos), "a hanging piece at " + pos + " is not held");
+                helper.assertTrue(DiseasedPlantLogic.isSettled(state) || arena.level.getBlockEntity(pos) != null, "an unsettled hanging piece at " + pos + " has no block entity");
+            }
+            failOnProblems(helper, arena.validate());
+
+            // The wall goes: the piece on it has nothing to hold it and the strand under it nothing to hang from, one after the other.
+            arena.level.setBlock(wall, Blocks.AIR.defaultBlockState(), Block.UPDATE_ALL);
+            helper.assertTrue(arena.creeperPositions().isEmpty(), "the strand should have come down with its wall, but " + arena.creeperPositions().size() + " pieces are left");
+            arena.discardDroppedItems();
+        } finally {
+            PatchGrowth.override(null);
+            arena.cleanup();
+        }
+        helper.succeed();
+    }
+
+    // Reproduction never hangs a piece: with a wall that ends and open air below it, every creeper it places (seeds and all) has
+    // something solid behind one of its faces. (Only patches hang, and only under the wall's lower edge.)
+    @GameTest(template = TEMPLATE, batch = "gt_patch_nohang", timeoutTicks = 400)
+    public static void reproductionNeverHangsAPiece(GameTestHelper helper) {
+        Arena arena = new Arena(helper);
+        arena.prepare();
+        try {
+            PatchGrowth.override(new PatchGrowth.Settings(0, 0.33, 1.0, 1.0, 1.0, 3, 1.0, 1.0, 6));
+            for (int x = 14; x <= 34; x++) {
+                for (int y = 4; y <= 8; y++) {
+                    arena.level.setBlock(arena.at(x, y, 24), Blocks.STONE_BRICKS.defaultBlockState(), Block.UPDATE_CLIENTS);
+                }
+            }
+            RandomSource random = arena.level.getRandom();
+            // Planted on the south face of the wall, at the height of its lower row, so that the garden has the wall's lower edge and the
+            // open air under it to tempt it.
+            Bag bag = new Bag().add(FlowerDisease.SUNFLOWER_CREEPER_ITEM.get(), 1).add(Items.SLIME_BALL, 64).lifetime(1000);
+            plantVia(helper, arena, bag, arena.at(24, 4, 25), Direction.SOUTH);
+            for (int i = 0; i < 30; i++) {
+                for (BlockPos pos : arena.creeperPositions()) {
+                    BlockState state = arena.level.getBlockState(pos);
+                    if (state.isRandomlyTicking()) {
+                        state.randomTick(arena.level, pos, random);
+                    }
+                }
+            }
+
+            List<BlockPos> creepers = arena.creeperPositions();
+            log("no hanging by reproduction: " + creepers.size() + " creeper pieces\n" + arena.map());
+            helper.assertTrue(creepers.size() >= 3, "expected the wall's garden to have grown, found " + creepers.size() + " pieces");
+            for (BlockPos pos : creepers) {
+                BlockState state = arena.level.getBlockState(pos);
+                boolean solid = false;
+                for (Direction face : Direction.values()) {
+                    solid |= MultifaceBlock.hasFace(state, face) && MultifaceBlock.canAttachTo(arena.level, face, pos.relative(face), arena.level.getBlockState(pos.relative(face)));
+                }
+                helper.assertTrue(solid, "a creeper at " + pos + " has nothing solid to cling to (" + state + ") - reproduction hung a piece");
+            }
+        } finally {
+            PatchGrowth.override(null);
+            arena.cleanup();
+        }
+        helper.succeed();
+    }
+
+    // The tendrils on a body with edges and corners: a block of stone floating in the air, with seeds near the edges of its top. They
+    // follow the surface over the edges and down the sides and, where a side ends, hang a strand or wrap under; every piece is held by
+    // something, everything settles, and when the block goes every piece of every patch goes with it - the strands cascade down.
+    @GameTest(template = TEMPLATE, batch = "gt_patch_3d", timeoutTicks = LONG_TIMEOUT)
+    public static void patchesFollowEdgesAndCornersOfAFloatingBlock(GameTestHelper helper) {
+        Arena arena = new Arena(helper);
+        arena.prepare();
+        try {
+            PatchGrowth.override(new PatchGrowth.Settings(12, 0.33, 1.0, 1.0, 1.0, 3, 1.0, 0.5, 6));
+            for (int x = 20; x <= 27; x++) {
+                for (int z = 20; z <= 27; z++) {
+                    for (int y = 9; y <= 11; y++) {
+                        arena.level.setBlock(arena.at(x, y, z), Blocks.STONE.defaultBlockState(), Block.UPDATE_CLIENTS);
+                    }
+                }
+            }
+
+            GardenBagContents contents = new Bag().add(FlowerDisease.SUNFLOWER_CREEPER_ITEM.get(), 1).add(Items.BONE_MEAL, 1).contents();
+            RandomSource random = arena.level.getRandom();
+            int sides = 0;
+            int undersides = 0;
+            int hanging = 0;
+            int pieces = 0;
+            for (int round = 0; round < 30; round++) {
+                for (int seed = 0; seed < 10; seed++) {
+                    // Within two blocks of the edge of the top, so that a tendril soon has an edge to go over.
+                    int along = 20 + random.nextInt(8);
+                    int edge = random.nextBoolean() ? 20 + random.nextInt(2) : 26 + random.nextInt(2);
+                    BlockPos at = random.nextBoolean() ? arena.at(along, 12, edge) : arena.at(edge, 12, along);
+                    if (arena.level.isEmptyBlock(at)) {
+                        placeSeed(arena.level, at, contents, PatchGrowth.roll(random), true);
+                    }
+                }
+                growPatches(arena);
+                failOnProblems(helper, arena.validate());
+
+                for (BlockPos pos : arena.creeperPositions()) {
+                    BlockState state = arena.level.getBlockState(pos);
+                    pieces++;
+                    boolean hangs = false;
+                    for (Direction face : Direction.values()) {
+                        if (MultifaceBlock.hasFace(state, face) && !MultifaceBlock.canAttachTo(arena.level, face, pos.relative(face), arena.level.getBlockState(pos.relative(face)))) {
+                            hangs = true;
+                        }
+                    }
+                    hanging += hangs ? 1 : 0;
+                    sides += Direction.Plane.HORIZONTAL.stream().anyMatch(face -> MultifaceBlock.hasFace(state, face)) ? 1 : 0;
+                    undersides += MultifaceBlock.hasFace(state, Direction.UP) ? 1 : 0;
+                }
+                if (round < 29) {
+                    arena.clearCreepers();
+                }
+            }
+            log("patches on a floating block: " + pieces + " pieces over 30 rounds, " + sides + " on a side, " + undersides + " under it, " + hanging + " hanging\n" + arena.map());
+            helper.assertTrue(sides >= 20, "tendrils should have gone over the edges and down the sides, only " + sides + " pieces are on a side");
+            helper.assertTrue(undersides >= 1, "some tendril should have wrapped under the block");
+            helper.assertTrue(hanging >= 1, "some tendril should have hung a strand below a lower edge");
+
+            // The block goes, cell by cell, with the updates a player breaking it would cause: nothing may be left behind, hanging or not.
+            List<BlockPos> block = new ArrayList<>();
+            for (int x = 20; x <= 27; x++) {
+                for (int z = 20; z <= 27; z++) {
+                    for (int y = 9; y <= 11; y++) {
+                        block.add(arena.at(x, y, z));
+                    }
+                }
+            }
+            for (BlockPos pos : block) {
+                arena.level.setBlock(pos, Blocks.AIR.defaultBlockState(), Block.UPDATE_ALL);
+            }
+            helper.assertTrue(arena.creeperPositions().isEmpty(), "pieces were left in the air when their block went: " + arena.creeperPositions().size());
+            arena.discardDroppedItems();
+        } finally {
+            PatchGrowth.override(null);
+            arena.cleanup();
+        }
+        helper.succeed();
+    }
+
     // No energy, no patch: it is one piece, and once its own life is over it settles and keeps no block entity.
     @GameTest(template = TEMPLATE, batch = "gt_patch_none", timeoutTicks = 200)
-    public static void creeperWithoutEnergyStaysASinglePiece(GameTestHelper helper) {
+    public static void creeperWithoutBudgetStaysASinglePiece(GameTestHelper helper) {
         Arena arena = new Arena(helper);
         arena.prepare();
         try {
@@ -1146,7 +1557,7 @@ public final class FlowerDiseaseGameTests {
             BlockState state = arena.level.getBlockState(pos);
             helper.assertTrue(state.getBlock() instanceof CreepingFlowerBlock && DiseasedPlantLogic.isSettled(state), "expected a settled creeper, found " + state);
             helper.assertTrue(arena.level.getBlockEntity(pos) == null, "a settled creeper keeps no block entity");
-            helper.assertTrue(arena.creeperPositions().size() == 1, "with no energy there should be one piece, found " + arena.creeperPositions().size());
+            helper.assertTrue(arena.creeperPositions().size() == 1, "with no budget there should be one piece, found " + arena.creeperPositions().size());
         } finally {
             arena.cleanup();
         }
@@ -1160,7 +1571,7 @@ public final class FlowerDiseaseGameTests {
         Arena arena = new Arena(helper);
         arena.prepare();
         try {
-            Bag bag = new Bag().add(FlowerDisease.SUNFLOWER_CREEPER_ITEM.get(), 1).add(Items.RABBIT_FOOT, 1000);
+            Bag bag = new Bag().add(FlowerDisease.SUNFLOWER_CREEPER_ITEM.get(), 1).lifetime(1000);
             plantVia(helper, arena, bag, arena.at(24, 1, 24));
 
             int seeds = 0;
@@ -1178,6 +1589,201 @@ public final class FlowerDiseaseGameTests {
         helper.succeed();
     }
 
+    // A creeper saved before tendrils has only its energy (and whether its life is over): with no face, heading or style it reads as a
+    // streak on its down face, and still grows a patch and finishes.
+    @GameTest(template = TEMPLATE, batch = "gt_patch_legacy", timeoutTicks = 200)
+    public static void creepersSavedBeforeTendrilsStillGrow(GameTestHelper helper) {
+        Arena arena = new Arena(helper);
+        arena.prepare();
+        try {
+            PatchGrowth.override(PATCHES);
+            GardenBagContents contents = new Bag().add(FlowerDisease.SUNFLOWER_CREEPER_ITEM.get(), 1).add(Items.BONE_MEAL, 1).contents();
+            // On the south face of a wall, where the face an old creeper reads as having (down) is not one it has.
+            for (int x = 21; x <= 27; x++) {
+                for (int y = 1; y <= 6; y++) {
+                    arena.level.setBlock(arena.at(x, y, 24), Blocks.STONE_BRICKS.defaultBlockState(), Block.UPDATE_CLIENTS);
+                }
+            }
+            BlockPos pos = arena.at(24, 3, 25);
+            placeSeed(arena.level, pos, contents, 4, true);
+            arena.level.setBlock(pos, FlowerDisease.SUNFLOWER_CREEPER.get().defaultBlockState().setValue(MultifaceBlock.getFaceProperty(Direction.NORTH), true), SettleTable.PLACEMENT_FLAGS);
+            CompoundTag saved = arena.level.getBlockEntity(pos).saveWithFullMetadata(arena.level.registryAccess());
+            for (String key : List.of("Face", "Heading", "Style", "Hang")) {
+                saved.remove(key);
+            }
+            helper.assertTrue(saved.getByte("Energy") == 4 && saved.getBoolean("LineageDone"), "the old-style tag should still say how much energy it has: " + saved);
+
+            BlockEntity old = BlockEntity.loadStatic(pos, arena.level.getBlockState(pos), saved, arena.level.registryAccess());
+            helper.assertTrue(old instanceof CreeperBlockEntity, "an old creeper did not load");
+            arena.level.setBlockEntity(old);
+            growPatches(arena);
+
+            int pieces = arena.creeperPositions().size();
+            log("an old creeper with an energy of 4 grew " + pieces + " pieces\n" + arena.map());
+            helper.assertTrue(pieces >= 2 && pieces <= 5, "an old creeper with an energy of 4 should grow a patch of up to 5 pieces, found " + pieces);
+            failOnProblems(helper, arena.validate());
+        } finally {
+            PatchGrowth.override(null);
+            arena.cleanup();
+        }
+        helper.succeed();
+    }
+
+    // ---- Growing over other plants (Fermented Spider Eye) ------------------------------------------------
+
+    // A bag with a Fermented Spider Eye ignores the other species - and grows over the plants that are not of its pool, destroying
+    // them without drops: the root, and every child, on a ground where every cell holds a poppy or a lilac (two blocks tall) and the
+    // garden is dandelions. Without the eye none of them is touched.
+    @GameTest(template = TEMPLATE, batch = "gt_overgrow", timeoutTicks = 400)
+    public static void aGardenThatIgnoresTheOthersGrowsOverPlantsOutsideItsPool(GameTestHelper helper) {
+        Arena arena = new Arena(helper);
+        arena.prepare();
+        try {
+            arena.discardDroppedItems();
+            for (boolean eye : new boolean[]{false, true}) {
+                int foreign = coverWithForeignPlants(arena);
+                Bag bag = new Bag().add(Items.DANDELION, 1).add(Items.SLIME_BALL, 64).lifetime(1000);
+                if (eye) {
+                    bag.add(Items.FERMENTED_SPIDER_EYE, 1);
+                }
+
+                BlockPos root = arena.at(24, 1, 24);
+                Component failure = GardenBagItem.plant(arena.level, root, bag.contents(), Direction.UP);
+                if (!eye) {
+                    helper.assertTrue(failure != null, "a garden that respects the others should not plant over a poppy");
+                    helper.assertTrue(arena.countBlocks(Blocks.POPPY) + arena.countBlocks(Blocks.LILAC) == foreign, "nothing may be touched without the eye");
+                    arena.clearAllPlants();
+                    continue;
+                }
+
+                helper.assertTrue(failure == null, "planting over a poppy with the eye failed: " + failure);
+                int dandelions = arena.countBlocks(Blocks.DANDELION) + arena.countBlocks(FlowerDisease.DISEASED_DANDELION.get());
+                int left = arena.countBlocks(Blocks.POPPY) + arena.countBlocks(Blocks.LILAC);
+                log(String.format(Locale.ROOT, "growing over: %d dandelions took the place of %d of %d poppies and lilacs%n%s", dandelions, foreign - left, foreign, arena.map()));
+                helper.assertTrue(dandelions >= 3, "expected the garden to have spread over the plants around it, found " + dandelions + " dandelions");
+                helper.assertTrue(foreign - left >= dandelions - 1, "every dandelion but a lucky few should have taken the place of a plant: " + dandelions + " dandelions, " + (foreign - left) + " plants gone");
+                helper.assertTrue(arena.droppedItems().isEmpty(), "growing over a plant must not drop anything, found " + arena.droppedItems().size() + " items");
+                failOnProblems(helper, arena.validate());
+            }
+        } finally {
+            arena.cleanup();
+        }
+        helper.succeed();
+    }
+
+    // Poppies everywhere on the ground of the middle of the arena, with a lilac in place of every sixteenth: the plants a garden that
+    // is not made of them can grow over. Returns how many blocks that is (a lilac is two).
+    private static int coverWithForeignPlants(Arena arena) {
+        int count = 0;
+        for (int x = 9; x <= 38; x++) {
+            for (int z = 9; z <= 38; z++) {
+                BlockPos pos = arena.at(x, 1, z);
+                if (x % 4 == 0 && z % 4 == 0) {
+                    DoublePlantBlock.placeAt(arena.level, Blocks.LILAC.defaultBlockState(), pos, SettleTable.PLACEMENT_FLAGS);
+                    count += 2;
+                } else {
+                    arena.level.setBlock(pos, Blocks.POPPY.defaultBlockState(), SettleTable.PLACEMENT_FLAGS);
+                    count++;
+                }
+            }
+        }
+        return count;
+    }
+
+    // The same for a tall garden - a two-block child takes over a poppy and the cell above it, or a lilac whole - and for the patches of
+    // a creeper garden, which grow over the poppies on the ground the way they would over bare ground.
+    @GameTest(template = TEMPLATE, batch = "gt_overgrow_shapes", timeoutTicks = LONG_TIMEOUT)
+    public static void tallChildrenAndPatchesGrowOverPlantsToo(GameTestHelper helper) {
+        Arena arena = new Arena(helper);
+        arena.prepare();
+        try {
+            arena.discardDroppedItems();
+            int foreign = coverWithForeignPlants(arena);
+            Bag tall = new Bag().add(Items.SUNFLOWER, 1).add(Items.SLIME_BALL, 64).add(Items.FERMENTED_SPIDER_EYE, 1).lifetime(1000);
+            Component failure = GardenBagItem.plant(arena.level, arena.at(24, 1, 24), tall.contents(), Direction.UP);
+            helper.assertTrue(failure == null, "planting a tall flower over a poppy with the eye failed: " + failure);
+            int sunflowers = arena.countBlocks(FlowerDisease.DISEASED_SUNFLOWER.get()) + arena.countBlocks(Blocks.SUNFLOWER);
+            log("growing over, tall: " + sunflowers + " sunflower blocks (both halves) among the poppies and lilacs\n" + arena.map());
+            helper.assertTrue(sunflowers >= 4, "expected tall children that took the place of the plants around, found " + sunflowers + " sunflower blocks");
+            helper.assertTrue(arena.droppedItems().isEmpty(), "growing over a plant must not drop anything, found " + arena.droppedItems().size() + " items");
+            failOnProblems(helper, arena.validate());
+            arena.clearAllPlants();
+
+            // A creeper's patch: the ground is covered with poppies right up to the seed, and every piece of the patch takes one's place.
+            PatchGrowth.override(PATCHES);
+            for (boolean eye : new boolean[]{true, false}) {
+                coverWithForeignPlants(arena);
+                Bag creeper = new Bag().add(FlowerDisease.SUNFLOWER_CREEPER_ITEM.get(), 1).add(Items.BONE_MEAL, 1);
+                if (eye) {
+                    creeper.add(Items.FERMENTED_SPIDER_EYE, 1);
+                }
+                BlockPos seed = arena.at(23, 1, 23);
+                arena.level.setBlock(seed, Blocks.AIR.defaultBlockState(), SettleTable.PLACEMENT_FLAGS);
+                placeSeed(arena.level, seed, creeper.contents(), new PatchGrowth.Plan(PatchGrowth.Style.STREAK, 8), true);
+                int before = arena.countBlocks(Blocks.POPPY) + arena.countBlocks(Blocks.LILAC);
+                growPatches(arena);
+                int pieces = arena.creeperPositions().size();
+                int gone = before - (arena.countBlocks(Blocks.POPPY) + arena.countBlocks(Blocks.LILAC));
+                log("creeper patch " + (eye ? "with" : "without") + " the eye: " + pieces + " pieces, " + gone + " plants gone (of " + foreign + ")");
+                if (eye) {
+                    helper.assertTrue(pieces >= 3 && gone >= pieces - 1 - 1, "the patch should have grown over the plants: " + pieces + " pieces, " + gone + " plants gone");
+                    helper.assertTrue(arena.droppedItems().isEmpty(), "a patch growing over plants must not drop anything, found " + arena.droppedItems().size() + " items");
+                } else {
+                    helper.assertTrue(pieces == 1 && gone == 0, "a patch that respects the plants around it has nowhere to grow: " + pieces + " pieces, " + gone + " plants gone");
+                }
+                arena.clearAllPlants();
+            }
+            failOnProblems(helper, arena.validate());
+        } finally {
+            PatchGrowth.override(null);
+            arena.cleanup();
+        }
+        helper.succeed();
+    }
+
+    // What a garden counts as its own kind - for the crowding of a garden that ignores the others, and for what it grows over: the
+    // species of its pool, their Diseased forms and the vanilla ones they settle into. Anything else that is a plant is foreign.
+    @GameTest(template = TEMPLATE, batch = "gt_family", timeoutTicks = 100)
+    public static void aGardensOwnKindIncludesTheDiseasedFormsOfItsSpecies(GameTestHelper helper) {
+        List<SettleTable.Option> pool = List.of(new SettleTable.Option(Blocks.POPPY, 3), new SettleTable.Option(Blocks.DANDELION, 2), new SettleTable.Option(FlowerDisease.SUNFLOWER_CREEPER.get(), 1));
+        Block self = FlowerDisease.DISEASED_POPPY.get();
+        Block fallback = Blocks.POPPY;
+        BlockState lilacLower = Blocks.LILAC.defaultBlockState().setValue(DoublePlantBlock.HALF, DoubleBlockHalf.LOWER);
+        BlockState lilacUpper = Blocks.LILAC.defaultBlockState().setValue(DoublePlantBlock.HALF, DoubleBlockHalf.UPPER);
+
+        for (BlockState own : List.of(FlowerDisease.DISEASED_POPPY.get().defaultBlockState(), FlowerDisease.DISEASED_DANDELION.get().defaultBlockState(),
+                Blocks.POPPY.defaultBlockState(), Blocks.DANDELION.defaultBlockState(), FlowerDisease.SUNFLOWER_CREEPER.get().defaultBlockState())) {
+            helper.assertTrue(SettleTable.isSameSpecies(own, self, fallback, pool), own + " is of the pool's kind");
+            helper.assertTrue(!SettleTable.isForeignPlant(own, self, fallback, pool), own + " must not be grown over");
+        }
+        for (BlockState foreign : List.of(FlowerDisease.DISEASED_ALLIUM.get().defaultBlockState(), Blocks.ALLIUM.defaultBlockState(), Blocks.OAK_SAPLING.defaultBlockState(),
+                FlowerDisease.LILAC_CREEPER.get().defaultBlockState(), lilacLower)) {
+            helper.assertTrue(SettleTable.isForeignPlant(foreign, self, fallback, pool), foreign + " is a plant outside the pool");
+        }
+        helper.assertTrue(!SettleTable.isForeignPlant(lilacUpper, self, fallback, pool), "the upper half of a tall plant is never met on its own");
+        helper.assertTrue(!SettleTable.isForeignPlant(Blocks.STONE.defaultBlockState(), self, fallback, pool) && !SettleTable.isForeignPlant(Blocks.AIR.defaultBlockState(), self, fallback, pool),
+                "stone and air are not plants");
+        helper.succeed();
+    }
+
+    // Grows every patch in the arena to its end, by random-ticking the pieces that still grow the way days of ticks would.
+    private static void growPatches(Arena arena) {
+        RandomSource random = arena.level.getRandom();
+        for (int guard = 0; guard < 5000; guard++) {
+            List<BlockPos> active = arena.growingCreepers();
+            if (active.isEmpty()) {
+                return;
+            }
+            for (BlockPos pos : active) {
+                BlockState state = arena.level.getBlockState(pos);
+                if (state.isRandomlyTicking()) {
+                    state.randomTick(arena.level, pos, random);
+                }
+            }
+        }
+        throw new IllegalStateException("the patches never finished growing");
+    }
+
     // ---- Disease Powder -----------------------------------------------------------------------------
 
     // Used on a plant of a garden, it lives its day and the garden next door - well within reach - does not.
@@ -1186,7 +1792,7 @@ public final class FlowerDiseaseGameTests {
         Arena arena = new Arena(helper);
         arena.prepare();
         ensureRandomTickSpeed(arena.level);
-        Bag bag = new Bag().add(Items.POPPY, 3).add(Items.DANDELION, 2).add(Items.RABBIT_FOOT, 50);
+        Bag bag = new Bag().add(Items.POPPY, 3).add(Items.DANDELION, 2).lifetime(50);
         plantVia(helper, arena, bag, arena.at(8, 1, 24));
         plantVia(helper, arena, bag, arena.at(40, 1, 24));
 
@@ -1231,7 +1837,7 @@ public final class FlowerDiseaseGameTests {
         Arena arena = new Arena(helper);
         arena.prepare();
         ensureRandomTickSpeed(arena.level);
-        Bag bag = new Bag().add(Items.POPPY, 3).add(Items.DANDELION, 2).add(Items.RABBIT_FOOT, 50);
+        Bag bag = new Bag().add(Items.POPPY, 3).add(Items.DANDELION, 2).lifetime(50);
         plantVia(helper, arena, bag, arena.at(8, 1, 24));
         plantVia(helper, arena, bag, arena.at(40, 1, 24));
 
@@ -1308,23 +1914,28 @@ public final class FlowerDiseaseGameTests {
         helper.succeed();
     }
 
-    // Places a creeper on the ground with the given patch energy, the way a planting does, without the burst. A seed
-    // whose life is already over (`lineageDone`, the default here) only grows its patch.
-    private static void placeSeed(ServerLevel level, BlockPos pos, GardenBagContents contents, int energy) {
-        placeSeed(level, pos, contents, energy, true);
+    // Places a creeper on the ground with a patch of the given budget (of the branching style), the way a planting does, without the
+    // burst. A seed whose life is already over (`lineageDone`, the default here) only grows its patch.
+    private static void placeSeed(ServerLevel level, BlockPos pos, GardenBagContents contents, int budget) {
+        placeSeed(level, pos, contents, budget, true);
     }
 
-    private static void placeSeed(ServerLevel level, BlockPos pos, GardenBagContents contents, int energy, boolean lineageDone) {
+    private static void placeSeed(ServerLevel level, BlockPos pos, GardenBagContents contents, int budget, boolean lineageDone) {
+        placeSeed(level, pos, contents, new PatchGrowth.Plan(PatchGrowth.Style.BRANCHY, budget), lineageDone);
+    }
+
+    private static void placeSeed(ServerLevel level, BlockPos pos, GardenBagContents contents, PatchGrowth.Plan plan, boolean lineageDone) {
         level.setBlock(pos, FlowerDisease.SUNFLOWER_CREEPER.get().defaultBlockState().setValue(MultifaceBlock.getFaceProperty(Direction.DOWN), true), SettleTable.PLACEMENT_FLAGS);
         CreeperBlockEntity seed = (CreeperBlockEntity) level.getBlockEntity(pos);
         seed.startGarden(level, contents, pos);
-        seed.setEnergy(energy);
+        PatchGrowth.begin(seed, plan, Direction.DOWN, level.getRandom());
         if (lineageDone) {
             seed.markLineageDone();
         }
     }
 
-    // A creeper's energy and whether its life is over are saved with it and come back as the right class.
+    // A creeper's budget, its style, the face and heading of the tendril it ends, whether its life is over: all saved with it, and it
+    // comes back as the right class.
     @GameTest(template = TEMPLATE, batch = "gt_reload_creeper", timeoutTicks = 100)
     public static void creeperDataSurvivesAReload(GameTestHelper helper) {
         Arena arena = new Arena(helper);
@@ -1335,12 +1946,15 @@ public final class FlowerDiseaseGameTests {
             placeSeed(level, pos, new Bag().add(FlowerDisease.SUNFLOWER_CREEPER_ITEM.get(), 1).contents(), 4, true);
             CreeperBlockEntity original = (CreeperBlockEntity) level.getBlockEntity(pos);
             original.inherit(original.garden(), 6);
+            original.startPiece(4, original.garden(), 2, Direction.NORTH, Direction.UP, 3);
 
             BlockEntity reloaded = BlockEntity.loadStatic(pos, level.getBlockState(pos), original.saveWithFullMetadata(level.registryAccess()), level.registryAccess());
             helper.assertTrue(reloaded instanceof CreeperBlockEntity, "a creeper came back as " + (reloaded == null ? "nothing" : reloaded.getClass().getSimpleName()));
             CreeperBlockEntity copy = (CreeperBlockEntity) reloaded;
-            helper.assertTrue(copy.energy() == 4 && copy.lineageDone() && copy.depth() == 6 && copy.garden() == original.garden(),
-                    "a creeper forgot its data across a reload: energy " + copy.energy() + ", done " + copy.lineageDone() + ", depth " + copy.depth() + ", garden " + copy.garden());
+            helper.assertTrue(copy.energy() == 4 && copy.lineageDone() && copy.isPiece() && copy.garden() == original.garden(),
+                    "a creeper forgot its data across a reload: energy " + copy.energy() + ", done " + copy.lineageDone() + ", piece " + copy.isPiece() + ", garden " + copy.garden());
+            helper.assertTrue(copy.face() == Direction.NORTH && copy.heading() == Direction.UP && copy.style() == 2 && copy.hang() == 3,
+                    "a creeper forgot which way it was growing across a reload: face " + copy.face() + ", heading " + copy.heading() + ", style " + copy.style() + ", hang " + copy.hang());
         } finally {
             arena.cleanup();
         }
@@ -1436,12 +2050,17 @@ public final class FlowerDiseaseGameTests {
     // ---- Shared scenarios ----------------------------------------------------------------------------
 
     private static void growth(GameTestHelper helper, String label, Bag bag, int days, int density) {
+        growth(helper, label, bag, days, density, true);
+    }
+
+    // `checkDensity` false leaves the density out of the asserts (it is still logged): for a lifetime too short for the garden to fill.
+    private static void growth(GameTestHelper helper, String label, Bag bag, int days, int density, boolean checkDensity) {
         Arena arena = new Arena(helper);
         arena.prepare();
         ensureRandomTickSpeed(arena.level);
 
         // Five plantings, so that measuring how a garden fills up does not hang on one lineage surviving: any single plant's
-        // descendants die out about 1 time in 8 at the default lifetime (a geometric offspring count with mean 8).
+        // descendants die out about 1 time in 8 at a lifetime of 8 (a geometric offspring count with mean 8).
         BlockPos root = arena.at(24, 1, 24);
         plantVia(helper, arena, bag, root);
         for (BlockPos extra : List.of(arena.at(12, 1, 12), arena.at(36, 1, 12), arena.at(12, 1, 36), arena.at(36, 1, 36))) {
@@ -1467,7 +2086,7 @@ public final class FlowerDiseaseGameTests {
                 // Within 30% - or more when the interior holds so few plants that chance alone moves the count that much.
                 double interiorPlants = density * (SIZE - 20.0) * (SIZE - 20.0) / 256.0;
                 double slack = Math.max(0.3, 2.0 / Math.sqrt(interiorPlants));
-                if (measured.perChunk < density * (1 - slack) || measured.perChunk > density * (1 + slack)) {
+                if (checkDensity && (measured.perChunk < density * (1 - slack) || measured.perChunk > density * (1 + slack))) {
                     failNow(helper, String.format(Locale.ROOT, "a garden of density %d holds %.1f plants per 16x16, expected about %d", density, measured.perChunk, density));
                 }
                 List<String> problems = arena.validate();
@@ -1672,9 +2291,11 @@ public final class FlowerDiseaseGameTests {
         }
     }
 
-    // What goes in a Garden Bag, without going through a menu.
+    // What goes in a Garden Bag, without going through a menu. The lifetime is no bag item any more: it is the profile's own, as
+    // /diseasedflower profile set lifetime makes it (0 = the server's setting).
     private static final class Bag {
         private final List<ItemStack> items = new ArrayList<>();
+        private int lifetime;
 
         Bag add(Item item, int count) {
             for (int left = count; left > 0; left -= 64) {
@@ -1683,8 +2304,13 @@ public final class FlowerDiseaseGameTests {
             return this;
         }
 
+        Bag lifetime(int attempts) {
+            this.lifetime = attempts;
+            return this;
+        }
+
         GardenBagContents contents() {
-            return GardenBagContents.read(items);
+            return GardenBagContents.read(items).withLifetimeAttempts(lifetime);
         }
 
         ItemStack stack() {
@@ -1959,6 +2585,71 @@ public final class FlowerDiseaseGameTests {
                 }
             }
             return result;
+        }
+
+        // Creeper blocks that are still ticking: the growing ends of tendrils, and seeds.
+        List<BlockPos> growingCreepers() {
+            List<BlockPos> result = new ArrayList<>();
+            for (BlockPos pos : creeperPositions()) {
+                if (level.getBlockState(pos).isRandomlyTicking()) {
+                    result.add(pos);
+                }
+            }
+            return result;
+        }
+
+        // Every creeper block of the box as a block position, for PatchStats.
+        LongArrayList creeperCells() {
+            LongArrayList cells = new LongArrayList();
+            for (BlockPos pos : creeperPositions()) {
+                cells.add(pos.asLong());
+            }
+            return cells;
+        }
+
+        void clearCreepers() {
+            for (BlockPos pos : creeperPositions()) {
+                level.setBlock(pos, Blocks.AIR.defaultBlockState(), SettleTable.PLACEMENT_FLAGS);
+            }
+        }
+
+        // Every plant of the box, ours and vanilla's, tall ones whole - the ground is left as it was.
+        void clearAllPlants() {
+            for (int x = 0; x < SIZE; x++) {
+                for (int z = 0; z < SIZE; z++) {
+                    for (int y = 1; y < HEIGHT; y++) {
+                        BlockPos pos = at(x, y, z);
+                        BlockState state = level.getBlockState(pos);
+                        if (SettleTable.isAnyPlant(state) || state.getBlock() instanceof DoublePlantBlock) {
+                            level.setBlock(pos, Blocks.AIR.defaultBlockState(), SettleTable.PLACEMENT_FLAGS);
+                        }
+                    }
+                }
+            }
+        }
+
+        // How many blocks of this kind the box holds (the two halves of a tall plant count as two).
+        int countBlocks(Block block) {
+            int count = 0;
+            for (int x = 0; x < SIZE; x++) {
+                for (int z = 0; z < SIZE; z++) {
+                    for (int y = 1; y < HEIGHT; y++) {
+                        if (level.getBlockState(at(x, y, z)).is(block)) {
+                            count++;
+                        }
+                    }
+                }
+            }
+            return count;
+        }
+
+        // Items lying in the box, which growing over a plant, or one breaking, would drop.
+        List<ItemEntity> droppedItems() {
+            return level.getEntitiesOfClass(ItemEntity.class, AABB.encapsulatingFullBlocks(origin, origin.offset(SIZE, HEIGHT, SIZE)).inflate(2.0));
+        }
+
+        void discardDroppedItems() {
+            droppedItems().forEach(ItemEntity::discard);
         }
 
         List<BlockPos> flowerBlockPositions() {

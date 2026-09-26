@@ -38,7 +38,9 @@ import net.neoforged.neoforge.common.NeoForge;
 import net.neoforged.neoforge.common.extensions.IMenuTypeExtension;
 import net.neoforged.neoforge.event.BuildCreativeModeTabContentsEvent;
 import net.neoforged.neoforge.event.RegisterCommandsEvent;
+import net.neoforged.neoforge.event.server.ServerStartedEvent;
 import net.neoforged.neoforge.event.server.ServerStoppedEvent;
+import net.neoforged.neoforge.event.server.ServerStoppingEvent;
 import net.neoforged.neoforge.event.tick.ServerTickEvent;
 import net.neoforged.neoforge.registries.DeferredBlock;
 import net.neoforged.neoforge.registries.DeferredHolder;
@@ -648,11 +650,29 @@ public class FlowerDisease {
     // Drives /diseasedflower day (see DayAdvance), which spreads its work over as many ticks as it needs.
     @SubscribeEvent
     public void onServerTick(ServerTickEvent.Post event) {
+        StallWatchdog.tickFinished();
         DayAdvance.tick();
+    }
+
+    // The stall watchdog (see StallWatchdog) needs to know when a tick begins, and when the world begins and finishes stopping.
+    @SubscribeEvent
+    public void onServerTickStart(ServerTickEvent.Pre event) {
+        StallWatchdog.tickStarted();
+    }
+
+    @SubscribeEvent
+    public void onServerStarted(ServerStartedEvent event) {
+        StallWatchdog.start(event.getServer());
+    }
+
+    @SubscribeEvent
+    public void onServerStopping(ServerStoppingEvent event) {
+        StallWatchdog.stopping();
     }
 
     @SubscribeEvent
     public void onServerStopped(ServerStoppedEvent event) {
+        StallWatchdog.finish();
         DayAdvance.reset();
     }
 }

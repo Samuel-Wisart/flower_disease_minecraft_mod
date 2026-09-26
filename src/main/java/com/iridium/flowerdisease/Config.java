@@ -27,12 +27,14 @@ public class Config {
             )
             .defineInRange("decayHalfGenerations", 16.0, 1.0, 1000.0);
 
-    public static final ModConfigSpec.IntValue FLOWER_DEFAULT_LIFETIME = BUILDER
+    public static final ModConfigSpec.IntValue FLOWER_LIFETIME = BUILDER
             .comment(
-                    "Average number of times a plant tries to reproduce before it settles for good, when the bag has no",
-                    "Rabbit's Foot. Every attempt has an N/(N+1) chance of letting the plant keep going."
+                    "Average number of children a plant has before it settles for good: every reproduction attempt has an",
+                    "N/(N+1) chance of letting the plant keep going, so it makes N attempts on average. Mind that a lineage",
+                    "(a plant and everything descended from it) dies out on its own with probability 1/N - with 2, half of",
+                    "them do - so raise it for gardens that keep going. /diseasedflower lifetime <n> changes it live."
             )
-            .defineInRange("defaultLifetimeAttempts", 8, 1, 1000);
+            .defineInRange("lifetimeAttempts", 2, 1, 1000);
 
     public static final ModConfigSpec.IntValue FLOWER_MAX_GENERATIONS = BUILDER
             .comment(
@@ -182,29 +184,79 @@ public class Config {
             .defineInRange("diseasePowderRadius", 48, 8, 128);
 
     // ---- Creeper patches ------------------------------------------------------------------------------
+    // A patch is a few TENDRILS crawling over the surfaces around a creeper (see PatchGrowth): each keeps its heading, sometimes
+    // turns, sometimes splits, and stops when it has spent its budget of pieces or has nowhere to go. Every seed has its own style
+    // (a long streak, a branching vine or a small tuft), which is what keeps the patches from all looking alike. Everything here
+    // is a plain number so it can be tried out live: /diseasedflower patch shows them and changes them, and /diseasedflower stats
+    // reports the size and the elongation of the patches around you.
 
-    public static final ModConfigSpec.IntValue PATCH_MAX_ENERGY = BUILDER
+    public static final ModConfigSpec.IntValue PATCH_MAX_PIECES = BUILDER
             .comment(
-                    "A creeping flower that is planted or born grows a patch around itself: it draws an energy from 0 to this",
-                    "value (the middle values the most likely) and every piece it grows has one less, so the patch spreads that",
-                    "many pieces out across the surfaces around it, ignoring the density. 0 turns patches off."
+                    "The most pieces a creeping flower's patch may grow (the seed itself not counted): a seed draws its budget",
+                    "from 0 up to this (the middle values the most likely - about half of it on average) and every piece it grows",
+                    "spends one. The cap is for the longest style; the branching ones get 5/6 of it and the tufts half. This is what",
+                    "bounds the size of a patch, however lucky. 0 turns patches off."
             )
-            .defineInRange("patchMaxEnergy", 5, 0, 10);
+            .defineInRange("patchMaxPieces", 12, 0, 40);
 
     public static final ModConfigSpec.DoubleValue PATCH_GROWTH_CHANCE = BUILDER
             .comment(
-                    "Chance (0.0-1.0) that a creeper piece that still has energy grows one more piece when it receives a random",
-                    "tick. Independent of the reproduction chance; at the default random tick speed a patch fills in in about a day."
+                    "Chance (0.0-1.0) that the growing end of a patch grows one more piece when it receives a random tick.",
+                    "Independent of the reproduction chance; at the default random tick speed a patch fills in in about a day."
             )
             .defineInRange("patchGrowthChance", 0.33, 0.0, 1.0);
 
-    public static final ModConfigSpec.DoubleValue PATCH_FILL = BUILDER
+    public static final ModConfigSpec.DoubleValue PATCH_TURNS = BUILDER
             .comment(
-                    "After a creeper piece grows a new piece, the chance (0.05-1.0) that it keeps growing more. 1.0 fills",
-                    "everything within the energy's reach solidly; lower values leave ragged, organic patches (a piece grows",
-                    "fill / (1 - fill) more pieces on average - 2.3 by default)."
+                    "How readily a tendril changes direction, as a multiple of what each style does by itself: 0 = dead straight,",
+                    "1 = as designed (a streak turns about 1 step in 5, a tuft 1 in 2), 2 = very winding."
             )
-            .defineInRange("patchFill", 0.7, 0.05, 1.0);
+            .defineInRange("patchTurns", 1.0, 0.0, 3.0);
+
+    public static final ModConfigSpec.DoubleValue PATCH_BRANCHING = BUILDER
+            .comment(
+                    "How readily a tendril splits in two, as a multiple of what each style does by itself: 0 = never, 1 = as",
+                    "designed, 2 = a tangle. A split shares the tendril's remaining budget between the two arms."
+            )
+            .defineInRange("patchBranching", 1.0, 0.0, 3.0);
+
+    public static final ModConfigSpec.DoubleValue PATCH_THICKNESS = BUILDER
+            .comment(
+                    "How often a tendril grows a second piece beside the one it just made (a thicker stroke, the way tufts get",
+                    "their bulk), as a multiple of what each style does by itself: 0 = strokes one piece wide, 1 = as designed."
+            )
+            .defineInRange("patchThickness", 1.0, 0.0, 3.0);
+
+    public static final ModConfigSpec.IntValue PATCH_CROWDING = BUILDER
+            .comment(
+                    "How many creeper pieces a new piece may already have around it (in the 3x3x3 blocks around it, the piece it",
+                    "grows from not counted) before the tendril turns away or stops: 1 keeps patches apart and thin, 3 (default)",
+                    "lets them brush against each other, 8 lets them merge into mats. Tufts allow 2 more than this."
+            )
+            .defineInRange("patchCrowding", 3, 1, 8);
+
+    public static final ModConfigSpec.DoubleValue PATCH_STYLE_VARIETY = BUILDER
+            .comment(
+                    "How different the seeds' styles are from each other: 0 = every seed grows the same average patch, 1 = long",
+                    "streaks, branching vines and small tufts as designed, above 1 exaggerates the differences."
+            )
+            .defineInRange("patchStyleVariety", 1.0, 0.0, 1.5);
+
+    public static final ModConfigSpec.DoubleValue PATCH_HANG_CHANCE = BUILDER
+            .comment(
+                    "Chance (0.0-1.0) that a tendril going down a wall, when it reaches the wall's lower edge, hangs a strand of",
+                    "pieces straight down like a vine instead of wrapping under the edge. A hanging piece is held only by the piece",
+                    "above it - break the top one and the whole strand comes down. Only patches do this: reproduction never places a",
+                    "piece in mid-air. 0 turns hanging strands off."
+            )
+            .defineInRange("patchHangChance", 0.5, 0.0, 1.0);
+
+    public static final ModConfigSpec.IntValue PATCH_HANG_LENGTH = BUILDER
+            .comment(
+                    "The longest a hanging strand may be (a strand draws its length from 1 to this; the pieces still come out of",
+                    "the tendril's budget)."
+            )
+            .defineInRange("patchHangLength", 6, 1, 16);
 
     // ---- Flower blocks --------------------------------------------------------------------------------
 
@@ -230,6 +282,18 @@ public class Config {
                     "of inheriting the plant's. Also the most a Flower Block placed by hand may spread."
             )
             .defineInRange("flowerBlockMaxGenerations", 4, 0, 16);
+
+    // ---- Diagnostics ----------------------------------------------------------------------------------
+
+    public static final ModConfigSpec.IntValue STALL_REPORT_SECONDS = BUILDER
+            .comment(
+                    "A safety net for a game that seems frozen - a world that never finishes saving when you leave it, say. If one",
+                    "server tick, or the stopping of the world, takes longer than this many seconds, a report is written to the logs",
+                    "folder (flowerdisease-stall-<time>): what every thread is doing, memory and garbage collection, and the state of",
+                    "the chunk system of each dimension. It costs nothing while the game is fine. Send that folder when it happens.",
+                    "0 = off."
+            )
+            .defineInRange("stallReportSeconds", 30, 0, 3600);
 
     static final ModConfigSpec SPEC = BUILDER.build();
 }

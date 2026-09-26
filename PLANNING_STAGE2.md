@@ -382,8 +382,11 @@ sorteio" e a velocidade do Sculk. **Onde este texto contradiz o `PLANNING.md` (t
    decaimento. Nether Star = sem decaimento (`c = c0` sempre). Hiperbólica de propósito: nunca chega a zero, o
    jardim segue crescendo cada vez mais devagar (raio ∝ √tempo) em vez de parar num tamanho finito como uma
    exponencial faria.
-2. **Teste de vida útil**: a planta continua com probabilidade `N/(N+1)` (`N` = Rabbit's Foot na bag, padrão
-   `defaultLifetimeAttempts` = 8). Falhou → **assenta**. Distribuição geométrica: em média `N` filhos por planta.
+2. **Teste de vida útil**: a planta continua com probabilidade `N/(N+1)` (`N` = `lifetimeAttempts` do config, padrão **2**
+   desde 2026-09-26; o Rabbit's Foot saiu da bag). Falhou → **assenta**. Distribuição geométrica: em média `N` filhos por
+   planta, e uma linhagem inteira (a planta e tudo que descende dela) morre sozinha com probabilidade `1/N` — com 2, metade.
+   `/diseasedflower lifetime [n]` mostra/troca ao vivo; um jardim editado com `profile set lifetime` (ou salvo por uma versão
+   que ainda tinha o Rabbit's Foot) guarda o seu próprio valor.
 3. **Orçamento de gerações**: `restante = cap − (g + 1)` (`cap` = Bone Meal na bag; sem Bone Meal = `maxGenerations` do
    config, padrão −1 = ilimitado). **A planta que a bag plantou é a geração 1** (é assim que o jogador conta), então
    Bone Meal ×1 = uma flor só, ×2 = ela e os filhos, e assim por diante; `g` continua 0-based (0 = a plantada), por isso
@@ -525,10 +528,9 @@ da explosão continua ativa e segue normalmente ao longo do tempo, a menos que o
 | Bone Meal | teto de gerações, contando a planta plantada como a 1ª (sem ele: `maxGenerations`, ilimitado) |
 | Sculk | decaimento mais rápido: `H = 16/(1+sculk/4)` |
 | Nether Star | sem decaimento |
-| Rabbit's Foot | vida útil média em filhos (`N`, padrão 8) |
 | Slime Ball | densidade `D` por 16×16 |
 | Feather | alcance máximo manual (1..32) |
-| Fermented Spider Eye | ignora outras espécies |
+| Fermented Spider Eye | ignora outras espécies **e cresce por cima** das plantas de fora da pool, destruindo-as sem drops |
 | Twisting Vines | também cresce/inclina em blocos `#flowerdisease:climbable` |
 | Moss Block | chance de virar flower block ao assentar (1..64) |
 
@@ -538,7 +540,7 @@ mossBlocks, decayStrength, noDecay, lifetimeAttempts, speciesWeights)`. `SpreadP
 chaves antigas (`GenerationsRemaining`, `SpreadChanceOverride`, `SpawnsFlowerBlocks`, …) pra mundos já salvos.
 
 `Config.java` foi reescrito: sumiram `maxNearbyFlowers`/`flowerBlockChance`; entraram `decayHalfGenerations`,
-`defaultLifetimeAttempts`, `maxDepth`, `defaultDensity`, `autoSpreadReach`, `speciesInheritance`,
+`lifetimeAttempts` (era `defaultLifetimeAttempts`), `maxDepth`, `defaultDensity`, `autoSpreadReach`, `speciesInheritance`,
 `plantingBurstGenerations`, `plantingBurstMaxPlants`, `flowerBlockMaxGenerations`. O `flowerdisease-common.toml` antigo
 foi apagado (autorizado) — o jogo regenera com os novos padrões.
 
@@ -598,7 +600,7 @@ argumento de peso do registro compartilhado (bloco 3): 100 mil BEs seriam ~14 MB
 - **Testes headless** (`FlowerDiseaseGameTests`, roda com `./gradlew runGameTestServer`, ~1 min, sem GUI; só existe em
   ambiente de desenvolvimento). Usa o framework de GameTest do NeoForge com uma arena vazia de 48×20×48
   (`data/flowerdisease/structure/arena.nbt`). Cobre: plantio+explosão pelo mesmo código da bag; média de filhos por planta
-  = número de Rabbit's Foot (1440 tentativas, N=4 → 4,10); Moss 64 corrompe o chão de cada planta ao assentar e os flower
+  = vida útil configurada (1440 tentativas, N=4 → 4,10; padrão N=2 → 2,04); Moss 64 corrompe o chão de cada planta ao assentar e os flower
   blocks se espalham até assentar; jardins padrão/esparso/denso por 3 dias via `DayAdvance`; teste de fumaça com parede,
   troncos, alta, creeper, escalada e Moss 64; ida-e-volta de NBT (perfil completo, perfil padrão = 0 bytes, chaves antigas,
   BE de verdade com profundidade); creeper plantável no chão, na parede e no teto; e a linha do tempo de 8 dias acima.
@@ -628,36 +630,75 @@ carregar o chunk, ganhava uma cópia própria dela na RAM.
   o jardim e o chão.
 - Entradas do registro nunca são removidas (~200 bytes por plantio; saber se ainda há plantas exigiria varrer o mundo).
 
-### Bloco 4 — creeper em mancha (feito)
+### Bloco 4 — creeper em mancha (feito; algoritmo refeito em 2026-09-26)
 
-Um creeper plantado ou nascido de reprodução vira uma **semente**: sorteia uma **energia** de 0 a `patchMaxEnergy` (5), em
-curva de sino — pesos `min(e+1, max−e+1)` = 1, 2, 3, 3, 2, 1 de 12, então uma peça sem mancha nenhuma é rara (~1 em 12) — e
-cresce uma **mancha** ao redor com o `MultifaceSpreader` do vanilla (a mesma regra do Glow Lichen: outra face do mesmo bloco,
-a mesma parede, contornando a quina). Cada peça nova nasce com uma energia a menos que a peça de onde saiu; sem energia,
-nasce já assentada. **Ignora a densidade** (é o corpo de um creeper, não uma população) e tem chance própria de crescer
-(`patchGrowthChance`, 0,33 por random tick, ~1 dia pra encher no `randomTickSpeed` padrão).
+Um creeper plantado ou nascido de reprodução vira uma **semente**: sorteia um **estilo** (faixa 30%, ramificado 40%, tufo 30%) e
+um **orçamento** de peças de 0 até o teto do estilo (`patchMaxPieces` = 12 para a faixa, 10 para o ramificado, 6 para o tufo),
+em curva de sino, e cresce uma **mancha de tentáculos** ao redor: a ponta de cada tentáculo sabe a **face** em que rastejava e a
+**direção** para onde vai, mantém o rumo, às vezes vira 90°, às vezes se divide em dois (repartindo o orçamento), às vezes engrossa
+(uma peça ao lado da nova), contorna quinas e sobe paredes pelas regras do `MultifaceSpreader` do vanilla (a direção acompanha:
+sobe a parede que encontrou, desce o lado que contornou) e recusa lugares com `patchCrowding` peças de creeper ou mais nos 26
+blocos em volta, o que impede as manchas de virarem tapete. Cada peça nova custa 1 do orçamento, então **o tamanho é limitado
+pelo teto**, por mais sorte que a semente tenha. **Ignora a densidade** (é o corpo de um creeper, não uma população) e tem chance
+própria de crescer (`patchGrowthChance`, 0,33 por random tick, ~1 dia pra encher no `randomTickSpeed` padrão). O algoritmo
+completo, os números medidos e os parâmetros estão em **`docs/manchas-creeper.md`**.
 
-- **`patchFill`** (0,7): depois de cada peça nova, a chance de a peça continuar crescendo. Sem isso, cada peça crescia até
-  não haver mais espaço e a mancha saía um **losango perfeito** (medido: 25 peças pra energia 3); com 0,7 ela sai irregular
-  (7 a 25 peças, média 15).
+Por que refazer: a versão anterior sorteava uma **energia** 0–5 e inundava: cada peça crescia numa direção qualquer com uma
+energia a menos (difusão ⇒ disco, e a energia era o raio). Medido num modelo 2D, os discos tinham 12–14 peças em média, 90% até
+26–34, o maior 54–59, 60–71% "redondos" (alongamento < 1,4) e, com sementes perto, blocos contínuos de 123 a 2835 peças. Os
+tentáculos: média 5,3–5,7, 90% até 8–9, o maior 13, 9% redondos, blocos de 21 a 62. No jogo (108 manchas): média 5,6, a maior 11,
+5 de 87 redondas. O alongamento é a razão dos desvios-padrão dos dois eixos principais (`PatchStats`).
+
+- **Só a ponta de cada tentáculo tem block entity** (`CreeperBlockEntity`: `energy` = orçamento restante, `face`, `heading`,
+  `style`, `hang`): a peça de trás assenta (e devolve o BE) assim que a ponta anda. Uma mancha em crescimento custa tantos BEs
+  quanto tem pontas, não peças. Um creeper salvo antes dos tentáculos (só `Energy`/`LineageDone`) lê como uma faixa e, ao crescer,
+  escolhe uma face que o bloco tem.
 - **As peças da mancha são estéreis**: não se reproduzem, não sorteiam flower block, não têm geração. O que continua na
   linhagem é a **semente**: ela reproduz como qualquer planta (sorteia espécie, procura anel, coloca filhos — cada filho
-  creeper é uma semente nova, com energia própria). Por isso um saco só de creepers continua se espalhando.
-- **Uma semente faz duas coisas ao mesmo tempo** (`CreeperBlockEntity`: `energy` + `lineageDone`): a cada random tick
-  cresce a mancha se ainda tem energia, e depois a vida de linhagem se ainda tem. Só assenta quando as duas acabam;
-  enquanto a mancha cresce, a semente que já esgotou a linhagem (teto de gerações, teste de vida útil) fica ativa com
-  `lineageDone`. A jogada de flower block da semente acontece uma vez, no fim da linhagem. Uma peça de mancha nasce com
-  `lineageDone` (ativa só enquanto tem energia).
+  creeper é uma semente nova, com estilo e orçamento próprios). Por isso um saco só de creepers continua se espalhando.
+- **Uma semente faz duas coisas ao mesmo tempo** (`energy` + `lineageDone`): a cada random tick cresce a mancha se ainda tem
+  orçamento, e depois a vida de linhagem se ainda tem. Só assenta quando as duas acabam; enquanto a mancha cresce, a semente que
+  já esgotou a linhagem (teto de gerações, teste de vida útil) fica ativa com `lineageDone`. A jogada de flower block da semente
+  acontece uma vez, no fim da linhagem. Uma peça de mancha nasce com `lineageDone` (ativa só enquanto tem orçamento).
 - **Bone Meal ×1 num creeper** planta uma "planta" só, mas a mancha ainda cresce em volta dela (é o corpo dela, não uma
   geração).
+- **As peças herdam o jardim da semente** (`startPiece(energy, garden, …)`), pra o `/cleargarden`, o `profile show` e o Disease
+  Powder alcançarem a mancha inteira — a peça só guarda o id do jardim (profundidade 0), não o perfil.
+- **Parâmetros ao vivo**: `/diseasedflower patch <maxpieces|growth|turns|branching|thickness|crowding|variety|hangchance|hanglength>
+  <valor>` (grava no config também); sem argumentos mostra os valores, o que cada estilo virou e as manchas que existem em
+  volta (quantas, tamanho médio/mediana/90%/maior, quantas redondas, quantas peças penduradas). `/diseasedflower stats` traz as
+  mesmas linhas. `patchMaxPieces = 0` desliga tudo (o creeper volta a ser uma peça solta). As chaves `patchMaxEnergy` e
+  `patchFill` deixaram de existir.
+- **Trepadeiras penduradas** (pedido de 2026-09-26): uma face lateral de peça de creeper também é **segurada pela peça de cima**
+  se ela tiver a mesma face (a regra da `VineBlock`), em `CreepingFlowerBlock#canSurvive`/`updateShape`; quebrar o que segura o
+  topo derruba o fio inteiro, peça por peça (cascata de `updateShape`). Só um **tentáculo** cria um fio: descendo uma parede, na
+  borda de baixo dela (bloco de baixo livre e sem parede atrás), com chance `patchHangChance` (0,5) pendura de 1 a
+  `patchHangLength` (6) peças em vez de contornar por baixo; as peças saem do orçamento. A reprodução nunca coloca peça no ar
+  (`SpreadSearch` só escolhe células com bloco sólido do lado de uma face) e o jogador também não consegue à mão.
 - **Sem BE em repouso**: peça assentada não tem BlockEntity (`removeBlockEntity`). Medido no teste de fumaça (Moss ×64,
-  3 dias): 13 mil peças de creeper (contra ~2 mil no bloco 2) com só 376 BEs — as que ainda estão crescendo.
-- `stats` mostra "still growing"; peças de mancha ficam fora da estatística de profundidade. `patchMaxEnergy = 0` desliga
-  tudo (o creeper volta a ser uma peça solta). Ficam pra depois: vinhas pendentes (suportadas só pela peça de cima) e a
-  "corrosão de cavernas".
-- **As peças herdam o jardim da semente** (2026-09-24): `CreeperBlockEntity#startPiece(energy, garden)` guarda o id do
-  jardim na peça, pra o `/cleargarden`, o `profile show` e o Disease Powder alcançarem a mancha inteira — a peça só guarda
-  o id do jardim (profundidade 0), não o perfil.
+  3 dias): 13 mil peças de creeper (contra ~2 mil no bloco 2) com só 376 BEs — as que ainda estavam crescendo (versão antiga).
+- `stats` mostra "still growing"; peças de mancha ficam fora da estatística de profundidade.
+
+### Crescer por cima: Fermented Spider Eye (feito, 2026-09-26)
+
+O olho já fazia o jardim **ignorar** as outras espécies na checagem de espaçamento (não territorial). Agora também **cresce por
+cima**: onde tentar plantar e houver uma **planta de fora da pool** (`SettleTable#isForeignPlant`: uma planta — `BushBlock` ou
+creeper — que não é da espécie do jardim nem de nenhuma da sua pool), destrói essa planta **sem dropar nada** (`clearPlant`:
+`PLACEMENT_FLAGS`, sem atualizar vizinhos; uma planta de dois blocos vai inteira) e planta ali. Vale para a raiz do saco
+(`GardenBagItem#plant`), para os filhos (`SpreadSearch#isFree`/`isFreeAbove`, `DiseasedPlantLogic#placeChild`) e para as peças da
+mancha de um jardim de creeper. Um filho de duas alturas pode nascer sobre uma planta de duas alturas. Sem o olho nada muda.
+
+### Segurança: relatório de travamento (2026-09-26)
+
+Diagnóstico permanente (`StallWatchdog`, `stallReportSeconds` = 30, 0 desliga): se **um tick do servidor**, ou o **encerramento do
+mundo**, passa de N segundos, uma thread daemon escreve `logs/flowerdisease-stall-<hora>/` — `threads.txt` (o que cada thread
+está fazendo, com a do servidor primeiro, memória e coletor de lixo, deadlocks, e o estado do sistema de chunks de cada
+dimensão) mais o `saveDebugReport` do vanilla de cada dimensão (`chunks.csv` diz que chunk não está pronto pra ser salvo).
+Existe porque "Saving world" que nunca acaba **não foi reproduzido** (5 execuções com um mundo de ~100 mil plantas assentadas e
+`randomTickSpeed` 3000, o mesmo caminho do Save and Quit; todas saíram em 0,4–3,4 s); nada do mod roda durante o laço de
+encerramento do vanilla (sem eventos de chunk, sem luz, sem entidades), que só termina quando o sistema de chunks fica ocioso e
+pode girar para sempre se um chunk nunca ficar "pronto pra salvar" (`ChunkHolder#isReadyForSaving`). O custo, sem travar, é uma
+thread dormindo.
 
 ### Disease Powder (feito, 2026-09-24)
 
@@ -722,8 +763,11 @@ save; `/cleargarden` deixava buraco em vez de restaurar o terreno). A factory do
 
 ### Ainda por fazer
 
-- Vinhas pendentes e "corrosão de cavernas" (mutação de flower block por scheduled tick) — adiadas de propósito. (O ruído
-  de baixa frequência nos pesos de espécie, que estava aqui, virou a "Variação natural".)
+- "Corrosão de cavernas" (mutação de flower block por scheduled tick) — adiada de propósito. (Vinhas pendentes foram feitas
+  em 2026-09-26, ver Bloco 4; o ruído de baixa frequência nos pesos de espécie virou a "Variação natural".)
+- Um explorador interativo das manchas (como o `tools/variation-explorer.html`, mas dos tentáculos), se ajudar a ajustar.
+- Um governador global de trabalho por tick (limite de plant ticks/ms por tick do servidor) e/ou, se a contagem de BEs
+  incomodar, BEs por chunk em vez de por planta — discutido, ainda não decidido.
 - Opcional: flower block sem BE (chão numa propriedade do blockstate) se a contagem de BEs incomodar.
 - Receita de crafting do Disease Powder; arte de verdade do Oxeye Daisy Creeper e do Disease Powder.
 

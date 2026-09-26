@@ -68,9 +68,6 @@ public class GardenBagScreen extends AbstractContainerScreen<GardenBagMenu> {
         if (stack.is(GardenBagContents.NO_DECAY_ITEM)) {
             return "no_decay";
         }
-        if (stack.is(GardenBagContents.LIFETIME_ITEM)) {
-            return "lifetime";
-        }
         if (stack.is(GardenBagContents.DENSITY_ITEM)) {
             return "density";
         }
@@ -139,6 +136,7 @@ public class GardenBagScreen extends AbstractContainerScreen<GardenBagMenu> {
                 ? "none"
                 : "halves at gen " + number(SpreadMath.halfGenerations(contents.decayStrength()));
 
+        // Not something the bag decides any more: the server setting (or what a garden edit gave it).
         String lifetime = "~" + SpreadMath.resolveLifetimeAttempts(contents.lifetimeAttempts()) + " children each";
 
         int density = SpreadMath.resolveDensity(contents.densityPer16x16());
@@ -146,7 +144,8 @@ public class GardenBagScreen extends AbstractContainerScreen<GardenBagMenu> {
         String distance = maxDistance
                 + (contents.spreadDistance() < 0 ? " (auto)" : maxDistance < SpreadMath.minSpacing(density) ? " (too short!)" : "");
 
-        String respects = contents.respectAllSpecies() ? "respected" : "ignored";
+        // With the Fermented Spider Eye the garden also grows over them (see SpreadSearch#isFree), which is worth saying.
+        String respects = contents.respectAllSpecies() ? "respected" : "grown over";
         String climbing = contents.climbing() ? "yes" : "no";
 
         String flowerBlock = !Config.FLOWER_BLOCK_CONVERSION.getAsBoolean()

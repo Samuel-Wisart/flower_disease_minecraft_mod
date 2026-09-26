@@ -11,6 +11,7 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.util.RandomSource;
 import net.minecraft.world.level.LevelReader;
 import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.DoublePlantBlock;
 import net.minecraft.world.level.block.MultifaceBlock;
 import net.minecraft.world.level.block.state.BlockState;
 
@@ -31,7 +32,8 @@ final class SpreadSearch {
 
     // The minimum spacing every plant keeps from every other (see SpreadMath#minSpacing): a spot is crowded when any
     // plant of the relevant kind sits closer than `spacing` to it. Territorial (the default) counts every plant,
-    // otherwise only this species' family.
+    // otherwise only this species' family - and a garden that is not territorial (Fermented Spider Eye) also grows over
+    // the plants that are not of its pool instead of going around them (see overgrows).
     record Crowd(
             double spacing,
             int verticalRange,
@@ -40,6 +42,12 @@ final class SpreadSearch {
             List<SettleTable.Option> pool,
             boolean territorial
     ) {
+        // Whether the plant in `state` is one this garden takes the place of: a plant outside its pool, and only for a garden
+        // that ignores the others. The one that grows there destroys it, without drops (see SettleTable#clearPlant).
+        boolean overgrows(BlockState state) {
+            return !territorial && SettleTable.isForeignPlant(state, self, fallbackBlock, pool);
+        }
+
         boolean isCrowdedAt(LevelReader level, BlockPos center) {
             int radius = (int) Math.ceil(spacing);
             double limit = spacing * spacing;
@@ -122,8 +130,8 @@ final class SpreadSearch {
             for (int i = 0; i < tries; i++) {
                 int index = (int) ((start + (long) i * step) % count) * stride;
                 Target candidate = creeping
-                        ? creepingAt(level, origin.offset(offsets[index], offsets[index + 1], offsets[index + 2]), random)
-                        : followTerrain(level, origin.offset(offsets[index], 0, offsets[index + 1]), baseState, verticalRange, shape, climbing, random);
+                        ? creepingAt(level, origin.offset(offsets[index], offsets[index + 1], offsets[index + 2]), crowd, random)
+                        : followTerrain(level, origin.offset(offsets[index], 0, offsets[index + 1]), baseState, verticalRange, shape, climbing, crowd, random);
                 if (candidate == null) {
                     continue;
                 }
@@ -222,8 +230,8 @@ final class SpreadSearch {
 
     // A creeping plant grabs onto whichever of a free cell's 6 faces finds a solid neighbor.
     @Nullable
-    private static Target creepingAt(ServerLevel level, BlockPos cell, RandomSource random) {
-        if (!level.isEmptyBlock(cell)) {
+    private static Target creepingAt(ServerLevel level, BlockPos cell, @Nullable Crowd crowd, RandomSource random) {
+        if (!isFree(level, cell, crowd)) {
             return null;
         }
 
@@ -252,19 +260,19 @@ final class SpreadSearch {
     // too (closest to the parent's Y first) instead of only the exact same Y. A TALL shape also needs the cell
     // above free for the second half.
     @Nullable
-    private static Target followTerrain(ServerLevel level, BlockPos column, BlockState baseState, int verticalRange, DiseasedPlantLogic.Shape shape, boolean climbing, RandomSource random) {
-        Target direct = tryFacings(level, column, baseState, shape, climbing, random);
+    private static Target followTerrain(ServerLevel level, BlockPos column, BlockState baseState, int verticalRange, DiseasedPlantLogic.Shape shape, boolean climbing, @Nullable Crowd crowd, RandomSource random) {
+        Target direct = tryFacings(level, column, baseState, shape, climbing, crowd, random);
         if (direct != null) {
             return direct;
         }
 
         for (int dy = 1; dy <= verticalRange; dy++) {
-            Target up = tryFacings(level, column.above(dy), baseState, shape, climbing, random);
+            Target up = tryFacings(level, column.above(dy), baseState, shape, climbing, crowd, random);
             if (up != null) {
                 return up;
             }
 
-            Target down = tryFacings(level, column.below(dy), baseState, shape, climbing, random);
+            Target down = tryFacings(level, column.below(dy), baseState, shape, climbing, crowd, random);
             if (down != null) {
                 return down;
             }
@@ -277,13 +285,13 @@ final class SpreadSearch {
     // plant is actually configured to climb does it also try each horizontal direction, starting from a random one
     // so a trunk with climbable wood on every side doesn't always end up tilting the same way.
     @Nullable
-    private static Target tryFacings(ServerLevel level, BlockPos pos, BlockState baseState, DiseasedPlantLogic.Shape shape, boolean climbing, RandomSource random) {
+    private static Target tryFacings(ServerLevel level, BlockPos pos, BlockState baseState, DiseasedPlantLogic.Shape shape, boolean climbing, @Nullable Crowd crowd, RandomSource random) {
         if (shape == DiseasedPlantLogic.Shape.TALL) {
-            return isValidUpSpot(level, pos, baseState, shape, climbing) ? new Target(pos, Direction.UP) : null;
+            return isValidUpSpot(level, pos, baseState, shape, climbing, crowd) ? new Target(pos, Direction.UP) : null;
         }
 
         BlockState upState = baseState.setValue(PlantSupport.FACING, Direction.UP);
-        if (isValidUpSpot(level, pos, upState, shape, climbing)) {
+        if (isValidUpSpot(level, pos, upState, shape, climbing, crowd)) {
             return new Target(pos, Direction.UP);
         }
         if (!climbing) {
@@ -294,7 +302,7 @@ final class SpreadSearch {
         for (int i = 0; i < HORIZONTAL_FACINGS.length; i++) {
             Direction facing = HORIZONTAL_FACINGS[(startIndex + i) % HORIZONTAL_FACINGS.length];
             BlockState tiltedState = baseState.setValue(PlantSupport.FACING, facing);
-            if (isValidSpot(level, pos, tiltedState, shape)) {
+            if (isValidSpot(level, pos, tiltedState, shape, crowd)) {
                 return new Target(pos, facing);
             }
         }
@@ -309,18 +317,40 @@ final class SpreadSearch {
     // organic blocks". So the SEARCH additionally requires climbing to be on before it'll accept a spot that's ONLY
     // valid because of the climbable tag. Ordinary ground is never gated - only ground that needed the climbable
     // exception is.
-    private static boolean isValidUpSpot(ServerLevel level, BlockPos pos, BlockState upState, DiseasedPlantLogic.Shape shape, boolean climbing) {
-        if (!isValidSpot(level, pos, upState, shape)) {
+    private static boolean isValidUpSpot(ServerLevel level, BlockPos pos, BlockState upState, DiseasedPlantLogic.Shape shape, boolean climbing, @Nullable Crowd crowd) {
+        if (!isValidSpot(level, pos, upState, shape, crowd)) {
             return false;
         }
         boolean viaClimbableOnly = PlantSupport.isClimbable(level.getBlockState(pos.below()));
         return climbing || !viaClimbableOnly;
     }
 
-    private static boolean isValidSpot(ServerLevel level, BlockPos pos, BlockState newState, DiseasedPlantLogic.Shape shape) {
-        if (!level.isEmptyBlock(pos) || !newState.canSurvive(level, pos)) {
+    private static boolean isValidSpot(ServerLevel level, BlockPos pos, BlockState newState, DiseasedPlantLogic.Shape shape, @Nullable Crowd crowd) {
+        if (!isFree(level, pos, crowd) || !newState.canSurvive(level, pos)) {
             return false;
         }
-        return shape == DiseasedPlantLogic.Shape.SINGLE || level.isEmptyBlock(pos.above());
+        return shape == DiseasedPlantLogic.Shape.SINGLE || isFreeAbove(level, pos, crowd);
+    }
+
+    // A cell a new plant may take: an empty one, or - for a garden that ignores the others - one whose plant is not of its pool
+    // (DiseasedPlantLogic#placeChild clears it first).
+    static boolean isFree(ServerLevel level, BlockPos pos, @Nullable Crowd crowd) {
+        return level.isEmptyBlock(pos) || (crowd != null && crowd.overgrows(level.getBlockState(pos)));
+    }
+
+    // The cell above `pos` for the second half of a tall plant: free like any other, or the upper half of the very plant that is
+    // being grown over at `pos`, which goes with its lower half.
+    static boolean isFreeAbove(ServerLevel level, BlockPos pos, @Nullable Crowd crowd) {
+        BlockPos above = pos.above();
+        if (isFree(level, above, crowd)) {
+            return true;
+        }
+        if (crowd == null) {
+            return false;
+        }
+
+        BlockState lower = level.getBlockState(pos);
+        BlockState upper = level.getBlockState(above);
+        return lower.getBlock() instanceof DoublePlantBlock && crowd.overgrows(lower) && upper.is(lower.getBlock());
     }
 }

@@ -5,8 +5,10 @@ import java.util.List;
 
 import javax.annotation.Nullable;
 
+import net.minecraft.core.BlockPos;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.ResourceLocation;
+import net.minecraft.server.level.ServerLevel;
 import net.minecraft.util.RandomSource;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
@@ -91,10 +93,14 @@ final class SettleTable {
         return options.get(options.size() - 1);
     }
 
-    // "Same species" for density purposes: this block, its fallback, or any of its settle outcomes.
+    // "Same species" for density purposes: this block, its fallback, or any of its settle outcomes - and the
+    // Diseased form of any of the pool's species, which is the same plant until it settles into the vanilla one.
     // A two-block plant's upper half is skipped since its paired lower half (scanned separately) already
     // represents the same physical plant - otherwise every tall flower would count double.
     static boolean isSameSpecies(BlockState state, Block self, Block fallback, List<Option> options) {
+        if (state.isAir()) {
+            return false;
+        }
         if (state.hasProperty(DoublePlantBlock.HALF) && state.getValue(DoublePlantBlock.HALF) == DoubleBlockHalf.UPPER) {
             return false;
         }
@@ -106,6 +112,19 @@ final class SettleTable {
         for (Option option : options) {
             if (state.is(option.block())) {
                 return true;
+            }
+        }
+
+        // Only plants can be a Diseased form, and most of what a crowding scan looks at is not a plant.
+        Block block = state.getBlock();
+        if (block instanceof BushBlock || block instanceof CreepingFlowerBlock) {
+            Block vanilla = FlowerDisease.fallbackByDiseased().get(block);
+            if (vanilla != null) {
+                for (Option option : options) {
+                    if (option.block() == vanilla) {
+                        return true;
+                    }
+                }
             }
         }
         return false;
@@ -121,5 +140,26 @@ final class SettleTable {
             return false;
         }
         return state.getBlock() instanceof BushBlock || state.getBlock() instanceof CreepingFlowerBlock;
+    }
+
+    // A plant that is not of this garden's pool: what a garden that ignores the others (Fermented Spider Eye) grows over. A
+    // two-block plant is only ever met through its lower half (see isAnyPlant), and its species is whatever the state says - a
+    // Diseased plant of another garden counts as foreign too, unless it is one of this pool's species.
+    static boolean isForeignPlant(BlockState state, Block self, Block fallback, List<Option> options) {
+        return isAnyPlant(state) && !isSameSpecies(state, self, fallback, options);
+    }
+
+    // Takes the plant at `pos` out of the world for good, the way growing over it does: no drops, no neighbour updates, and a
+    // two-block plant goes whole so that its other half is not left floating. What was there had a block entity only if it was
+    // an active Diseased plant, and that goes with the block.
+    static void clearPlant(ServerLevel level, BlockPos pos) {
+        BlockState state = level.getBlockState(pos);
+        if (state.getBlock() instanceof DoublePlantBlock && state.hasProperty(DoublePlantBlock.HALF)) {
+            BlockPos other = state.getValue(DoublePlantBlock.HALF) == DoubleBlockHalf.LOWER ? pos.above() : pos.below();
+            if (level.getBlockState(other).is(state.getBlock())) {
+                level.setBlock(other, Blocks.AIR.defaultBlockState(), PLACEMENT_FLAGS);
+            }
+        }
+        level.setBlock(pos, Blocks.AIR.defaultBlockState(), PLACEMENT_FLAGS);
     }
 }

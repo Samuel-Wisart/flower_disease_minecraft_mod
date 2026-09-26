@@ -96,6 +96,10 @@ final class FlowerDiseaseCommands {
                 .executes(FlowerDiseaseCommands::showSpreadChance)
                 .then(Commands.argument("chance", DoubleArgumentType.doubleArg(0.0, 1.0)).executes(FlowerDiseaseCommands::setSpreadChance));
 
+        var lifetime = Commands.literal("lifetime")
+                .executes(FlowerDiseaseCommands::showLifetime)
+                .then(Commands.argument("attempts", IntegerArgumentType.integer(1, 1000)).executes(FlowerDiseaseCommands::setLifetime));
+
         var days = Commands.argument("days", IntegerArgumentType.integer(1, DayAdvance.MAX_DAYS))
                 .executes(context -> startDay(context, IntegerArgumentType.getInteger(context, "days")));
         var day = Commands.literal("day")
@@ -110,7 +114,9 @@ final class FlowerDiseaseCommands {
                         .then(debug)
                         .then(stats)
                         .then(spreadChance)
+                        .then(lifetime)
                         .then(VariationCommands.node())
+                        .then(PatchCommands.node())
                         .then(day)
         );
     }
@@ -325,6 +331,32 @@ final class FlowerDiseaseCommands {
             return 0;
         }
         context.getSource().sendSuccess(() -> Component.literal("Flower Disease: base reproduction chance set to " + percent(chance) + ", from the next random tick on"), true);
+        return 1;
+    }
+
+    // How many children a plant has on average is a server setting too (the bag no longer has an item for it), and the one that
+    // decides whether a garden keeps going or dies out, so it can be changed here while testing.
+    private static int showLifetime(CommandContext<CommandSourceStack> context) {
+        int attempts = Config.FLOWER_LIFETIME.getAsInt();
+        context.getSource().sendSuccess(() -> Component.literal(
+                "Flower Disease: a plant has " + attempts + " children on average before it settles, and a lineage dies out on its own with probability "
+                        + percent(1.0 / attempts) + " - /diseasedflower lifetime <1-1000> changes it (gardens edited with 'profile set lifetime' keep their own)"
+        ), false);
+        return 1;
+    }
+
+    private static int setLifetime(CommandContext<CommandSourceStack> context) {
+        int attempts = IntegerArgumentType.getInteger(context, "attempts");
+        try {
+            Config.FLOWER_LIFETIME.set(attempts);
+            Config.FLOWER_LIFETIME.save();
+        } catch (IllegalStateException e) {
+            context.getSource().sendFailure(Component.literal("Flower Disease: the config is not loaded yet, could not change it"));
+            return 0;
+        }
+        context.getSource().sendSuccess(() -> Component.literal(
+                "Flower Disease: plants now have " + attempts + " children on average, from the next random tick on (" + percent(1.0 / attempts) + " of lineages die out on their own)"
+        ), true);
         return 1;
     }
 
